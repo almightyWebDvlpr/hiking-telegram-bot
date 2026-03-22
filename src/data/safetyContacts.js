@@ -1,0 +1,188 @@
+const GENERAL_CONTACTS = [
+  {
+    label: "Екстрена допомога",
+    phones: ["101", "112"]
+  }
+];
+
+const SAFETY_PROFILES = [
+  {
+    id: "ivano-frankivsk-vorokhta",
+    title: "Івано-Франківська область",
+    subtitle: "Чорногора / Ворохта / Яремче / Верховина",
+    keywords: [
+      "ворохта",
+      "вороненко",
+      "яремче",
+      "верховина",
+      "явірник",
+      "явірник горган",
+      "моковиця",
+      "маковиця",
+      "кукул",
+      "говерла",
+      "несамовите",
+      "піп іван",
+      "поп іван",
+      "чорногора",
+      "заросляк",
+      "дземброня",
+      "шибене",
+      "петрос",
+      "козьмещик"
+    ],
+    contacts: [
+      {
+        label: "Ворохтянська гірська пошуково-рятувальна група",
+        phones: ["+38 (067) 342-04-95", "+38 (03434) 4-11-49"]
+      },
+      {
+        label: "Яремчанський гірський пошуково-рятувальний пункт",
+        phones: ["+38 (067) 342-04-94", "+38 (03434) 2-29-46"]
+      },
+      {
+        label: "Верховинська гірська пошуково-рятувальна група",
+        phones: ["+38 (067) 342-04-96"]
+      },
+      {
+        label: "Явірницький гірський пошуково-рятувальний пункт",
+        phones: ["+38 (094) 922-84-12"]
+      },
+      {
+        label: "Івано-Франківський гірський пошуково-рятувальний загін",
+        phones: ["+38 (067) 342-04-92", "+38 (0342) 75-64-25"]
+      }
+    ]
+  },
+  {
+    id: "zakarpattia-rakhiv",
+    title: "Закарпатська область",
+    subtitle: "Рахів / Ясіня / Лазещина / Чорногора",
+    keywords: [
+      "рахів",
+      "ясіня",
+      "кваси",
+      "лазещина",
+      "говерлянський",
+      "рахівський",
+      "ужгород",
+      "мукачево",
+      "міжгір",
+      "воловець",
+      "пилипець",
+      "темнатик",
+      "гимба",
+      "петрос",
+      "говерла",
+      "близниця",
+      "свидовець"
+    ],
+    contacts: [
+      {
+        label: "Рахівський гірський пошуково-рятувальний пункт",
+        phones: ["+38 (03132) 2-10-13", "+38 (067) 717-53-44"]
+      },
+      {
+        label: "Ясінський гірський пошуково-рятувальний пункт",
+        phones: ["+38 (03132) 4-23-23", "+38 (067) 762-74-03"]
+      },
+      {
+        label: "Говерлянський гірський пошуково-рятувальний пункт",
+        phones: ["+38 (096) 453-89-52"]
+      },
+      {
+        label: "Воловецький гірський пошуково-рятувальний пункт",
+        phones: ["+38 (050) 273-76-45"]
+      },
+      {
+        label: "Закарпатський гірський пошуково-рятувальний загін",
+        phones: ["+38 (0312) 67-14-13"]
+      }
+    ]
+  },
+  {
+    id: "lviv-slavske",
+    title: "Львівська область",
+    subtitle: "Славське / Сколівські Бескиди",
+    keywords: ["славське", "парашка", "сколе", "сколе", "львів"],
+    contacts: [
+      {
+        label: "Славський гірський пошуково-рятувальний пункт",
+        phones: ["+38 (03251) 4-21-02", "+38 (097) 493-44-12"]
+      },
+      {
+        label: "Львівський гірський пошуково-рятувальний загін",
+        phones: ["+38 (0322) 93-04-60"]
+      }
+    ]
+  },
+  {
+    id: "chernivtsi-vyzhnytsia",
+    title: "Чернівецька область",
+    subtitle: "Вижниця / Буковинські Карпати",
+    keywords: ["вижниця", "чернівці", "путила", "буковина", "черемош"],
+    contacts: [
+      {
+        label: "Чернівецький гірський пошуково-рятувальний пункт",
+        phones: ["+38 (067) 342-04-98", "+38 (03730) 2-27-39"]
+      }
+    ]
+  }
+];
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[`'"’]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectTripText(trip) {
+  const routePoints = Array.isArray(trip?.routePlan?.points)
+    ? trip.routePlan.points
+    : [trip?.routePlan?.from, ...(trip?.routePlan?.stops || []), trip?.routePlan?.to].filter(Boolean);
+
+  return [
+    trip?.region,
+    trip?.name,
+    ...routePoints
+  ]
+    .filter(Boolean)
+    .map((item) => normalizeText(item));
+}
+
+export function resolveSafetyProfile(trip) {
+  const haystacks = collectTripText(trip);
+
+  let bestProfile = null;
+  let bestScore = 0;
+
+  for (const profile of SAFETY_PROFILES) {
+    const score = profile.keywords.reduce((sum, keyword) => {
+      const normalizedKeyword = normalizeText(keyword);
+      return sum + (haystacks.some((item) => item.includes(normalizedKeyword)) ? 1 : 0);
+    }, 0);
+
+    if (score > bestScore) {
+      bestProfile = profile;
+      bestScore = score;
+    }
+  }
+
+  if (!bestProfile) {
+    return {
+      title: "Карпати",
+      subtitle: "Загальні контакти для гірських походів",
+      general: GENERAL_CONTACTS,
+      contacts: []
+    };
+  }
+
+  return {
+    title: bestProfile.title,
+    subtitle: bestProfile.subtitle,
+    general: GENERAL_CONTACTS,
+    contacts: bestProfile.contacts
+  };
+}

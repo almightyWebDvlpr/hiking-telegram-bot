@@ -100,6 +100,82 @@ npm run dev
 - Для гірських маршрутів краще задавати не лише вершину, а й точні trailhead-точки, наприклад `Заросляк -> Говерла`.
 - Додати ролі: організатор, учасник.
 - Додати підтвердження передачі спорядження між учасниками.
+
+## Автодеплой на свій ПК-сервер
+
+Рекомендована схема:
+
+- `main` → `prod`
+- `develop` → `test`
+
+У боті вже є окремі Mongo-колекції через `.env`:
+
+- `APP_STAGE=prod` → `app_state_prod`
+- `APP_STAGE=test` → `app_state_test`
+
+### Що є в репозиторії
+
+- GitHub Actions workflow: `.github/workflows/deploy.yml`
+- PM2 config: `ecosystem.config.cjs`
+- deploy scripts:
+  - `scripts/deploy-prod.sh`
+  - `scripts/deploy-test.sh`
+
+### Що треба зробити на серверному ПК
+
+1. Встановити Node.js, npm і pm2
+
+```bash
+npm install -g pm2
+```
+
+2. Поставити self-hosted runner для цього GitHub-репозиторію
+
+3. Створити дві папки:
+
+```bash
+mkdir -p ~/services/hiking-telegram-bot-prod
+mkdir -p ~/services/hiking-telegram-bot-test
+```
+
+4. Покласти окремий `.env` у кожну папку
+
+Для `prod`:
+
+- `APP_STAGE=prod`
+- свій `BOT_TOKEN`
+- свій `BOT_USERNAME`
+- `MONGODB_COLLECTION_PROD=app_state_prod`
+
+Для `test`:
+
+- `APP_STAGE=test`
+- інший `BOT_TOKEN`
+- інший `BOT_USERNAME`
+- `MONGODB_COLLECTION_TEST=app_state_test`
+
+Важливо:
+
+- для `prod` і `test` краще мати різні Telegram-боти
+- не запускай два процеси з одним і тим самим `BOT_TOKEN`
+
+5. Додати GitHub repository variables:
+
+- `PROD_TARGET_DIR`
+- `TEST_TARGET_DIR`
+
+Наприклад:
+
+- `PROD_TARGET_DIR=/Users/your-user/services/hiking-telegram-bot-prod`
+- `TEST_TARGET_DIR=/Users/your-user/services/hiking-telegram-bot-test`
+
+### Як це працює
+
+- пуш у `main` запускає deploy у `prod`
+- пуш у `develop` запускає deploy у `test`
+- workflow копіює код у цільову папку
+- запускає `npm ci --omit=dev`
+- робить `pm2 startOrReload`
 ## vpohid archive sync
 
 The bot keeps a local fallback archive for `vpohid.com.ua` routes in `data/vpohidArchive.json`.

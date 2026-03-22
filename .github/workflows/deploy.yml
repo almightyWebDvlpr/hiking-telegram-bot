@@ -18,7 +18,17 @@ jobs:
           REPO_URL: https://github.com/${{ github.repository }}.git
           GIT_BRANCH: main
         shell: cmd
-        run: .\scripts\deploy-prod.cmd
+        run: |
+          if "%RUNNER_TEMP%"=="" (
+            set "WORK_ROOT=%TEMP%"
+          ) else (
+            set "WORK_ROOT=%RUNNER_TEMP%"
+          )
+          set "WORK_DIR=%WORK_ROOT%\workflow-deploy-prod"
+          if exist "%WORK_DIR%" rmdir /S /Q "%WORK_DIR%"
+          git clone --branch "%GIT_BRANCH%" --single-branch "%REPO_URL%" "%WORK_DIR%"
+          if errorlevel 1 exit /b 1
+          call "%WORK_DIR%\scripts\deploy-prod.cmd"
 
   deploy-test:
     if: github.ref == 'refs/heads/develop'
@@ -30,4 +40,14 @@ jobs:
           REPO_URL: https://github.com/${{ github.repository }}.git
           GIT_BRANCH: develop
         shell: cmd
-        run: .\scripts\deploy-test.cmd
+        run: |
+          if "%RUNNER_TEMP%"=="" (
+            set "WORK_ROOT=%TEMP%"
+          ) else (
+            set "WORK_ROOT=%RUNNER_TEMP%"
+          )
+          set "WORK_DIR=%WORK_ROOT%\workflow-deploy-test"
+          if exist "%WORK_DIR%" rmdir /S /Q "%WORK_DIR%"
+          git clone --branch "%GIT_BRANCH%" --single-branch "%REPO_URL%" "%WORK_DIR%"
+          if errorlevel 1 exit /b 1
+          call "%WORK_DIR%\scripts\deploy-test.cmd"

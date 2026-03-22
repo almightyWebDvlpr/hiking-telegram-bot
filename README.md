@@ -101,7 +101,7 @@ npm run dev
 - Додати ролі: організатор, учасник.
 - Додати підтвердження передачі спорядження між учасниками.
 
-## Автодеплой на свій ПК-сервер
+## Автодеплой на свій Windows ПК-сервер
 
 Рекомендована схема:
 
@@ -118,14 +118,18 @@ npm run dev
 - GitHub Actions workflow: `.github/workflows/deploy.yml`
 - PM2 config: `ecosystem.config.cjs`
 - deploy scripts:
-  - `scripts/deploy-prod.sh`
-  - `scripts/deploy-test.sh`
+  - `scripts/deploy-prod.cmd`
+  - `scripts/deploy-test.cmd`
 
-### Що треба зробити на серверному ПК
+### Що треба зробити на серверному ПК з Windows
 
-1. Встановити Node.js, npm і pm2
+1. Встановити:
 
-```bash
+- Node.js
+- Git for Windows
+- pm2
+
+```bat
 npm install -g pm2
 ```
 
@@ -133,9 +137,9 @@ npm install -g pm2
 
 3. Створити дві папки:
 
-```bash
-mkdir -p ~/services/hiking-telegram-bot-prod
-mkdir -p ~/services/hiking-telegram-bot-test
+```bat
+mkdir C:\services\hiking-telegram-bot-prod
+mkdir C:\services\hiking-telegram-bot-test
 ```
 
 4. Покласти окремий `.env` у кожну папку
@@ -143,15 +147,19 @@ mkdir -p ~/services/hiking-telegram-bot-test
 Для `prod`:
 
 - `APP_STAGE=prod`
-- свій `BOT_TOKEN`
-- свій `BOT_USERNAME`
+- `BOT_TOKEN_PROD`
+- `BOT_USERNAME_PROD`
+- `BOT_TOKEN_TEST`
+- `BOT_USERNAME_TEST`
 - `MONGODB_COLLECTION_PROD=app_state_prod`
 
 Для `test`:
 
 - `APP_STAGE=test`
-- інший `BOT_TOKEN`
-- інший `BOT_USERNAME`
+- `BOT_TOKEN_PROD`
+- `BOT_USERNAME_PROD`
+- `BOT_TOKEN_TEST`
+- `BOT_USERNAME_TEST`
 - `MONGODB_COLLECTION_TEST=app_state_test`
 
 Важливо:
@@ -166,8 +174,8 @@ mkdir -p ~/services/hiking-telegram-bot-test
 
 Наприклад:
 
-- `PROD_TARGET_DIR=/Users/your-user/services/hiking-telegram-bot-prod`
-- `TEST_TARGET_DIR=/Users/your-user/services/hiking-telegram-bot-test`
+- `PROD_TARGET_DIR=C:\services\hiking-telegram-bot-prod`
+- `TEST_TARGET_DIR=C:\services\hiking-telegram-bot-test`
 
 ### Як це працює
 

@@ -2,10 +2,20 @@ import { config as loadEnv } from "dotenv";
 
 loadEnv();
 
+const appStage = String(process.env.APP_STAGE || "prod").toLowerCase() === "test" ? "test" : "prod";
+const botToken =
+  process.env.BOT_TOKEN ||
+  (appStage === "test" ? process.env.BOT_TOKEN_TEST : process.env.BOT_TOKEN_PROD) ||
+  "";
+const botUsername =
+  process.env.BOT_USERNAME ||
+  (appStage === "test" ? process.env.BOT_USERNAME_TEST : process.env.BOT_USERNAME_PROD) ||
+  "";
+
 export const config = {
-  botToken: process.env.BOT_TOKEN || "",
-  botUsername: String(process.env.BOT_USERNAME || "").replace(/^@/, ""),
-  appStage: String(process.env.APP_STAGE || "prod").toLowerCase() === "test" ? "test" : "prod",
+  botToken,
+  botUsername: String(botUsername).replace(/^@/, ""),
+  appStage,
   mongoUri: process.env.MONGODB_URI || "",
   mongoDbName: process.env.MONGODB_DB || "",
   mongoCollectionProd: process.env.MONGODB_COLLECTION_PROD || "app_state_prod",

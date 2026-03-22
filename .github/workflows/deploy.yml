@@ -24,7 +24,8 @@ jobs:
       - name: Deploy prod
         env:
           PROD_TARGET_DIR: ${{ vars.PROD_TARGET_DIR }}
-        run: zsh ./scripts/deploy-prod.sh
+        shell: cmd
+        run: .\scripts\deploy-prod.cmd
 
   deploy-test:
     if: github.ref == 'refs/heads/develop'
@@ -42,4 +43,5 @@ jobs:
       - name: Deploy test
         env:
           TEST_TARGET_DIR: ${{ vars.TEST_TARGET_DIR }}
-        run: zsh ./scripts/deploy-test.sh
+        shell: cmd
+        run: .\scripts\deploy-test.cmd

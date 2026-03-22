@@ -184,6 +184,115 @@ mkdir C:\services\hiking-telegram-bot-test
 - workflow копіює код у цільову папку
 - запускає `npm ci --omit=dev`
 - робить `pm2 startOrReload`
+
+### Шпаргалка по git і деплою
+
+Робоча схема:
+
+- `develop` → автоматичний deploy у `test`
+- `main` → автоматичний deploy у `prod`
+
+#### Базовий цикл розробки
+
+Перейти в `develop` і підтягнути останні зміни:
+
+```bash
+git checkout develop
+git pull --rebase origin develop
+```
+
+Закомітити зміни і задеплоїти в `test`:
+
+```bash
+git add .
+git commit -m "Короткий опис змін"
+git push origin develop
+```
+
+Коли все перевірено на test-боті, перенести в `main` і задеплоїти в `prod`:
+
+```bash
+git checkout main
+git pull --rebase origin main
+git merge develop
+git push origin main
+```
+
+#### Корисні git-команди
+
+Подивитися поточну гілку:
+
+```bash
+git branch --show-current
+```
+
+Подивитися стан файлів:
+
+```bash
+git status
+```
+
+Подивитися останні коміти:
+
+```bash
+git log --oneline --decorate -10
+```
+
+Подивитися локальні зміни:
+
+```bash
+git diff
+```
+
+Подивитися, що вже додано в коміт:
+
+```bash
+git diff --cached
+```
+
+#### Якщо треба просто тригернути деплой
+
+Для `test`:
+
+```bash
+git checkout develop
+git commit --allow-empty -m "Trigger test deploy"
+git push origin develop
+```
+
+Для `prod`:
+
+```bash
+git checkout main
+git commit --allow-empty -m "Trigger prod deploy"
+git push origin main
+```
+
+#### Корисні команди на Windows-сервері
+
+Подивитися процеси:
+
+```bat
+pm2 list
+```
+
+Логи test-бота:
+
+```bat
+pm2 logs hiking-bot-test
+```
+
+Логи prod-бота:
+
+```bat
+pm2 logs hiking-bot-prod
+```
+
+Зверни увагу:
+
+- перед роботою завжди перевіряй, що ти в правильній гілці
+- новий функціонал спочатку пуш у `develop`
+- у `main` заливай тільки те, що вже перевірено на тестовому боті
 ## vpohid archive sync
 
 The bot keeps a local fallback archive for `vpohid.com.ua` routes in `data/vpohidArchive.json`.

@@ -1828,8 +1828,6 @@ function calculateSettlements(members, paidByMember, totalCost) {
     };
   });
 
-  
-
   const creditors = balances
     .filter((item) => item.balance > 0.5)
     .map((item) => ({ ...item, remaining: item.balance }))

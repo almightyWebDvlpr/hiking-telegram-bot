@@ -104,7 +104,7 @@ const FINISH_TRIP_CONFIRM_KEYBOARD = Markup.keyboard([
 ]).resize().persistent();
 
 const WELCOME_TEXT = [
-  "🏔 Мандрівник +",
+  "🏔 Мандрівник +/-",
   "",
   "Загальний простір: погода, пошук маршрутів, часті питання і твій профіль.",
   "Простір походу: маршрут, дані походу, спорядження і погода в регіоні походу.",
@@ -1873,7 +1873,7 @@ function sendHome(ctx) {
   setMenuContext(ctx.from?.id, "home");
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("🏔 ГОЛОВНЕ МЕНЮ", "Мандрівник +"),
+      ...formatCardHeader("🏔 ГОЛОВНЕ МЕНЮ", "Мандрівник +/-"),
       "",
       formatSectionHeader("🧭", "Що Тут Є"),
       "• загальний простір: погода, маршрути, FAQ і твій профіль",

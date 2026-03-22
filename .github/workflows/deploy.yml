@@ -12,18 +12,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: self-hosted
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Deploy prod
         env:
           PROD_TARGET_DIR: ${{ vars.PROD_TARGET_DIR }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          GIT_BRANCH: main
         shell: cmd
         run: .\scripts\deploy-prod.cmd
 
@@ -31,17 +24,10 @@ jobs:
     if: github.ref == 'refs/heads/develop'
     runs-on: self-hosted
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Deploy test
         env:
           TEST_TARGET_DIR: ${{ vars.TEST_TARGET_DIR }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          GIT_BRANCH: develop
         shell: cmd
         run: .\scripts\deploy-test.cmd

@@ -7,11 +7,22 @@ if "%TEST_TARGET_DIR%"=="" (
   set "TARGET_DIR=%TEST_TARGET_DIR%"
 )
 
-if "%GITHUB_WORKSPACE%"=="" (
-  set "SOURCE_DIR=%~dp0.."
-) else (
-  set "SOURCE_DIR=%GITHUB_WORKSPACE%"
+if "%REPO_URL%"=="" (
+  echo REPO_URL is required for deploy.
+  exit /b 1
 )
+
+if "%GIT_BRANCH%"=="" (
+  set "GIT_BRANCH=develop"
+)
+
+if "%RUNNER_TEMP%"=="" (
+  set "CACHE_ROOT=%TEMP%"
+) else (
+  set "CACHE_ROOT=%RUNNER_TEMP%"
+)
+
+set "CACHE_DIR=%CACHE_ROOT%\hiking-telegram-bot-test-src"
 
 set "APP_NAME=hiking-bot-test"
 
@@ -31,7 +42,28 @@ if errorlevel 1 (
   exit /b 1
 )
 
-robocopy "%SOURCE_DIR%" "%TARGET_DIR%" /MIR /XD ".git" ".github" "node_modules" /XF ".env"
+where git >nul 2>nul
+if errorlevel 1 (
+  echo git is required on the server.
+  exit /b 1
+)
+
+if exist "%CACHE_DIR%\.git" (
+  pushd "%CACHE_DIR%"
+  call git fetch origin
+  if errorlevel 1 exit /b 1
+  call git checkout "%GIT_BRANCH%"
+  if errorlevel 1 exit /b 1
+  call git reset --hard "origin/%GIT_BRANCH%"
+  if errorlevel 1 exit /b 1
+  popd
+) else (
+  if exist "%CACHE_DIR%" rmdir /S /Q "%CACHE_DIR%"
+  call git clone --branch "%GIT_BRANCH%" --single-branch "%REPO_URL%" "%CACHE_DIR%"
+  if errorlevel 1 exit /b 1
+)
+
+robocopy "%CACHE_DIR%" "%TARGET_DIR%" /MIR /XD ".git" ".github" "node_modules" /XF ".env"
 if %ERRORLEVEL% GEQ 8 exit /b %ERRORLEVEL%
 
 if not exist "%TARGET_DIR%\.env" (

@@ -5515,12 +5515,12 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "route") {
-    await handleRouteFlow(ctx, flow, groupService, routeService, userService, bot.telegram);
+    await handleRouteFlow(ctx, flow, groupService, routeService, userService, telegram);
     return true;
   }
 
   if (flow.type === "trip_card") {
-    await handleTripCardFlow(ctx, flow, groupService, userService, bot.telegram);
+    await handleTripCardFlow(ctx, flow, groupService, userService, telegram);
     return true;
   }
 
@@ -5530,7 +5530,7 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "join_trip") {
-    await handleJoinTripFlow(ctx, flow, groupService, userService, bot.telegram);
+    await handleJoinTripFlow(ctx, flow, groupService, userService, telegram);
     return true;
   }
 
@@ -5600,7 +5600,7 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "vpohid_search") {
-    await handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService, groupService, userService, bot.telegram);
+    await handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService, groupService, userService, telegram);
     return true;
   }
 

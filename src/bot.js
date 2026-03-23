@@ -1102,7 +1102,7 @@ function formatRouteStatus(routePlan) {
     ? routePlan.points
     : [routePlan.meta?.vpohidDetail?.start || routePlan.from, routePlan.meta?.vpohidDetail?.finish || routePlan.to].filter(Boolean);
   const suffix = routePlan.status === "draft" ? " (чернетка)" : "";
-  return `${routePoints.join(" -> ")}${suffix}`;
+  return `${routePoints.join(" → ")}${suffix}`;
 }
 
 function formatTripDatesRange(tripCard) {
@@ -1110,7 +1110,7 @@ function formatTripDatesRange(tripCard) {
     return "ще не задано";
   }
 
-  return [tripCard?.startDate || "?", tripCard?.endDate || "?"].join(" -> ");
+  return [tripCard?.startDate || "?", tripCard?.endDate || "?"].join(" → ");
 }
 
 function buildMemberJoinedNotification(trip, memberName) {

@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { Markup, Telegraf } from "telegraf";
 import { config } from "./config.js";
 import { GroupService } from "./services/groupService.js";
@@ -2584,6 +2585,89 @@ function execFileAsync(command, args) {
   });
 }
 
+async function cleanupPreviewArtifacts(...pathsToRemove) {
+  await Promise.all(pathsToRemove.map((entry) => fs.rm(entry, { recursive: true, force: true }).catch(() => null)));
+}
+
+async function renderTrackPreviewWithQuickLook(svgPath, outputDir) {
+  await execFileAsync("/usr/bin/qlmanage", ["-t", "-s", "1600", "-o", outputDir, svgPath]);
+  return path.join(outputDir, `${path.basename(svgPath)}.png`);
+}
+
+async function renderTrackPreviewWithHeadlessBrowser(svgContent, outputDir) {
+  const htmlPath = path.join(outputDir, "preview.html");
+  const pngPath = path.join(outputDir, "preview.png");
+  const htmlContent = `<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+      }
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      svg {
+        display: block;
+        width: 1600px;
+        height: auto;
+      }
+    </style>
+  </head>
+  <body>${svgContent}</body>
+</html>`;
+
+  await fs.writeFile(htmlPath, htmlContent, "utf8");
+
+  const browserCandidates = process.platform === "win32"
+    ? [
+        "msedge.exe",
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        "chrome.exe",
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+      ]
+    : process.platform === "darwin"
+      ? [
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+        ]
+      : [
+          "google-chrome",
+          "google-chrome-stable",
+          "chromium",
+          "chromium-browser",
+          "microsoft-edge",
+          "msedge"
+        ];
+
+  let lastError = null;
+  for (const browser of browserCandidates) {
+    try {
+      await execFileAsync(browser, [
+        "--headless=new",
+        "--disable-gpu",
+        "--hide-scrollbars",
+        "--window-size=1600,1000",
+        `--screenshot=${pngPath}`,
+        pathToFileURL(htmlPath).href
+      ]);
+      return pngPath;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("No supported headless browser was found to render route preview.");
+}
+
 async function renderTrackPreviewPng(svgContent) {
   const id = crypto.randomUUID();
   const tmpDir = os.tmpdir();
@@ -2592,15 +2676,15 @@ async function renderTrackPreviewPng(svgContent) {
 
   await fs.writeFile(svgPath, svgContent, "utf8");
   await fs.mkdir(outputDir, { recursive: true });
-  await execFileAsync("/usr/bin/qlmanage", ["-t", "-s", "1600", "-o", outputDir, svgPath]);
 
-  const pngPath = path.join(outputDir, `${path.basename(svgPath)}.png`);
-  const pngBuffer = await fs.readFile(pngPath);
-
-  await fs.rm(svgPath, { force: true });
-  await fs.rm(outputDir, { recursive: true, force: true });
-
-  return pngBuffer;
+  try {
+    const pngPath = process.platform === "darwin"
+      ? await renderTrackPreviewWithQuickLook(svgPath, outputDir)
+      : await renderTrackPreviewWithHeadlessBrowser(svgContent, outputDir);
+    return await fs.readFile(pngPath);
+  } finally {
+    await cleanupPreviewArtifacts(svgPath, outputDir);
+  }
 }
 
 async function sendInlineTrackPreviewImage(ctx, routeService, routeMeta, caption) {

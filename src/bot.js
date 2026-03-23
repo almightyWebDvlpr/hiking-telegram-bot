@@ -3949,7 +3949,7 @@ async function handleRouteFlow(ctx, flow, groupService, routeService, userServic
         { excludeMemberId: String(ctx.from.id) }
       );
     }
-    return ctx.reply(
+    await ctx.reply(
       joinRichLines([
         ...formatCardHeader("✅ МАРШРУТ ЗБЕРЕЖЕНО", updatedTrip.name),
         "",
@@ -3957,6 +3957,12 @@ async function handleRouteFlow(ctx, flow, groupService, routeService, userServic
         `Регіон погоди: ${flow.data.region}`
       ]),
       { parse_mode: "HTML", ...getTripRouteKeyboard(updatedTrip, true) }
+    );
+    return sendInlineTrackPreviewImage(
+      ctx,
+      routeService,
+      updatedTrip.routePlan?.meta,
+      `Прев’ю треку маршруту походу "${updatedTrip.name}".`
     );
   }
 
@@ -4249,9 +4255,15 @@ async function saveDirectTripRoute(ctx, groupService, routeService, userService,
       { excludeMemberId: String(ctx.from.id) }
     );
   }
-  return ctx.reply(
+  await ctx.reply(
     report.reliable ? `✅ Маршрут походу збережено.\n\n${formattedSummary}` : `${formattedSummary}\n\n⚠️ Маршрут збережено як чернетку.`,
     getTripRouteKeyboard(updatedTrip, true)
+  );
+  return sendInlineTrackPreviewImage(
+    ctx,
+    routeService,
+    updatedTrip.routePlan?.meta,
+    `Прев’ю треку маршруту походу "${updatedTrip.name}".`
   );
 }
 

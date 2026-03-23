@@ -4731,7 +4731,7 @@ async function handleFoodDeleteFlow(ctx, flow, groupService) {
       { parse_mode: "HTML", ...getTripFoodKeyboard() }
     );
 
-    return showTripFood(ctx, groupService);
+    return showTripFood(ctx, groupService, userService);
   }
 
   return null;
@@ -5910,7 +5910,15 @@ function showMyNeeds(ctx, groupService) {
   );
 }
 
-function showTripFood(ctx, groupService) {
+function resolveMemberDisplayName(userService, memberId, fallbackName = "") {
+  if (!memberId) {
+    return fallbackName || "Учасник";
+  }
+
+  return userService.getDisplayName(String(memberId), fallbackName || "Учасник");
+}
+
+function showTripFood(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
@@ -5933,10 +5941,10 @@ function showTripFood(ctx, groupService) {
   }
 
   const items = snapshot.items.map((item, index) =>
-    `${index + 1}. ${item.name}\n   вага / обʼєм: ${item.amountLabel || formatWeightGrams(item.weightGrams)} | кількість: ${item.quantity} | ${formatMoney(item.cost)} | ${item.memberName}`
+    `${index + 1}. ${item.name}\n   вага / обʼєм: ${item.amountLabel || formatWeightGrams(item.weightGrams)} | кількість: ${item.quantity} | ${formatMoney(item.cost)} | ${resolveMemberDisplayName(userService, item.memberId, item.memberName)}`
   ).join("\n");
   const byMember = snapshot.byMember.length
-    ? snapshot.byMember.map((item) => `• ${item.memberName}: ${item.itemCount} позицій | ${formatWeightGrams(item.totalWeight)} | ${formatMoney(item.totalCost)}`).join("\n")
+    ? snapshot.byMember.map((item) => `• ${resolveMemberDisplayName(userService, item.memberId, item.memberName)}: ${item.itemCount} позицій | ${formatWeightGrams(item.totalWeight)} | ${formatMoney(item.totalCost)}`).join("\n")
     : "• немає";
 
   return ctx.reply(
@@ -6039,7 +6047,7 @@ function showTripExpensesMenu(ctx, groupService) {
   );
 }
 
-function showTripExpenses(ctx, groupService) {
+function showTripExpenses(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
@@ -6069,24 +6077,26 @@ function showTripExpenses(ctx, groupService) {
   };
 
   const items = expenseItems.length
-    ? expenseItems.map((item, index) => `${index + 1}. ${item.title}\n   ${item.quantity} × ${formatMoney(item.price)} = ${formatMoney(item.amount)}\n   платить: ${item.memberName}`).join("\n")
+    ? expenseItems.map((item, index) => `${index + 1}. ${item.title}\n   ${item.quantity} × ${formatMoney(item.price)} = ${formatMoney(item.amount)}\n   платить: ${resolveMemberDisplayName(userService, item.memberId, item.memberName)}`).join("\n")
     : "немає";
   const directExpenses = expenseSnapshot?.totalCost || 0;
   const combinedByMemberMap = new Map();
   const foodByMemberMap = new Map();
 
   for (const item of expenseSnapshot?.byMember || []) {
-    const current = combinedByMemberMap.get(item.memberName) || { total: 0, food: 0 };
+    const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
+    const current = combinedByMemberMap.get(memberName) || { total: 0, food: 0 };
     current.total += item.totalCost;
-    combinedByMemberMap.set(item.memberName, current);
+    combinedByMemberMap.set(memberName, current);
   }
 
   for (const item of foodSnapshot?.byMember || []) {
-    const current = combinedByMemberMap.get(item.memberName) || { total: 0, food: 0 };
+    const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
+    const current = combinedByMemberMap.get(memberName) || { total: 0, food: 0 };
     current.total += item.totalCost;
     current.food += item.totalCost;
-    combinedByMemberMap.set(item.memberName, current);
-    foodByMemberMap.set(item.memberName, item.totalCost);
+    combinedByMemberMap.set(memberName, current);
+    foodByMemberMap.set(memberName, item.totalCost);
   }
 
   const foodByMember = [...foodByMemberMap.entries()]
@@ -6639,7 +6649,7 @@ export function createBot(store) {
 
     return ctx.reply(`✅ "${name}" додано в харчування походу.`, getTripFoodKeyboard());
   });
-  bot.command("food", (ctx) => showTripFood(ctx, groupService));
+  bot.command("food", (ctx) => showTripFood(ctx, groupService, userService));
   bot.command("tripreminders", (ctx) => showTripReminders(ctx, groupService));
   bot.command("passport", (ctx) => showTripPassport(ctx, groupService, userService));
   bot.command("addexpense", (ctx) => {
@@ -6664,7 +6674,7 @@ export function createBot(store) {
 
     return ctx.reply(`✅ Витрату "${title}" додано.`, getTripExpensesKeyboard());
   });
-  bot.command("expenses", (ctx) => showTripExpenses(ctx, groupService));
+  bot.command("expenses", (ctx) => showTripExpenses(ctx, groupService, userService));
 
   bot.hears("🌦 Погода", (ctx) => ctx.reply("Введи: `/weather Яремче`", { parse_mode: "Markdown", ...getMainKeyboard(ctx) }));
   bot.hears("🗺 Маршрути", (ctx) => showRoutesMenu(ctx));
@@ -6777,10 +6787,10 @@ export function createBot(store) {
   bot.hears("📋 Мої запити", (ctx) => showMyNeeds(ctx, groupService));
   bot.hears("🥘 Додати продукт", (ctx) => startFoodAddWizard(ctx, groupService));
   bot.hears("🗑 Видалити продукт", (ctx) => startFoodDeleteWizard(ctx, groupService));
-  bot.hears("🧾 Переглянути все харчування", (ctx) => showTripFood(ctx, groupService));
+  bot.hears("🧾 Переглянути все харчування", (ctx) => showTripFood(ctx, groupService, userService));
   bot.hears("🎒 Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("💸 Додати витрату", (ctx) => startExpenseAddWizard(ctx, groupService));
-  bot.hears("🧾 Переглянути всі витрати", (ctx) => showTripExpenses(ctx, groupService));
+  bot.hears("🧾 Переглянути всі витрати", (ctx) => showTripExpenses(ctx, groupService, userService));
   bot.hears("⬅️ До походу", (ctx) => showTripMenu(ctx, groupService));
   bot.hears("⬅️ Головне меню", (ctx) => {
     clearFlow(String(ctx.from.id));

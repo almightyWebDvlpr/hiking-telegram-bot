@@ -1104,6 +1104,102 @@ function formatRouteStatus(routePlan) {
   return `${routePoints.join(" -> ")}${suffix}`;
 }
 
+function formatTripDatesRange(tripCard) {
+  if (!tripCard?.startDate && !tripCard?.endDate) {
+    return "ще не задано";
+  }
+
+  return [tripCard?.startDate || "?", tripCard?.endDate || "?"].join(" -> ");
+}
+
+function buildMemberJoinedNotification(trip, memberName) {
+  return joinRichLines([
+    ...formatCardHeader("👥", "НОВИЙ УЧАСНИК У ПОХОДІ"),
+    "",
+    `До походу <b>${escapeHtml(trip.name)}</b> приєднався <b>${escapeHtml(memberName)}</b>.`,
+    `Учасників у поході: <b>${trip.members?.length || 0}</b>.`
+  ]);
+}
+
+function buildTripDatesChangedNotification(trip, actorName, previousTripCard) {
+  return joinRichLines([
+    ...formatCardHeader("📅", "ЗМІНЕНО ДАТИ ПОХОДУ"),
+    "",
+    `У поході <b>${escapeHtml(trip.name)}</b> оновлено дати.`,
+    `Було: <b>${escapeHtml(formatTripDatesRange(previousTripCard))}</b>`,
+    `Стало: <b>${escapeHtml(formatTripDatesRange(trip.tripCard))}</b>`,
+    `Змінив: <b>${escapeHtml(actorName)}</b>`
+  ]);
+}
+
+function buildTripRouteChangedNotification(trip, actorName, previousRoutePlan = null) {
+  const hadRouteBefore = Boolean(previousRoutePlan);
+  return joinRichLines([
+    ...formatCardHeader("🗺", hadRouteBefore ? "ОНОВЛЕНО МАРШРУТ ПОХОДУ" : "ДОДАНО МАРШРУТ ПОХОДУ"),
+    "",
+    `У поході <b>${escapeHtml(trip.name)}</b> ${hadRouteBefore ? "змінено" : "додано"} маршрут.`,
+    hadRouteBefore ? `Було: <b>${escapeHtml(formatRouteStatus(previousRoutePlan))}</b>` : null,
+    `Стало: <b>${escapeHtml(formatRouteStatus(trip.routePlan))}</b>`,
+    `Змінив: <b>${escapeHtml(actorName)}</b>`
+  ].filter(Boolean));
+}
+
+function hasTripRouteChanged(previousRoutePlan, nextRoutePlan) {
+  if (!previousRoutePlan && nextRoutePlan) {
+    return true;
+  }
+
+  if (previousRoutePlan && !nextRoutePlan) {
+    return true;
+  }
+
+  if (!previousRoutePlan && !nextRoutePlan) {
+    return false;
+  }
+
+  const previousSignature = JSON.stringify({
+    from: previousRoutePlan?.from || "",
+    to: previousRoutePlan?.to || "",
+    points: Array.isArray(previousRoutePlan?.points) ? previousRoutePlan.points : [],
+    source: previousRoutePlan?.source || "",
+    sourceRouteId: previousRoutePlan?.sourceRouteId || "",
+    sourceTitle: previousRoutePlan?.sourceTitle || "",
+    status: previousRoutePlan?.status || ""
+  });
+  const nextSignature = JSON.stringify({
+    from: nextRoutePlan?.from || "",
+    to: nextRoutePlan?.to || "",
+    points: Array.isArray(nextRoutePlan?.points) ? nextRoutePlan.points : [],
+    source: nextRoutePlan?.source || "",
+    sourceRouteId: nextRoutePlan?.sourceRouteId || "",
+    sourceTitle: nextRoutePlan?.sourceTitle || "",
+    status: nextRoutePlan?.status || ""
+  });
+
+  return previousSignature !== nextSignature;
+}
+
+async function notifyTripMembers(telegram, trip, text, { excludeMemberId = "" } = {}) {
+  if (!telegram || !trip?.members?.length || !text) {
+    return;
+  }
+
+  for (const member of trip.members) {
+    if (!member?.id || (excludeMemberId && member.id === excludeMemberId)) {
+      continue;
+    }
+
+    try {
+      await telegram.sendMessage(member.id, text, {
+        parse_mode: "HTML",
+        ...getTripKeyboard(trip, member.id)
+      });
+    } catch {
+      // Ignore users who blocked the bot or haven't started it yet.
+    }
+  }
+}
+
 function getRouteEndpoints(routePlan) {
   if (!routePlan) {
     return { from: "", to: "" };
@@ -3678,7 +3774,7 @@ function normalizeGearStatus(value) {
   return map[value] || value.toLowerCase();
 }
 
-async function handleRouteFlow(ctx, flow, groupService, routeService) {
+async function handleRouteFlow(ctx, flow, groupService, routeService, userService, telegram = null) {
   const message = ctx.message.text.trim();
   const parentContext = getFlowParentContext(flow);
 
@@ -3828,6 +3924,7 @@ async function handleRouteFlow(ctx, flow, groupService, routeService) {
     }
 
     const report = flow.data.report;
+    const previousTrip = groupService.findGroupByMember(String(ctx.from.id));
     const updatedTrip = groupService.updateRoutePlan({
       groupId: flow.tripId,
       routePlan: {
@@ -3841,8 +3938,17 @@ async function handleRouteFlow(ctx, flow, groupService, routeService) {
       },
       region: flow.data.region
     });
+    const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
 
     clearFlow(String(ctx.from.id));
+    if (hasTripRouteChanged(previousTrip?.routePlan || null, updatedTrip.routePlan)) {
+      void notifyTripMembers(
+        telegram,
+        updatedTrip,
+        buildTripRouteChangedNotification(updatedTrip, actorName, previousTrip?.routePlan || null),
+        { excludeMemberId: String(ctx.from.id) }
+      );
+    }
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("✅ МАРШРУТ ЗБЕРЕЖЕНО", updatedTrip.name),
@@ -3857,7 +3963,7 @@ async function handleRouteFlow(ctx, flow, groupService, routeService) {
   return null;
 }
 
-async function handleTripCardFlow(ctx, flow, groupService) {
+async function handleTripCardFlow(ctx, flow, groupService, userService, telegram = null) {
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
@@ -3929,13 +4035,30 @@ async function handleTripCardFlow(ctx, flow, groupService) {
       });
     }
 
+    const previousTrip = groupService.findGroupByMember(String(ctx.from.id));
     const updatedTrip = groupService.setTripCard({
       groupId: flow.tripId,
       tripCard: flow.data
     });
     const snapshot = groupService.getGearSnapshot(updatedTrip.id);
+    const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
+    const datesChanged = Boolean(
+      previousTrip?.tripCard &&
+      (
+        previousTrip.tripCard.startDate !== updatedTrip.tripCard?.startDate ||
+        previousTrip.tripCard.endDate !== updatedTrip.tripCard?.endDate
+      )
+    );
 
     clearFlow(String(ctx.from.id));
+    if (datesChanged) {
+      void notifyTripMembers(
+        telegram,
+        updatedTrip,
+        buildTripDatesChangedNotification(updatedTrip, actorName, previousTrip.tripCard),
+        { excludeMemberId: String(ctx.from.id) }
+      );
+    }
     return ctx.reply(formatTripCard(updatedTrip, snapshot), { parse_mode: "HTML", ...getTripKeyboard(updatedTrip, String(ctx.from.id)) });
   }
 
@@ -4063,7 +4186,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
   return null;
 }
 
-async function saveDirectTripRoute(ctx, groupService, routeService, input, mode) {
+async function saveDirectTripRoute(ctx, groupService, routeService, userService, telegram, input, mode) {
   const trip = requireManageTrip(ctx, groupService);
   if (!trip) {
     return null;
@@ -4102,6 +4225,7 @@ async function saveDirectTripRoute(ctx, groupService, routeService, input, mode)
     meta: report.meta
   }, trip.tripCard);
 
+  const previousRoutePlan = trip.routePlan || null;
   const updatedTrip = groupService.updateRoutePlan({
     groupId: trip.id,
     routePlan: {
@@ -4115,14 +4239,23 @@ async function saveDirectTripRoute(ctx, groupService, routeService, input, mode)
     },
     region: trip.region || from
   });
+  const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
 
+  if (hasTripRouteChanged(previousRoutePlan, updatedTrip.routePlan)) {
+    void notifyTripMembers(
+      telegram,
+      updatedTrip,
+      buildTripRouteChangedNotification(updatedTrip, actorName, previousRoutePlan),
+      { excludeMemberId: String(ctx.from.id) }
+    );
+  }
   return ctx.reply(
     report.reliable ? `✅ Маршрут походу збережено.\n\n${formattedSummary}` : `${formattedSummary}\n\n⚠️ Маршрут збережено як чернетку.`,
     getTripRouteKeyboard(updatedTrip, true)
   );
 }
 
-async function handleJoinTripFlow(ctx, flow, groupService, userService) {
+async function handleJoinTripFlow(ctx, flow, groupService, userService, telegram = null) {
   const message = ctx.message.text.trim().toUpperCase();
 
   if (message === "❌ Скасувати") {
@@ -4141,6 +4274,12 @@ async function handleJoinTripFlow(ctx, flow, groupService, userService) {
     return ctx.reply(result.message, getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
   }
 
+  void notifyTripMembers(
+    telegram,
+    result.group,
+    buildMemberJoinedNotification(result.group, userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx))),
+    { excludeMemberId: String(ctx.from.id) }
+  );
   return ctx.reply(`✅ Ти приєднався до походу "${result.group.name}".`, getTripKeyboard(result.group, String(ctx.from.id)));
 }
 
@@ -4978,7 +5117,7 @@ async function handleTripMemberListFlow(ctx, flow, groupService, userService) {
   return showTripMemberDetails(ctx, groupService, userService, trip, selected.id, items);
 }
 
-async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService, groupService) {
+async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService, groupService, userService, telegram = null) {
   const message = ctx.message.text.trim();
   const mode = getVpohidFlowMode(flow);
   const backLabel = getVpohidBackLabel(mode);
@@ -5277,6 +5416,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
         description: detail.description || "",
         url: detail.url || ""
       };
+      const previousRoutePlan = trip.routePlan || null;
       const updatedTrip = groupService.updateRoutePlan({
         groupId: trip.id,
         routePlan: {
@@ -5299,8 +5439,17 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
           ? detail.weatherSettlements[0]
           : trip.region || report.meta?.from || detail.start
       });
+      const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
 
       clearFlow(String(ctx.from.id));
+      if (hasTripRouteChanged(previousRoutePlan, updatedTrip.routePlan)) {
+        void notifyTripMembers(
+          telegram,
+          updatedTrip,
+          buildTripRouteChangedNotification(updatedTrip, actorName, previousRoutePlan),
+          { excludeMemberId: String(ctx.from.id) }
+        );
+      }
       await ctx.reply(
         joinRichLines([
           ...formatCardHeader("✅ МАРШРУТ ЗБЕРЕЖЕНО", updatedTrip.name),
@@ -5366,12 +5515,12 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "route") {
-    await handleRouteFlow(ctx, flow, groupService, routeService);
+    await handleRouteFlow(ctx, flow, groupService, routeService, userService, bot.telegram);
     return true;
   }
 
   if (flow.type === "trip_card") {
-    await handleTripCardFlow(ctx, flow, groupService);
+    await handleTripCardFlow(ctx, flow, groupService, userService, bot.telegram);
     return true;
   }
 
@@ -5381,7 +5530,7 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "join_trip") {
-    await handleJoinTripFlow(ctx, flow, groupService, userService);
+    await handleJoinTripFlow(ctx, flow, groupService, userService, bot.telegram);
     return true;
   }
 
@@ -5451,7 +5600,7 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "vpohid_search") {
-    await handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService, groupService);
+    await handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService, groupService, userService, bot.telegram);
     return true;
   }
 
@@ -6191,6 +6340,30 @@ export function createBot(store) {
 
   bot.vpohidArchiveSyncLoop = vpohidArchiveSyncLoop;
 
+  const notifyMemberJoined = (trip, memberId, memberName) =>
+    notifyTripMembers(
+      bot.telegram,
+      trip,
+      buildMemberJoinedNotification(trip, memberName),
+      { excludeMemberId: memberId }
+    );
+
+  const joinTripByInviteCode = async (ctx, inviteCode) => {
+    const memberId = String(ctx.from.id);
+    const memberName = userService.getDisplayName(memberId, getUserLabel(ctx));
+    const result = groupService.joinGroup(inviteCode, {
+      id: memberId,
+      name: memberName
+    });
+
+    if (!result.ok) {
+      return ctx.reply(result.message, getTripKeyboard(groupService.findGroupByMember(memberId), memberId));
+    }
+
+    void notifyMemberJoined(result.group, memberId, memberName);
+    return ctx.reply(`✅ Ти приєднався до походу "${result.group.name}".`, getTripKeyboard(result.group, memberId));
+  };
+
   bot.start((ctx) => {
     userService.ensureUserRecord({
       userId: String(ctx.from.id),
@@ -6199,16 +6372,7 @@ export function createBot(store) {
     const payload = ctx.message.text.replace("/start", "").trim();
     const inviteCode = extractJoinInviteCode(payload);
     if (inviteCode) {
-      const result = groupService.joinGroup(inviteCode, {
-        id: String(ctx.from.id),
-        name: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx))
-      });
-
-      if (!result.ok) {
-        return ctx.reply(result.message, getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
-      }
-
-      return ctx.reply(`✅ Ти приєднався до походу "${result.group.name}".`, getTripKeyboard(result.group, String(ctx.from.id)));
+      return joinTripByInviteCode(ctx, inviteCode);
     }
 
     return sendHome(ctx);
@@ -6234,16 +6398,7 @@ export function createBot(store) {
       return startJoinTripWizard(ctx);
     }
 
-    const result = groupService.joinGroup(inviteCode, {
-      id: String(ctx.from.id),
-      name: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx))
-    });
-
-    if (!result.ok) {
-      return ctx.reply(result.message, getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
-    }
-
-    return ctx.reply(`✅ Ти приєднався до походу "${result.group.name}".`, getTripKeyboard(result.group, String(ctx.from.id)));
+    return joinTripByInviteCode(ctx, inviteCode);
   });
   bot.command("invite", (ctx) => showInviteInfo(ctx, groupService));
   bot.command("grantaccess", (ctx) => startGrantAccessWizard(ctx, groupService, userService));
@@ -6259,11 +6414,11 @@ export function createBot(store) {
   bot.command("weather", (ctx) => showWeather(ctx, weatherService, ctx.message.text.replace("/weather", "").trim(), getMainKeyboard(ctx)));
   bot.command("setgrouproute", (ctx) => {
     const input = ctx.message.text.replace("/setgrouproute", "").trim();
-    return saveDirectTripRoute(ctx, groupService, routeService, input, "create");
+    return saveDirectTripRoute(ctx, groupService, routeService, userService, bot.telegram, input, "create");
   });
   bot.command("editgrouproute", (ctx) => {
     const input = ctx.message.text.replace("/editgrouproute", "").trim();
-    return saveDirectTripRoute(ctx, groupService, routeService, input, "edit");
+    return saveDirectTripRoute(ctx, groupService, routeService, userService, bot.telegram, input, "edit");
   });
   bot.command("grouproute", (ctx) => showRouteReport(ctx, groupService));
   bot.command("setgroupregion", (ctx) => {

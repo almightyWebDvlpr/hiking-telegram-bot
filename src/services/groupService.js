@@ -5,13 +5,40 @@ function createInviteCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
 }
 
+function isActiveGearNeedStatus(status = "") {
+  return status === "open" || status === "matched";
+}
+
+function normalizeGearNeed(need = {}) {
+  const status = ["matched", "fulfilled", "cancelled"].includes(need.status) ? need.status : "open";
+  return {
+    id: need.id || crypto.randomUUID(),
+    memberId: need.memberId || "",
+    memberName: need.memberName || "",
+    name: need.name || "",
+    quantity: Number(need.quantity) || 1,
+    note: need.note || "",
+    status,
+    createdAt: need.createdAt || new Date().toISOString(),
+    updatedAt: need.updatedAt || need.createdAt || new Date().toISOString(),
+    matchedByMemberId: need.matchedByMemberId || "",
+    matchedByMemberName: need.matchedByMemberName || "",
+    matchedGearId: need.matchedGearId || "",
+    matchedGearName: need.matchedGearName || "",
+    matchedAt: need.matchedAt || null,
+    fulfilledAt: need.fulfilledAt || null,
+    cancelledAt: need.cancelledAt || null
+  };
+}
+
 function calculateReadiness(group) {
   const sharedGear = group.gear.filter((item) => item.scope === "shared");
   const personalGear = group.gear.filter((item) => item.scope === "personal");
   const spareGear = group.gear.filter((item) => item.scope === "spare" || item.shareable);
   const hasAnyGear = sharedGear.length > 0 || personalGear.length > 0 || spareGear.length > 0;
+  const activeNeeds = group.gearNeeds.filter((item) => isActiveGearNeedStatus(item.status));
 
-  if (group.gearNeeds.length === 0) {
+  if (activeNeeds.length === 0) {
     return "готово";
   }
 
@@ -22,6 +49,7 @@ function buildFinalSummary(group) {
   const expensesTotal = group.expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const foodTotal = group.food.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
   const totalGear = group.gear.length;
+  const activeNeeds = group.gearNeeds.filter((item) => isActiveGearNeedStatus(item.status));
   const routePoints = Array.isArray(group.routePlan?.points) ? group.routePlan.points.filter(Boolean) : [];
   const routeName = group.routePlan?.source === "vpohid" && group.routePlan?.sourceTitle
     ? group.routePlan.sourceTitle
@@ -39,7 +67,7 @@ function buildFinalSummary(group) {
     routeName: routeName || "маршрут не задано",
     gearReadinessStatus: group.tripCard?.gearReadinessStatus || calculateReadiness(group),
     gearCount: totalGear,
-    gearNeedsCount: group.gearNeeds.length,
+    gearNeedsCount: activeNeeds.length,
     foodCount: group.food.length,
     foodTotal,
     expensesCount: group.expenses.length,
@@ -53,7 +81,7 @@ function createEmptyGroupFields(group) {
     ...group,
     ownerId: group.ownerId || group.members?.[0]?.id || null,
     gear: Array.isArray(group.gear) ? group.gear : [],
-    gearNeeds: Array.isArray(group.gearNeeds) ? group.gearNeeds : [],
+    gearNeeds: Array.isArray(group.gearNeeds) ? group.gearNeeds.map((item) => normalizeGearNeed(item)) : [],
     food: Array.isArray(group.food) ? group.food : [],
     expenses: Array.isArray(group.expenses) ? group.expenses : [],
     tripNotes: Array.isArray(group.tripNotes) ? group.tripNotes : [],
@@ -653,19 +681,133 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     Object.assign(group, preparedGroup);
 
-    group.gearNeeds.push({
-      id: crypto.randomUUID(),
+    const gearNeed = normalizeGearNeed({
       memberId,
       memberName,
       name: need.name,
       quantity: need.quantity,
       note: need.note || ""
     });
+    group.gearNeeds.push(gearNeed);
 
     this.store.write(data);
+    return gearNeed;
   }
 
-  findShareableGear(groupId, gearName) {
+  getMemberGearNeeds(groupId, memberId, { includeResolved = false } = {}) {
+    const snapshot = this.getGearSnapshot(groupId);
+    if (!snapshot) {
+      return [];
+    }
+
+    const source = includeResolved ? snapshot.allGearNeeds : snapshot.gearNeeds;
+    return source.filter((item) => String(item.memberId) === String(memberId));
+  }
+
+  getGearNeed(groupId, needId) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return null;
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    return preparedGroup.gearNeeds.find((item) => item.id === needId) || null;
+  }
+
+  updateGearNeed({ groupId, needId, patch = {} }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const index = group.gearNeeds.findIndex((item) => item.id === needId);
+    if (index === -1) {
+      return null;
+    }
+
+    const current = normalizeGearNeed(group.gearNeeds[index]);
+    const next = normalizeGearNeed({
+      ...current,
+      ...patch,
+      id: current.id,
+      memberId: patch.memberId || current.memberId,
+      memberName: patch.memberName || current.memberName,
+      createdAt: current.createdAt,
+      updatedAt: new Date().toISOString()
+    });
+
+    group.gearNeeds[index] = next;
+    this.store.write(data);
+    return next;
+  }
+
+  cancelGearNeed({ groupId, needId }) {
+    return this.updateGearNeed({
+      groupId,
+      needId,
+      patch: {
+        status: "cancelled",
+        cancelledAt: new Date().toISOString()
+      }
+    });
+  }
+
+  fulfillGearNeed({ groupId, needId }) {
+    return this.updateGearNeed({
+      groupId,
+      needId,
+      patch: {
+        status: "fulfilled",
+        fulfilledAt: new Date().toISOString()
+      }
+    });
+  }
+
+  matchGearNeed({ groupId, needId, lenderMemberId, lenderMemberName, gearId }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const needIndex = group.gearNeeds.findIndex((item) => item.id === needId);
+    if (needIndex === -1) {
+      return null;
+    }
+
+    const gearItem = group.gear.find((item) => item.id === gearId);
+    if (!gearItem) {
+      return null;
+    }
+
+    const updatedNeed = normalizeGearNeed({
+      ...group.gearNeeds[needIndex],
+      status: "matched",
+      matchedByMemberId: lenderMemberId || gearItem.memberId || "",
+      matchedByMemberName: lenderMemberName || gearItem.memberName || "",
+      matchedGearId: gearItem.id,
+      matchedGearName: gearItem.name,
+      matchedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    group.gearNeeds[needIndex] = updatedNeed;
+    this.store.write(data);
+    return updatedNeed;
+  }
+
+  findShareableGear(groupId, gearName, { excludeMemberId = "" } = {}) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);
 
@@ -677,8 +819,10 @@ export class GroupService {
     const search = gearName.toLowerCase();
 
     return preparedGroup.gear.filter(
-      (item) => item.shareable && item.name.toLowerCase().includes(search)
-    );
+      (item) => (item.scope === "shared" || item.scope === "spare" || item.shareable)
+        && item.name.toLowerCase().includes(search)
+        && (!excludeMemberId || String(item.memberId) !== String(excludeMemberId))
+    ).map((item) => enrichGearItem(item));
   }
 
   getGearSnapshot(groupId) {
@@ -694,15 +838,18 @@ export class GroupService {
     const personalGear = preparedGroup.gear.filter((item) => item.scope === "personal").map((item) => enrichGearItem(item));
     const spareGear = preparedGroup.gear.filter((item) => item.scope === "spare" || item.shareable).map((item) => enrichGearItem(item));
     const shareableGear = spareGear;
+    const allGearNeeds = preparedGroup.gearNeeds.map((item) => normalizeGearNeed(item));
+    const activeGearNeeds = allGearNeeds.filter((item) => isActiveGearNeedStatus(item.status));
 
     return {
       sharedGear,
       personalGear,
       spareGear,
       shareableGear,
-      gearNeeds: preparedGroup.gearNeeds,
+      gearNeeds: activeGearNeeds,
+      allGearNeeds,
       readiness:
-        preparedGroup.gearNeeds.length === 0
+        activeGearNeeds.length === 0
           ? "готово"
           : shareableGear.length > 0 || sharedGear.length > 0 || personalGear.length > 0
             ? "частково готово"
@@ -710,9 +857,9 @@ export class GroupService {
     };
   }
 
-  findGearCoverage(groupId, gearName) {
+  findGearCoverage(groupId, gearName, { excludeMemberId = "" } = {}) {
     const needs = this.getGearSnapshot(groupId)?.gearNeeds || [];
-    const matches = this.findShareableGear(groupId, gearName);
+    const matches = this.findShareableGear(groupId, gearName, { excludeMemberId });
     const search = gearName.toLowerCase();
 
     return {

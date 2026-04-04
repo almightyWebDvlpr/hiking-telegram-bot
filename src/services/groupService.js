@@ -31,6 +31,21 @@ function normalizeGearNeed(need = {}) {
   };
 }
 
+function normalizeGearSearchValue(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function gearNamesMatch(left = "", right = "") {
+  const leftValue = normalizeGearSearchValue(left);
+  const rightValue = normalizeGearSearchValue(right);
+
+  if (!leftValue || !rightValue) {
+    return false;
+  }
+
+  return leftValue.includes(rightValue) || rightValue.includes(leftValue);
+}
+
 function calculateReadiness(group) {
   const sharedGear = group.gear.filter((item) => item.scope === "shared");
   const personalGear = group.gear.filter((item) => item.scope === "personal");
@@ -384,7 +399,7 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     Object.assign(group, preparedGroup);
 
-    group.gear.push(enrichGearItem({
+    const addedItem = enrichGearItem({
       id: crypto.randomUUID(),
       memberId,
       memberName,
@@ -397,9 +412,12 @@ export class GroupService {
       details: gear.details || "",
       season: gear.season || "",
       weightGrams: Number(gear.weightGrams) || 0
-    }));
+    });
+
+    group.gear.push(addedItem);
 
     this.store.write(data);
+    return addedItem;
   }
 
   updateGear({ groupId, gearId, patch = {} }) {
@@ -841,9 +859,22 @@ export class GroupService {
 
     return preparedGroup.gear.filter(
       (item) => (item.scope === "shared" || item.scope === "spare" || item.shareable)
-        && item.name.toLowerCase().includes(search)
+        && gearNamesMatch(item.name, search)
         && (!excludeMemberId || String(item.memberId) !== String(excludeMemberId))
     ).map((item) => enrichGearItem(item));
+  }
+
+  findNeedsMatchedByGear(groupId, gearName, { excludeMemberId = "" } = {}) {
+    const snapshot = this.getGearSnapshot(groupId);
+    if (!snapshot) {
+      return [];
+    }
+
+    return snapshot.gearNeeds.filter(
+      (item) =>
+        gearNamesMatch(item.name, gearName)
+        && (!excludeMemberId || String(item.memberId) !== String(excludeMemberId))
+    );
   }
 
   getGearSnapshot(groupId) {

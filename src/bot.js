@@ -1548,13 +1548,34 @@ function getTripHistoryDetailsKeyboard(items) {
   return getTripHistoryKeyboard(items, { includeHistoryBack: true });
 }
 
-function buildMatchedNeedsSummaryLines(needs, userService) {
+function buildMatchedNeedsSummaryLines(needs, userService, { availableQuantity = null } = {}) {
   return needs.map((need) => {
     const requester = need.memberId
       ? userService.getDisplayName(String(need.memberId), need.memberName || "Учасник")
       : (need.memberName || "Учасник");
-    return `• ${escapeHtml(requester)}: ${escapeHtml(need.name)} | ${escapeHtml(String(need.quantity))}`;
+    const coverage = Number.isFinite(availableQuantity)
+      ? ` | ${escapeHtml(availableQuantity >= need.quantity ? `повністю ${availableQuantity}/${need.quantity}` : `частково ${availableQuantity}/${need.quantity}`)}`
+      : "";
+    return `• ${escapeHtml(requester)}: ${escapeHtml(need.name)} | ${escapeHtml(String(need.quantity))}${coverage}`;
   });
+}
+
+function getGearCoverageStatusLabel(match) {
+  if (match?.isEnough) {
+    return `повністю: ${match.availableQuantity}/${match.requestedQuantity}`;
+  }
+  return `частково: ${match.availableQuantity}/${match.requestedQuantity}`;
+}
+
+function buildGearCoverageMatchLines(matches) {
+  return matches.map((item, index) =>
+    `• ${index + 1}. ${escapeHtml(item.name)} | ${escapeHtml(item.memberName || "учасник")} | ${escapeHtml(getGearCoverageStatusLabel(item))}`
+  );
+}
+
+function formatResolvedGearNeedListLine(need) {
+  const matched = need.matchedByMemberName ? ` | допоміг: ${escapeHtml(need.matchedByMemberName)}` : "";
+  return `• ${escapeHtml(need.name)}: ${escapeHtml(String(need.quantity))} | ${escapeHtml(getGearNeedStatusLabel(need.status))}${matched}`;
 }
 
 function formatTripCompletionSummary(trip, userService = null) {
@@ -2535,6 +2556,9 @@ function startMyNeedsWizard(ctx, groupService) {
   }
 
   const needs = groupService.getMemberGearNeeds(trip.id, String(ctx.from.id));
+  const historyNeeds = groupService
+    .getMemberGearNeeds(trip.id, String(ctx.from.id), { includeResolved: true })
+    .filter((item) => item.status === "fulfilled" || item.status === "cancelled");
   if (!needs.length) {
     return ctx.reply(
       joinRichLines([
@@ -2543,7 +2567,15 @@ function startMyNeedsWizard(ctx, groupService) {
         "У тебе немає активних запитів у цьому поході.",
         "",
         "⚠️ Зверни увагу:",
-        "• якщо чогось бракує, створи новий запит у цьому ж розділі"
+        "• якщо чогось бракує, створи новий запит у цьому ж розділі",
+        "• отримані або скасовані запити автоматично не потрапляють у робочий список",
+        ...(historyNeeds.length
+          ? [
+              "",
+              "🕓 Останні закриті запити:",
+              ...historyNeeds.slice(-3).reverse().map((item) => formatResolvedGearNeedListLine(item))
+            ]
+          : [])
       ]),
       { parse_mode: "HTML", ...getTripGearKeyboard() }
     );
@@ -2685,6 +2717,10 @@ function buildGearNeedCancelledNotification(trip, requesterName, need) {
 }
 
 function buildGearCoverageAvailableNotification(trip, gearItem, actorName, need) {
+  const availableQuantity = Math.max(0, Number(gearItem?.quantity) || 0);
+  const coverageText = availableQuantity >= need.quantity
+    ? `повне покриття: ${availableQuantity}/${need.quantity}`
+    : `часткове покриття: ${availableQuantity}/${need.quantity}`;
   return joinRichLines([
     ...formatCardHeader("🤝", "З'ЯВИЛАСЯ МОЖЛИВА ДОПОМОГА"),
     "",
@@ -2692,6 +2728,7 @@ function buildGearCoverageAvailableNotification(trip, gearItem, actorName, need)
     `Запит: <b>${escapeHtml(need.name)}</b> | ${escapeHtml(String(need.quantity))}`,
     `Додав: <b>${escapeHtml(actorName)}</b>`,
     `Річ: <b>${escapeHtml(gearItem.name)}</b> | ${escapeHtml(getTripGearScopeLabel(gearItem))}`,
+    `Статус покриття: <b>${escapeHtml(coverageText)}</b>`,
     "",
     "Відкрий <b>📋 Мої запити</b> → <b>🤝 Хто може допомогти</b>, щоб переглянути збіг."
   ]);
@@ -5087,7 +5124,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
           ? [
               "",
               "🤝 Ця річ може допомогти закрити такі запити:",
-              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService)
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(addedGear.quantity) || 0 })
             ]
           : [])
       ]),
@@ -5363,7 +5400,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
           ? [
               "",
               "🤝 Після оновлення ця річ може допомогти закрити такі запити:",
-              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService)
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(updatedGear.quantity) || 0 })
             ]
           : [])
       ]),
@@ -5488,7 +5525,12 @@ async function handleGearNeedFlow(ctx, flow, groupService, userService, telegram
       need: { name: flow.data.name, quantity: flow.data.quantity, note }
     });
     const trip = groupService.findGroupByMember(String(ctx.from.id));
-    const coverage = trip ? groupService.findGearCoverage(trip.id, need.name, { excludeMemberId: String(ctx.from.id) }) : { matches: [] };
+    const coverage = trip
+      ? groupService.findGearCoverage(trip.id, need.name, {
+          excludeMemberId: String(ctx.from.id),
+          requestedQuantity: need.quantity
+        })
+      : { matches: [] };
 
     clearFlow(String(ctx.from.id));
 
@@ -5508,7 +5550,7 @@ async function handleGearNeedFlow(ctx, flow, groupService, userService, telegram
         ...formatGearNeedSummaryLines(need),
         "",
         coverage.matches.length
-          ? `🤝 Уже є учасники, які потенційно можуть допомогти: ${coverage.matches.map((item) => item.memberName || "учасник").join(", ")}`
+          ? `🤝 Уже є учасники, які потенційно можуть допомогти: ${coverage.matches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`
           : "🤝 Поки що бот не знайшов готового спорядження для цього запиту."
       ]),
       { parse_mode: "HTML", ...getTripGearKeyboard() }
@@ -5534,7 +5576,10 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
   if (flow.step === "cancel_confirm" && message === "❌ Скасувати") {
     flow.step = "action";
     setFlow(String(ctx.from.id), flow);
-    const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, { excludeMemberId: String(ctx.from.id) }).matches;
+    const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, {
+      excludeMemberId: String(ctx.from.id),
+      requestedQuantity: flow.data.need.quantity
+    }).matches;
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", flow.data.need.name),
@@ -5562,7 +5607,10 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
     flow.step = "action";
     flow.data.need = need;
     setFlow(String(ctx.from.id), flow);
-    const matches = groupService.findGearCoverage(flow.tripId, need.name, { excludeMemberId: String(ctx.from.id) }).matches;
+    const matches = groupService.findGearCoverage(flow.tripId, need.name, {
+      excludeMemberId: String(ctx.from.id),
+      requestedQuantity: need.quantity
+    }).matches;
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", need.name),
@@ -5591,7 +5639,10 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
     }
 
     if (message === GEAR_NEED_HELP_LABEL) {
-      const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, { excludeMemberId: String(ctx.from.id) }).matches;
+      const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, {
+        excludeMemberId: String(ctx.from.id),
+        requestedQuantity: flow.data.need.quantity
+      }).matches;
       if (!matches.length) {
         return ctx.reply(
           "Поки що ніхто не позначив відповідне спільне або запасне спорядження.",
@@ -5601,7 +5652,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
 
       const preparedMatches = matches.map((item, index) => ({
         ...item,
-        actionLabel: `${index + 1}. ${item.name} | ${item.memberName || "учасник"}`
+        actionLabel: `${index + 1}. ${truncateButtonLabel(item.name, 18)}`
       }));
       flow.step = "match_pick";
       flow.data.matches = preparedMatches;
@@ -5610,7 +5661,9 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         joinRichLines([
           ...formatCardHeader("🤝 ХТО МОЖЕ ДОПОМОГТИ", flow.data.need.name),
           "",
-          "Обери спорядження, яким можуть закрити твій запит."
+          "Обери спорядження, яким можуть закрити твій запит.",
+          "",
+          ...buildGearCoverageMatchLines(preparedMatches)
         ]),
         { parse_mode: "HTML", ...getMyGearNeedMatchesKeyboard(preparedMatches) }
       );
@@ -5662,7 +5715,10 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
       flow.step = "action";
       delete flow.data.matches;
       setFlow(String(ctx.from.id), flow);
-      const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, { excludeMemberId: String(ctx.from.id) }).matches;
+      const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, {
+        excludeMemberId: String(ctx.from.id),
+        requestedQuantity: flow.data.need.quantity
+      }).matches;
       return ctx.reply(
         joinRichLines([
           ...formatCardHeader("📋 МОЇ ЗАПИТИ", flow.data.need.name),
@@ -5679,6 +5735,20 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
     const picked = matches.find((item) => item.actionLabel === message);
     if (!picked) {
       return ctx.reply("Обери спорядження кнопкою нижче.", getMyGearNeedMatchesKeyboard(matches));
+    }
+
+    if (!picked.isEnough) {
+      return ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("⚠️ КІЛЬКОСТІ НЕДОСТАТНЬО", picked.name),
+          "",
+          `Потрібно: <b>${escapeHtml(String(picked.requestedQuantity))}</b>`,
+          `Доступно зараз: <b>${escapeHtml(String(picked.availableQuantity))}</b>`,
+          "",
+          "Ця річ покриває запит лише частково. Обери іншу позицію або дочекайся, поки хтось додасть ще спорядження."
+        ]),
+        { parse_mode: "HTML", ...getMyGearNeedMatchesKeyboard(matches) }
+      );
     }
 
     const matchedNeed = groupService.matchGearNeed({
@@ -7193,9 +7263,11 @@ function showMyNeeds(ctx, groupService) {
     return null;
   }
 
-  const needs = groupService.getMemberGearNeeds(trip.id, String(ctx.from.id), { includeResolved: true });
+  const allNeeds = groupService.getMemberGearNeeds(trip.id, String(ctx.from.id), { includeResolved: true });
+  const needs = allNeeds.filter((item) => item.status === "open" || item.status === "matched");
+  const historyNeeds = allNeeds.filter((item) => item.status === "fulfilled" || item.status === "cancelled");
 
-  if (!needs.length) {
+  if (!needs.length && !historyNeeds.length) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", trip.name),
@@ -7206,11 +7278,23 @@ function showMyNeeds(ctx, groupService) {
     );
   }
 
-    return ctx.reply(
+  return ctx.reply(
     joinRichLines([
       ...formatCardHeader("📋 МОЇ ЗАПИТИ", trip.name),
       "",
-      ...needs.map((item) => formatGearNeedListLine(item))
+      ...(needs.length
+        ? [
+            formatSectionHeader("🟢", "Активні Запити"),
+            ...needs.map((item) => formatGearNeedListLine(item))
+          ]
+        : ["Активних запитів зараз немає."]),
+      ...(historyNeeds.length
+        ? [
+            "",
+            formatSectionHeader("🕓", "Закриті Запити"),
+            ...historyNeeds.slice().reverse().map((item) => formatResolvedGearNeedListLine(item))
+          ]
+        : [])
     ]),
     { parse_mode: "HTML", ...getTripGearKeyboard() }
   );
@@ -7917,7 +8001,7 @@ export function createBot(store) {
           ? [
               "",
               "🤝 Ця річ може допомогти закрити такі запити:",
-              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService)
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(addedGear.quantity) || 0 })
             ]
           : [])
       ]),
@@ -7959,7 +8043,10 @@ export function createBot(store) {
     if (!gearName) {
       return ctx.reply("Формат: `/requestgear намет`", { parse_mode: "Markdown", ...getTripGearKeyboard() });
     }
-    const coverage = groupService.findGearCoverage(trip.id, gearName, { excludeMemberId: String(ctx.from.id) });
+    const coverage = groupService.findGearCoverage(trip.id, gearName, {
+      excludeMemberId: String(ctx.from.id),
+      requestedQuantity: 1
+    });
     if (!coverage.matches.length) {
       return ctx.reply(
         joinRichLines([
@@ -7976,7 +8063,7 @@ export function createBot(store) {
         { parse_mode: "HTML", ...getTripGearKeyboard() }
       );
     }
-    const lines = coverage.matches.map((item) => `• ${item.memberName}: ${item.name} (${item.quantity})`);
+    const lines = coverage.matches.map((item) => `• ${item.memberName}: ${item.name} (${getGearCoverageStatusLabel(item)})`);
     return ctx.reply(`🤝 Можуть поділитися:\n${lines.join("\n")}`, getTripGearKeyboard());
   });
   bot.command("myneeds", (ctx) => startMyNeedsWizard(ctx, groupService));
@@ -8195,7 +8282,10 @@ export function createBot(store) {
     if (activeFlow?.type === "gear_need_manage" && activeFlow.step === "cancel_confirm" && activeFlow.data?.need) {
       activeFlow.step = "action";
       setFlow(String(ctx.from.id), activeFlow);
-      const matches = groupService.findGearCoverage(activeFlow.tripId, activeFlow.data.need.name, { excludeMemberId: String(ctx.from.id) }).matches;
+      const matches = groupService.findGearCoverage(activeFlow.tripId, activeFlow.data.need.name, {
+        excludeMemberId: String(ctx.from.id),
+        requestedQuantity: activeFlow.data.need.quantity
+      }).matches;
       return ctx.reply(
         joinRichLines([
           ...formatCardHeader("📋 МОЇ ЗАПИТИ", activeFlow.data.need.name),

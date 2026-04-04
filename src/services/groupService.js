@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { enrichGearItem } from "../data/gearCatalog.js";
+import { categorizeGearName, enrichGearItem, resolveGearProfile } from "../data/gearCatalog.js";
 
 function createInviteCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -35,15 +35,57 @@ function normalizeGearSearchValue(value = "") {
   return String(value || "").trim().toLowerCase();
 }
 
+function extractSearchTokens(value = "") {
+  return normalizeGearSearchValue(value)
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 4);
+}
+
+function buildGearIdentity(name = "") {
+  const category = categorizeGearName(name);
+  const profile = resolveGearProfile(name);
+  return {
+    normalized: normalizeGearSearchValue(name),
+    categoryKey: category.key,
+    profileKey: profile.key,
+    tokens: extractSearchTokens(name)
+  };
+}
+
 function gearNamesMatch(left = "", right = "") {
-  const leftValue = normalizeGearSearchValue(left);
-  const rightValue = normalizeGearSearchValue(right);
+  const leftIdentity = buildGearIdentity(left);
+  const rightIdentity = buildGearIdentity(right);
+  const leftValue = leftIdentity.normalized;
+  const rightValue = rightIdentity.normalized;
 
   if (!leftValue || !rightValue) {
     return false;
   }
 
-  return leftValue.includes(rightValue) || rightValue.includes(leftValue);
+  if (leftValue.includes(rightValue) || rightValue.includes(leftValue)) {
+    return true;
+  }
+
+  if (
+    leftIdentity.profileKey !== "generic" &&
+    rightIdentity.profileKey !== "generic" &&
+    leftIdentity.profileKey === rightIdentity.profileKey
+  ) {
+    return true;
+  }
+
+  if (
+    leftIdentity.categoryKey !== "other" &&
+    leftIdentity.categoryKey === rightIdentity.categoryKey
+  ) {
+    const sharedTokens = leftIdentity.tokens.filter((item) => rightIdentity.tokens.includes(item));
+    if (sharedTokens.length > 0) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function calculateReadiness(group) {
@@ -846,7 +888,7 @@ export class GroupService {
     return updatedNeed;
   }
 
-  findShareableGear(groupId, gearName, { excludeMemberId = "" } = {}) {
+  findShareableGear(groupId, gearName, { excludeMemberId = "", requestedQuantity = 1 } = {}) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);
 
@@ -855,13 +897,23 @@ export class GroupService {
     }
 
     const preparedGroup = createEmptyGroupFields(group);
-    const search = gearName.toLowerCase();
+    const requested = Math.max(1, Number(requestedQuantity) || 1);
 
     return preparedGroup.gear.filter(
       (item) => (item.scope === "shared" || item.scope === "spare" || item.shareable)
-        && gearNamesMatch(item.name, search)
+        && gearNamesMatch(item.name, gearName)
         && (!excludeMemberId || String(item.memberId) !== String(excludeMemberId))
-    ).map((item) => enrichGearItem(item));
+    ).map((item) => {
+      const enriched = enrichGearItem(item);
+      const availableQuantity = Math.max(0, Number(enriched.quantity) || 0);
+      return {
+        ...enriched,
+        requestedQuantity: requested,
+        availableQuantity,
+        isEnough: availableQuantity >= requested,
+        missingQuantity: Math.max(0, requested - availableQuantity)
+      };
+    }).sort((left, right) => Number(right.isEnough) - Number(left.isEnough));
   }
 
   findNeedsMatchedByGear(groupId, gearName, { excludeMemberId = "" } = {}) {
@@ -909,13 +961,12 @@ export class GroupService {
     };
   }
 
-  findGearCoverage(groupId, gearName, { excludeMemberId = "" } = {}) {
+  findGearCoverage(groupId, gearName, { excludeMemberId = "", requestedQuantity = 1 } = {}) {
     const needs = this.getGearSnapshot(groupId)?.gearNeeds || [];
-    const matches = this.findShareableGear(groupId, gearName, { excludeMemberId });
-    const search = gearName.toLowerCase();
+    const matches = this.findShareableGear(groupId, gearName, { excludeMemberId, requestedQuantity });
 
     return {
-      needs: needs.filter((item) => item.name.toLowerCase().includes(search)),
+      needs: needs.filter((item) => gearNamesMatch(item.name, gearName)),
       matches
     };
   }

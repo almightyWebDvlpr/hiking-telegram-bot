@@ -1072,7 +1072,7 @@ function getTripGearScopeKeyboard(allowKeep = false) {
 function getTripGearAddTypeKeyboard() {
   return buildKeyboard([
     ["🫕 Додати спільне", "🎒 Додати особисте"],
-    ["🧰 Додати запасне / позичу", TRIP_GEAR_ADD_BACK_LABEL],
+    ["🧰 Додати запасне / позичу"],
     ["❌ Скасувати"]
   ]);
 }

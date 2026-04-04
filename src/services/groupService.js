@@ -107,6 +107,9 @@ function buildFinalSummary(group) {
   const foodTotal = group.food.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
   const totalGear = group.gear.length;
   const activeNeeds = group.gearNeeds.filter((item) => isActiveGearNeedStatus(item.status));
+  const photoCount = Array.isArray(group.tripNotes)
+    ? group.tripNotes.filter((item) => item?.type === "photo" && item?.fileId).length
+    : 0;
   const routePoints = Array.isArray(group.routePlan?.points) ? group.routePlan.points.filter(Boolean) : [];
   const routeName = group.routePlan?.source === "vpohid" && group.routePlan?.sourceTitle
     ? group.routePlan.sourceTitle
@@ -125,6 +128,7 @@ function buildFinalSummary(group) {
     gearReadinessStatus: group.tripCard?.gearReadinessStatus || calculateReadiness(group),
     gearCount: totalGear,
     gearNeedsCount: activeNeeds.length,
+    photoCount,
     foodCount: group.food.length,
     foodTotal,
     expensesCount: group.expenses.length,
@@ -700,6 +704,26 @@ export class GroupService {
     }
 
     return createEmptyGroupFields(group).tripNotes;
+  }
+
+  addTripPhoto({ groupId, photo }) {
+    return this.addTripNote({
+      groupId,
+      note: {
+        type: "photo",
+        memberId: photo.memberId || "",
+        memberName: photo.memberName || "",
+        fileId: photo.fileId || "",
+        fileUniqueId: photo.fileUniqueId || "",
+        caption: photo.caption || ""
+      }
+    });
+  }
+
+  getTripPhotos(groupId) {
+    return this.getTripNotes(groupId)
+      .filter((item) => item?.type === "photo" && item?.fileId)
+      .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")));
   }
 
   markReminderSent({ groupId, reminderKey }) {

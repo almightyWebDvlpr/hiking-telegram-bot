@@ -3460,6 +3460,23 @@ function buildGearAttributesSummaryLines(name, quantity, attributes = {}, extraL
   return lines;
 }
 
+function buildGearRecognitionSummaryLines(name) {
+  const category = categorizeGearName(name);
+  const profile = resolveGearProfile(name);
+  const lines = [
+    `Категорія: ${category.title}`,
+    `Профіль характеристик: ${profile.label}`
+  ];
+
+  if (profile.key === "generic") {
+    lines.push("• точний тип не впізнано, тому бот застосує загальний набір полів");
+  } else {
+    lines.push("• далі бот поставить питання саме для цього типу спорядження");
+  }
+
+  return lines;
+}
+
 function startMyGearAddWizard(ctx) {
   setMenuContext(ctx.from?.id, "my-gear");
   setFlow(String(ctx.from.id), {
@@ -4534,10 +4551,20 @@ async function handleGearAddFlow(ctx, flow, groupService, userService) {
     flow.data.fieldIndex = 0;
     flow.step = "quantity";
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Скільки одиниць додати?\nПриклад: `1`", {
-      parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
-    });
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("➕ ДОДАТИ СПОРЯДЖЕННЯ", flow.data.name),
+        "",
+        ...buildGearRecognitionSummaryLines(flow.data.name),
+        "",
+        "Скільки одиниць додати?",
+        "Приклад: <code>1</code>"
+      ]),
+      {
+        parse_mode: "HTML",
+        ...FLOW_CANCEL_KEYBOARD
+      }
+    );
   }
 
   if (flow.step === "quantity") {

@@ -7298,7 +7298,7 @@ function showTripGear(ctx, groupService) {
       formatSectionHeader("🫕", "Спільне Спорядження"),
       ...shared,
       "",
-      formatSectionHeader("🎒", "Особисті Речі Учасників"),
+      formatSectionHeader("👥", "Особисті Речі Учасників"),
       ...personal,
       "",
       formatSectionHeader("🧰", "Запасне Або Можна Позичити"),

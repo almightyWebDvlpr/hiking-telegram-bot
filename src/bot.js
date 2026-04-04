@@ -69,6 +69,8 @@ const ROUTES_GENERATE_LABEL = "🧭 Згенерувати маршрут";
 const ROUTES_EXISTING_LABEL = "📚 Знайти в каталозі маршрутів";
 const ROUTES_DETAILS_LABEL = "📋 Деталі маршруту";
 const TRIP_WEATHER_BACK_LABEL = "⬅️ До походу";
+const TRIP_PHOTOS_LABEL = "📸 Фото походу";
+const TRIP_PHOTOS_ADD_LABEL = "📷 Поділитися фото";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
 const GEAR_EDIT_ACTION_LABEL = "✏️ Редагувати";
 const GEAR_EDIT_DELETE_LABEL = "🗑 Видалити";
@@ -410,7 +412,7 @@ function getTripKeyboard(trip, userId = "") {
     isTripOwner(trip, userId)
       ? ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"]
       : ["🗺 Маршрут походу", "🎒 Спорядження походу", KEYBOARD_PLACEHOLDER],
-    ["🆘 Безпека походу", "🍲 Харчування походу", KEYBOARD_PLACEHOLDER],
+    ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
     ["🌦 Погода походу", "💸 Витрати походу", isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],
     ["⬅️ Головне меню"]
   ];
@@ -1105,6 +1107,13 @@ function getTripFoodKeyboard({ hasItems = false } = {}) {
   rows.push(["🧾 Переглянути все харчування"]);
   rows.push(["⬅️ До походу"]);
   return buildKeyboard(rows);
+}
+
+function getTripPhotosKeyboard() {
+  return buildKeyboard([
+    [TRIP_PHOTOS_ADD_LABEL],
+    ["⬅️ До походу"]
+  ]);
 }
 
 function getTripExpensesKeyboard({ hasItems = false } = {}) {
@@ -2288,7 +2297,8 @@ function showTripMenu(ctx, groupService) {
     "• Паспорт походу — головна зведена картка",
     "• Маршрут походу — трек, GPX/KML і перегляд карти",
     "• Учасники походу — список, запрошення і права доступу",
-    "• Спорядження / Харчування / Витрати — робочі списки походу"
+    "• Спорядження / Харчування / Витрати — робочі списки походу",
+    "• Фото походу — кадри з маршруту і короткі підписи до них"
   ];
 
   if (canManageTrip(trip, String(ctx.from.id))) {
@@ -2328,6 +2338,60 @@ function showTripReminders(ctx, groupService) {
   }
 
   return ctx.reply(formatReminderPlan(trip), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
+}
+
+function showTripPhotosMenu(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-photos");
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("📸 ФОТО ПОХОДУ", trip.name),
+      "",
+      "Що тут можна робити:",
+      `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
+      "",
+      "⚠️ Зверни увагу:",
+      "• бот не зберігає фото в БД",
+      "• фото одразу надсилається учасникам походу через Telegram",
+      "• можна додати підпис прямо в повідомленні до фото"
+    ]),
+    { parse_mode: "HTML", ...getTripPhotosKeyboard() }
+  );
+}
+
+function startTripPhotoAddWizard(ctx, groupService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  setMenuContext(ctx.from?.id, "trip-photos");
+  setFlow(String(ctx.from.id), {
+    type: "trip_photo_add",
+    tripId: trip.id,
+    step: "await_photo",
+    data: {}
+  });
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("📷 ДОДАТИ ФОТО", trip.name),
+      "",
+      "Надішли фото повідомленням.",
+      "Якщо хочеш, додай короткий підпис прямо до фото.",
+      "",
+      "⚠️ Зверни увагу:",
+      "• бот не зберігає фото в БД",
+      "• фото буде розіслано учасникам походу",
+      "• можна надсилати кілька фото підряд",
+      "• `❌ Скасувати` поверне в розділ фото походу"
+    ]),
+    { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+  );
 }
 
 function showTripPassport(ctx, groupService, userService) {
@@ -2531,6 +2595,7 @@ function startGearAddWizard(ctx, groupService, mode) {
 }
 
 function showTripGearAddMenu(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-gear-add");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
@@ -5156,6 +5221,86 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
   return null;
 }
 
+async function handleTripPhotoAddFlow(ctx, flow, groupService) {
+  const message = ctx.message.text.trim();
+
+  if (message === "❌ Скасувати") {
+    clearFlow(String(ctx.from.id));
+    return showTripPhotosMenu(ctx, groupService);
+  }
+
+  return ctx.reply(
+    "Надішли фото повідомленням. Якщо хочеш, додай підпис прямо до фото.",
+    FLOW_CANCEL_KEYBOARD
+  );
+}
+
+function buildTripPhotoShareCaption(trip, authorName, caption = "") {
+  return joinRichLines([
+    ...formatCardHeader("📸", "ФОТО З ПОХОДУ"),
+    "",
+    `Похід: <b>${escapeHtml(trip.name)}</b>`,
+    `Надіслав: <b>${escapeHtml(authorName)}</b>`,
+    caption ? `Підпис: <b>${escapeHtml(caption)}</b>` : null
+  ]);
+}
+
+async function shareTripPhotoWithMembers(telegram, trip, senderId, fileId, caption, authorName) {
+  const recipients = (trip.members || []).filter((member) => String(member.id) !== String(senderId));
+  let delivered = 0;
+
+  for (const member of recipients) {
+    try {
+      await telegram.sendPhoto(member.id, fileId, {
+        caption: buildTripPhotoShareCaption(trip, authorName, caption),
+        parse_mode: "HTML"
+      });
+      delivered += 1;
+    } catch {
+      // skip failed delivery to one recipient and continue
+    }
+  }
+
+  return { delivered, recipients: recipients.length };
+}
+
+async function handleTripPhotoMessage(ctx, flow, groupService, userService, telegram) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    clearFlow(String(ctx.from.id));
+    return null;
+  }
+
+  const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
+  if (!photo?.file_id) {
+    return ctx.reply("Надішли саме фото повідомленням.", FLOW_CANCEL_KEYBOARD);
+  }
+
+  const caption = String(ctx.message?.caption || "").trim();
+  const authorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
+  const delivery = await shareTripPhotoWithMembers(
+    telegram,
+    trip,
+    String(ctx.from.id),
+    photo.file_id,
+    caption,
+    authorName
+  );
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("📸 ФОТО НАДІСЛАНО", trip.name),
+      "",
+      `Надіслав: ${authorName}`,
+      `Отримали учасників: ${delivery.delivered} із ${delivery.recipients}`,
+      caption ? `Підпис: ${caption}` : null,
+      "",
+      "Можеш надіслати ще фото або натиснути `❌ Скасувати`, щоб повернутися назад."
+    ]),
+    { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+  );
+}
+
 async function handleGearEditFlow(ctx, flow, groupService, userService, telegram = null) {
   const message = ctx.message.text.trim();
 
@@ -7044,6 +7189,11 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     return true;
   }
 
+  if (flow.type === "trip_photo_add") {
+    await handleTripPhotoAddFlow(ctx, flow, groupService);
+    return true;
+  }
+
   if (flow.type === "gear_edit") {
     await handleGearEditFlow(ctx, flow, groupService, userService, telegram);
     return true;
@@ -7202,6 +7352,7 @@ function addMyGear(ctx, userService, input) {
 }
 
 function showTripGearMenu(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-gear");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
@@ -7296,7 +7447,7 @@ function showTripGear(ctx, groupService) {
       formatSectionHeader("🫕", "Спільне Спорядження"),
       ...shared,
       "",
-      formatSectionHeader("🎒", "Особисті Речі Учасників"),
+      formatSectionHeader("👥", "Особисті Речі Учасників"),
       ...personal,
       "",
       formatSectionHeader("🧰", "Запасне Або Можна Позичити"),
@@ -8246,6 +8397,8 @@ export function createBot(store) {
   bot.hears("🧭 HTML карта треку", (ctx) => sendRouteExport(ctx, groupService, routeService, "html"));
   bot.hears("🎒 Спорядження походу", (ctx) => showTripGearMenu(ctx, groupService));
   bot.hears("🍲 Харчування походу", (ctx) => showTripFoodMenu(ctx, groupService));
+  bot.hears(TRIP_PHOTOS_LABEL, (ctx) => showTripPhotosMenu(ctx, groupService));
+  bot.hears(TRIP_PHOTOS_ADD_LABEL, (ctx) => startTripPhotoAddWizard(ctx, groupService));
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService));
   bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
@@ -8387,6 +8540,10 @@ export function createBot(store) {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getRoutesMenuKeyboard(ctx.from.id) });
     }
 
+    if (activeFlow?.type === "trip_photo_add") {
+      return showTripPhotosMenu(ctx, groupService);
+    }
+
     if (activeFlow?.type === "gear_add" || activeFlow?.type === "gear_edit" || activeFlow?.type === "gear_delete" || activeFlow?.type === "gear_need" || activeFlow?.type === "gear_need_manage") {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripGearKeyboard() });
     }
@@ -8405,6 +8562,14 @@ export function createBot(store) {
 
     if (menuContext === "routes-catalog") {
       return showRoutesMenu(ctx);
+    }
+
+    if (menuContext === "trip-gear-add" || menuContext === "trip-gear") {
+      return showTripGearMenu(ctx, groupService);
+    }
+
+    if (menuContext === "trip-photos") {
+      return showTripPhotosMenu(ctx, groupService);
     }
 
     if (menuContext === "my-gear") {
@@ -8432,6 +8597,13 @@ export function createBot(store) {
         parse_mode: "Markdown",
         ...getMainKeyboard(ctx)
       });
+    }
+  });
+
+  bot.on("photo", async (ctx) => {
+    const flow = getFlow(String(ctx.from.id));
+    if (flow?.type === "trip_photo_add") {
+      await handleTripPhotoMessage(ctx, flow, groupService, userService, bot.telegram);
     }
   });
 

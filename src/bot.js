@@ -2531,6 +2531,7 @@ function startGearAddWizard(ctx, groupService, mode) {
 }
 
 function showTripGearAddMenu(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-gear-add");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
@@ -7202,6 +7203,7 @@ function addMyGear(ctx, userService, input) {
 }
 
 function showTripGearMenu(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-gear");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
@@ -8405,6 +8407,10 @@ export function createBot(store) {
 
     if (menuContext === "routes-catalog") {
       return showRoutesMenu(ctx);
+    }
+
+    if (menuContext === "trip-gear-add" || menuContext === "trip-gear") {
+      return showTripGearMenu(ctx, groupService);
     }
 
     if (menuContext === "my-gear") {

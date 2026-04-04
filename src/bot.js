@@ -82,6 +82,8 @@ const GEAR_SCOPE_SHARED_LABEL = "🫕 Спільне";
 const GEAR_SCOPE_PERSONAL_LABEL = "🎒 Особисте";
 const GEAR_SCOPE_SPARE_LABEL = "🧰 Запасне / позичу";
 const GEAR_SCOPE_KEEP_LABEL = "⏭ Без змін";
+const PAGINATION_PREV_LABEL = "⬅️ Попередні";
+const PAGINATION_NEXT_LABEL = "➡️ Наступні";
 const TRIP_GEAR_ADD_LABEL = "➕ Додати спорядження";
 const TRIP_GEAR_ADD_BACK_LABEL = "⬅️ До спорядження походу";
 
@@ -997,10 +999,30 @@ function getGearDeleteConfirmKeyboard() {
   ]);
 }
 
-function getTripGearEditItemsKeyboard(items) {
+function getTripGearEditItemsKeyboard(items, page = 0) {
+  return getPaginatedItemsKeyboard(items, page);
+}
+
+function getPaginatedItemsKeyboard(items, page = 0, pageSize = 8) {
+  const pagesCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(0, Number(page) || 0), pagesCount - 1);
+  const startIndex = safePage * pageSize;
+  const visibleItems = items.slice(startIndex, startIndex + pageSize);
   const rows = [];
-  for (let index = 0; index < items.length; index += 2) {
-    rows.push(items.slice(index, index + 2).map((item) => item.actionLabel));
+  for (let index = 0; index < visibleItems.length; index += 2) {
+    rows.push(visibleItems.slice(index, index + 2).map((item) => item.actionLabel));
+  }
+  if (pagesCount > 1) {
+    const paginationRow = [];
+    if (safePage > 0) {
+      paginationRow.push(PAGINATION_PREV_LABEL);
+    }
+    if (safePage < pagesCount - 1) {
+      paginationRow.push(PAGINATION_NEXT_LABEL);
+    }
+    if (paginationRow.length) {
+      rows.push(paginationRow);
+    }
   }
   rows.push(["❌ Скасувати"]);
   return buildKeyboard(rows);
@@ -2821,7 +2843,7 @@ function startGearEditWizard(ctx, groupService) {
     type: "gear_edit",
     tripId: trip.id,
     step: "pick",
-    data: { items: preparedItems }
+    data: { items: preparedItems, page: 0 }
   });
 
   return ctx.reply(
@@ -2834,7 +2856,7 @@ function startGearEditWizard(ctx, groupService) {
       "• після вибору відкриється окреме меню дій",
       "• кнопка <b>❌ Скасувати</b> поверне до розділу спорядження"
     ]),
-    { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(preparedItems) }
+    { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(preparedItems, 0) }
   );
 }
 
@@ -3967,7 +3989,7 @@ function startMyGearEditWizard(ctx, userService) {
   setFlow(String(ctx.from.id), {
     type: "my_gear_edit",
     step: "pick",
-    data: { items: preparedItems }
+    data: { items: preparedItems, page: 0 }
   });
 
   return ctx.reply(
@@ -3980,7 +4002,7 @@ function startMyGearEditWizard(ctx, userService) {
       "• після вибору відкриється окреме меню дій",
       "• кнопка <b>❌ Скасувати</b> поверне до розділу мого спорядження"
     ]),
-    { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(preparedItems) }
+    { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(preparedItems, 0) }
   );
 }
 
@@ -5162,12 +5184,26 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
 
   if (flow.step === "pick") {
     const items = flow.data.items || [];
+    const page = Math.max(0, Number(flow.data.page) || 0);
+    const maxPage = Math.max(0, Math.ceil(items.length / 8) - 1);
+
+    if (message === PAGINATION_PREV_LABEL || message === PAGINATION_NEXT_LABEL) {
+      flow.data.page = message === PAGINATION_PREV_LABEL
+        ? Math.max(0, page - 1)
+        : Math.min(maxPage, page + 1);
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        "Обери спорядження кнопкою нижче.",
+        getTripGearEditItemsKeyboard(items, flow.data.page)
+      );
+    }
+
     const numericIndex = Number.parseInt(message, 10);
     const item = items.find((entry) => entry.actionLabel === message)
       || (Number.isInteger(numericIndex) ? items[numericIndex - 1] : null);
 
     if (!item) {
-      return ctx.reply("Обери спорядження кнопкою нижче.", getTripGearEditItemsKeyboard(items));
+      return ctx.reply("Обери спорядження кнопкою нижче.", getTripGearEditItemsKeyboard(items, page));
     }
 
     flow.step = "action";
@@ -5198,7 +5234,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
           "",
           "Обери спорядження, яке хочеш змінити."
         ]),
-        { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(flow.data.items || []) }
+        { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(flow.data.items || [], flow.data.page || 0) }
       );
     }
 
@@ -6342,12 +6378,26 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
 
   if (flow.step === "pick") {
     const items = flow.data.items || [];
+    const page = Math.max(0, Number(flow.data.page) || 0);
+    const maxPage = Math.max(0, Math.ceil(items.length / 8) - 1);
+
+    if (message === PAGINATION_PREV_LABEL || message === PAGINATION_NEXT_LABEL) {
+      flow.data.page = message === PAGINATION_PREV_LABEL
+        ? Math.max(0, page - 1)
+        : Math.min(maxPage, page + 1);
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        "Обери річ кнопкою нижче.",
+        getTripGearEditItemsKeyboard(items, flow.data.page)
+      );
+    }
+
     const numericIndex = Number.parseInt(message, 10);
     const item = items.find((entry) => entry.actionLabel === message)
       || (Number.isInteger(numericIndex) ? items[numericIndex - 1] : null);
 
     if (!item) {
-      return ctx.reply("Обери річ кнопкою нижче.", getTripGearEditItemsKeyboard(items));
+      return ctx.reply("Обери річ кнопкою нижче.", getTripGearEditItemsKeyboard(items, page));
     }
 
     flow.step = "action";
@@ -6376,7 +6426,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
           "",
           "Обери річ, яку хочеш змінити."
         ]),
-        { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(flow.data.items || []) }
+        { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(flow.data.items || [], flow.data.page || 0) }
       );
     }
 

@@ -977,9 +977,9 @@ function getTripRouteChangeKeyboard() {
 function getTripGearKeyboard() {
   return buildKeyboard([
     ["🫕 Додати спільне", "🎒 Додати особисте"],
+    ["📦 Переглянути все", "✏️ Редагувати спорядження"],
     ["🧰 Додати запасне / позичу", "🆘 Мені бракує спорядження"],
-    ["📦 Переглянути все", "📋 Мої запити"],
-    ["✏️ Редагувати спорядження", "🗑 Видалити спорядження"],
+    ["📋 Мої запити"],
     ["⬅️ До походу"],
   ]);
 }
@@ -6231,7 +6231,6 @@ function showTripGearMenu(ctx, groupService) {
       "• `🆘 Мені бракує спорядження` — додати, чого тобі не вистачає",
       "• `📦 Переглянути все` — побачити всю картину по спорядженню походу",
       "• `✏️ Редагувати спорядження` — змінити свої позиції, а з правами редагування — будь-які",
-      "• `🗑 Видалити спорядження` — прибрати зайву або помилково додану позицію",
       "",
       "⚠️ Зверни увагу:",
       "• краще одразу розділяти спільне, особисте і запасне",
@@ -7225,7 +7224,6 @@ export function createBot(store) {
   bot.hears("📦 Переглянути все", (ctx) => showTripGear(ctx, groupService));
   bot.hears("📋 Мої запити", (ctx) => showMyNeeds(ctx, groupService));
   bot.hears("✏️ Редагувати спорядження", (ctx) => startGearEditWizard(ctx, groupService));
-  bot.hears("🗑 Видалити спорядження", (ctx) => startGearDeleteWizard(ctx, groupService));
   bot.hears("🥘 Додати продукт", (ctx) => startFoodAddWizard(ctx, groupService));
   bot.hears("🗑 Видалити продукт", (ctx) => startFoodDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути все харчування", (ctx) => showTripFood(ctx, groupService, userService));

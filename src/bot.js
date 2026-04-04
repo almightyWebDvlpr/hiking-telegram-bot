@@ -3616,24 +3616,28 @@ function startMyGearEditWizard(ctx, userService) {
     );
   }
 
+  const preparedItems = items.map((item, index) => ({
+    ...item,
+    actionLabel: `${index + 1}. ${item.name}`
+  }));
+
   setFlow(String(ctx.from.id), {
     type: "my_gear_edit",
     step: "pick",
-    data: {
-      items
-    }
+    data: { items: preparedItems }
   });
 
-  const lines = items.map((item, index) => `${index + 1}. ${item.name} — ${item.quantity} шт.`).join("\n");
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", "Обери річ"),
       "",
-      lines,
+      "Обери річ, яку хочеш змінити.",
       "",
-      "Введи номер речі зі списку."
+      "⚠️ Зверни увагу:",
+      "• після вибору відкриється окреме меню дій",
+      "• кнопка <b>❌ Скасувати</b> поверне до розділу мого спорядження"
     ]),
-    { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+    { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(preparedItems) }
   );
 }
 
@@ -5592,61 +5596,128 @@ async function handleMyGearAddFlow(ctx, flow, userService) {
 async function handleMyGearEditFlow(ctx, flow, userService) {
   const message = ctx.message.text.trim();
 
+  if (flow.step === "delete_confirm" && message === "❌ Скасувати") {
+    flow.step = "action";
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Поточна кількість: ${flow.data.item.quantity}`,
+        "",
+        "Що хочеш зробити з цією річчю?"
+      ]),
+      { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+    );
+  }
+
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
     return showMyGearMenu(ctx);
   }
 
   if (flow.step === "pick") {
-    const index = Number(message);
-    const item = flow.data.items[index - 1];
+    const items = flow.data.items || [];
+    const numericIndex = Number.parseInt(message, 10);
+    const item = items.find((entry) => entry.actionLabel === message)
+      || (Number.isInteger(numericIndex) ? items[numericIndex - 1] : null);
 
     if (!item) {
-      return ctx.reply("Введи номер речі зі списку.", FLOW_CANCEL_KEYBOARD);
+      return ctx.reply("Обери річ кнопкою нижче.", getTripGearEditItemsKeyboard(items));
     }
 
-    flow.step = "quantity";
+    flow.step = "action";
     flow.data.item = item;
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
-        ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", item.name),
+        ...formatCardHeader("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", item.name),
         "",
         `Поточна кількість: ${item.quantity}`,
-        "Введи нову кількість.",
         "",
-        "⚠️ Зверни увагу:",
-        "• якщо вказати <b>0</b>, річ буде видалена"
+        "Що хочеш зробити з цією річчю?"
+      ]),
+      { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+    );
+  }
+
+  if (flow.step === "action") {
+    if (message === GEAR_EDIT_BACK_LABEL) {
+      flow.step = "pick";
+      delete flow.data.item;
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", "Вибір речі"),
+          "",
+          "Обери річ, яку хочеш змінити."
+        ]),
+        { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(flow.data.items || []) }
+      );
+    }
+
+    if (message === GEAR_EDIT_DELETE_LABEL) {
+      flow.step = "delete_confirm";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("🗑 ПІДТВЕРДЖЕННЯ ВИДАЛЕННЯ", flow.data.item.name),
+          "",
+          `Кількість: ${flow.data.item.quantity}`,
+          "",
+          "Підтвердь видалення цієї речі."
+        ]),
+        { parse_mode: "HTML", ...getGearDeleteConfirmKeyboard() }
+      );
+    }
+
+    if (message !== GEAR_EDIT_ACTION_LABEL) {
+      return ctx.reply("Обери дію кнопкою нижче.", getTripGearEditActionKeyboard());
+    }
+
+    flow.step = "quantity";
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Поточна кількість: ${flow.data.item.quantity}`,
+        "Введи нову кількість.",
+        `Щоб просто продовжити редагування без зміни кількості, введи <code>${flow.data.item.quantity}</code>.`
       ]),
       { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
     );
   }
 
+  if (flow.step === "delete_confirm") {
+    if (message !== GEAR_DELETE_CONFIRM_LABEL) {
+      return ctx.reply("Натисни кнопку підтвердження або повернись назад.", getGearDeleteConfirmKeyboard());
+    }
+
+    const removed = userService.deletePersonalGear({
+      userId: String(ctx.from.id),
+      userName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
+      gearId: flow.data.item.id
+    });
+    clearFlow(String(ctx.from.id));
+    await ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed.name),
+        "",
+        "Річ прибрана з твого особистого списку."
+      ]),
+      { parse_mode: "HTML", ...MY_GEAR_KEYBOARD }
+    );
+    return showMyGear(ctx, userService);
+  }
+
   if (flow.step === "quantity") {
     const quantity = Number(message.replace(",", "."));
-    if (!Number.isFinite(quantity) || quantity < 0) {
-      return ctx.reply("Вкажи кількість числом. Приклад: `1` або `0` для видалення.", {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return ctx.reply("Вкажи додатну кількість числом. Приклад: `1`.", {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
-    }
-
-    if (quantity === 0) {
-      const removed = userService.deletePersonalGear({
-        userId: String(ctx.from.id),
-        userName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
-        gearId: flow.data.item.id
-      });
-      clearFlow(String(ctx.from.id));
-      await ctx.reply(
-        joinRichLines([
-          ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed.name),
-          "",
-          "Річ прибрана з твого особистого списку."
-        ]),
-        { parse_mode: "HTML", ...MY_GEAR_KEYBOARD }
-      );
-      return showMyGear(ctx, userService);
     }
 
     flow.data.quantity = quantity;

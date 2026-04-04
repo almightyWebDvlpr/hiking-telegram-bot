@@ -374,6 +374,61 @@ export class GroupService {
     this.store.write(data);
   }
 
+  updateGear({ groupId, gearId, patch = {} }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const index = group.gear.findIndex((item) => item.id === gearId);
+    if (index === -1) {
+      return null;
+    }
+
+    const current = enrichGearItem(group.gear[index]);
+    const next = enrichGearItem({
+      ...current,
+      ...patch,
+      id: current.id,
+      memberId: patch.memberId || current.memberId,
+      memberName: patch.memberName || current.memberName,
+      attributes: {
+        ...(current.attributes || {}),
+        ...((patch.attributes && typeof patch.attributes === "object") ? patch.attributes : {})
+      }
+    });
+
+    group.gear[index] = next;
+    this.store.write(data);
+    return next;
+  }
+
+  deleteGear({ groupId, gearId }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const index = group.gear.findIndex((item) => item.id === gearId);
+    if (index === -1) {
+      return null;
+    }
+
+    const [removed] = group.gear.splice(index, 1);
+    this.store.write(data);
+    return enrichGearItem(removed);
+  }
+
   addFood({ groupId, memberId, memberName, food }) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);

@@ -69,6 +69,8 @@ const ROUTES_GENERATE_LABEL = "🧭 Згенерувати маршрут";
 const ROUTES_EXISTING_LABEL = "📚 Знайти в каталозі маршрутів";
 const ROUTES_DETAILS_LABEL = "📍 Деталі знайденого маршруту";
 const TRIP_WEATHER_BACK_LABEL = "⬅️ До походу";
+const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
+const GEAR_DELETE_CANCEL_LABEL = "⬅️ Не видаляти";
 
 const MY_GEAR_KEYBOARD = Markup.keyboard([
   ["➕ Додати моє спорядження", "✏️ Редагувати моє спорядження"],
@@ -973,7 +975,15 @@ function getTripGearKeyboard() {
     ["🫕 Додати спільне", "🎒 Додати особисте"],
     ["🧰 Додати запасне / позичу", "🆘 Мені бракує спорядження"],
     ["📦 Переглянути все", "📋 Мої запити"],
+    ["✏️ Редагувати спорядження", "🗑 Видалити спорядження"],
     ["⬅️ До походу"],
+  ]);
+}
+
+function getGearDeleteConfirmKeyboard() {
+  return buildKeyboard([
+    [GEAR_DELETE_CONFIRM_LABEL, GEAR_DELETE_CANCEL_LABEL],
+    ["❌ Скасувати"]
   ]);
 }
 
@@ -2370,6 +2380,104 @@ function startGearNeedWizard(ctx, groupService) {
     parse_mode: "Markdown",
     ...FLOW_CANCEL_KEYBOARD
   });
+}
+
+function getEditableTripGearItems(trip, groupService, memberId) {
+  const snapshot = groupService.getGearSnapshot(trip.id);
+  const canManage = canManageTrip(trip, memberId);
+  const combined = [...snapshot.sharedGear, ...snapshot.personalGear, ...snapshot.spareGear];
+  const seen = new Set();
+
+  return combined.filter((item) => {
+    if (!item?.id || seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return canManage || String(item.memberId) === String(memberId);
+  });
+}
+
+function getTripGearScopeLabel(item) {
+  if (item.scope === "shared") {
+    return "спільне";
+  }
+  if (item.scope === "spare" || item.shareable) {
+    return "запасне / позичу";
+  }
+  return "особисте";
+}
+
+function formatTripGearSelectionLines(items) {
+  return items.map((item, index) => {
+    const owner = item.memberName ? ` | ${item.memberName}` : "";
+    return `${index + 1}. ${item.name} | ${getTripGearScopeLabel(item)} | ${item.quantity} шт.${owner}`;
+  });
+}
+
+function startGearEditWizard(ctx, groupService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  const items = getEditableTripGearItems(trip, groupService, String(ctx.from.id));
+  if (!items.length) {
+    return ctx.reply(
+      "Немає позицій спорядження, які ти можеш редагувати.",
+      getTripGearKeyboard()
+    );
+  }
+
+  setFlow(String(ctx.from.id), {
+    type: "gear_edit",
+    tripId: trip.id,
+    step: "pick",
+    data: { items }
+  });
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", trip.name),
+      "",
+      "Введи номер позиції, яку хочеш змінити:",
+      "",
+      ...formatTripGearSelectionLines(items)
+    ]),
+    { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+  );
+}
+
+function startGearDeleteWizard(ctx, groupService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  const items = getEditableTripGearItems(trip, groupService, String(ctx.from.id));
+  if (!items.length) {
+    return ctx.reply(
+      "Немає позицій спорядження, які ти можеш видалити.",
+      getTripGearKeyboard()
+    );
+  }
+
+  setFlow(String(ctx.from.id), {
+    type: "gear_delete",
+    tripId: trip.id,
+    step: "pick",
+    data: { items }
+  });
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("🗑 ВИДАЛИТИ СПОРЯДЖЕННЯ", trip.name),
+      "",
+      "Введи номер позиції, яку хочеш видалити:",
+      "",
+      ...formatTripGearSelectionLines(items)
+    ]),
+    { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+  );
 }
 
 function startFoodAddWizard(ctx, groupService, mode) {
@@ -4535,6 +4643,224 @@ async function handleGearAddFlow(ctx, flow, groupService, userService) {
   return null;
 }
 
+async function handleGearEditFlow(ctx, flow, groupService, userService) {
+  const message = ctx.message.text.trim();
+
+  if (message === "❌ Скасувати") {
+    clearFlow(String(ctx.from.id));
+    return ctx.reply("Редагування спорядження скасовано.", getTripGearKeyboard());
+  }
+
+  if (flow.step === "pick") {
+    const index = Number(message);
+    const item = flow.data.items[index - 1];
+
+    if (!item) {
+      return ctx.reply("Введи номер позиції зі списку.", FLOW_CANCEL_KEYBOARD);
+    }
+
+    flow.step = "quantity";
+    flow.data.item = item;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", item.name),
+        "",
+        `Тип: ${getTripGearScopeLabel(item)}`,
+        `Поточна кількість: ${item.quantity}`,
+        "Введи нову кількість.",
+        "",
+        "⚠️ Зверни увагу:",
+        "• якщо вказати <b>0</b>, позиція буде видалена"
+      ]),
+      { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+    );
+  }
+
+  if (flow.step === "quantity") {
+    const quantity = Number(message.replace(",", "."));
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      return ctx.reply("Вкажи кількість числом. Приклад: `1` або `0` для видалення.", {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    if (quantity === 0) {
+      const removed = groupService.deleteGear({
+        groupId: flow.tripId,
+        gearId: flow.data.item.id
+      });
+      clearFlow(String(ctx.from.id));
+      await ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed?.name || flow.data.item.name),
+          "",
+          "Позицію прибрано зі спорядження походу."
+        ]),
+        { parse_mode: "HTML", ...getTripGearKeyboard() }
+      );
+      return showTripGear(ctx, groupService);
+    }
+
+    flow.data.quantity = quantity;
+    flow.data.attributes = { ...(flow.data.item.attributes || {}) };
+    flow.data.fieldIndex = 0;
+    flow.step = "field";
+    setFlow(String(ctx.from.id), flow);
+    const { field } = getGearFlowField({
+      ...flow,
+      data: {
+        ...flow.data,
+        name: flow.data.item.name,
+        attributes: flow.data.attributes,
+        fieldIndex: flow.data.fieldIndex
+      }
+    });
+    if (!field) {
+      flow.step = "save";
+    } else {
+      return ctx.reply(
+        buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
+        { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+      );
+    }
+  }
+
+  if (flow.step === "field" || flow.step === "save") {
+    if (flow.step === "field") {
+      const profile = resolveGearProfile(flow.data.item.name);
+      const fieldIndex = Number(flow.data.fieldIndex) || 0;
+      const field = profile.fields[fieldIndex];
+
+      if (!field) {
+        flow.step = "save";
+        setFlow(String(ctx.from.id), flow);
+      } else {
+        const parsed = parseGearFieldInput(field, message);
+        if (!parsed.ok) {
+          return ctx.reply(`${parsed.error}\n\nПриклад дивись у підказці вище.`, {
+            parse_mode: "HTML",
+            ...FLOW_CANCEL_KEYBOARD
+          });
+        }
+
+        flow.data.attributes = {
+          ...(flow.data.attributes || {}),
+          [field.key]: parsed.value
+        };
+
+        if (profile.fields[fieldIndex + 1]) {
+          flow.data.fieldIndex = fieldIndex + 1;
+          setFlow(String(ctx.from.id), flow);
+          return ctx.reply(
+            buildGearFieldPromptMessage(
+              "✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ",
+              flow.data.item.name,
+              profile.fields[fieldIndex + 1],
+              flow.data.attributes
+            ),
+            { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+          );
+        }
+
+        flow.step = "save";
+      }
+    }
+
+    const attributes = { ...(flow.data.attributes || {}) };
+    groupService.updateGear({
+      groupId: flow.tripId,
+      gearId: flow.data.item.id,
+      patch: {
+        quantity: flow.data.quantity,
+        attributes,
+        weightGrams: Number(attributes.weightGrams) || 0,
+        season: String(attributes.season || "").trim(),
+        details: String(attributes.details || "").trim(),
+        note: String(attributes.note || "").trim()
+      }
+    });
+    clearFlow(String(ctx.from.id));
+    await ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✅ СПОРЯДЖЕННЯ ОНОВЛЕНО", flow.data.item.name),
+        "",
+        ...buildGearAttributesSummaryLines(
+          flow.data.item.name,
+          flow.data.quantity,
+          attributes,
+          [`Тип: ${getTripGearScopeLabel(flow.data.item)}`]
+        )
+      ]),
+      { parse_mode: "HTML", ...getTripGearKeyboard() }
+    );
+    return showTripGear(ctx, groupService);
+  }
+
+  return null;
+}
+
+async function handleGearDeleteFlow(ctx, flow, groupService) {
+  const message = ctx.message.text.trim();
+
+  if (message === "❌ Скасувати" || message === GEAR_DELETE_CANCEL_LABEL) {
+    clearFlow(String(ctx.from.id));
+    return ctx.reply("Видалення спорядження скасовано.", getTripGearKeyboard());
+  }
+
+  if (flow.step === "pick") {
+    const index = Number(message);
+    const item = flow.data.items[index - 1];
+
+    if (!item) {
+      return ctx.reply("Введи номер позиції зі списку.", FLOW_CANCEL_KEYBOARD);
+    }
+
+    flow.step = "confirm";
+    flow.data.item = item;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🗑 ПІДТВЕРДЖЕННЯ ВИДАЛЕННЯ", item.name),
+        "",
+        `Тип: ${getTripGearScopeLabel(item)}`,
+        `Кількість: ${item.quantity}`,
+        item.memberName ? `Додав: ${item.memberName}` : null,
+        "",
+        "Підтвердь видалення цієї позиції."
+      ].filter(Boolean)),
+      { parse_mode: "HTML", ...getGearDeleteConfirmKeyboard() }
+    );
+  }
+
+  if (flow.step === "confirm") {
+    if (message !== GEAR_DELETE_CONFIRM_LABEL) {
+      return ctx.reply("Натисни `✅ Так, видалити` або `⬅️ Не видаляти`.", {
+        parse_mode: "Markdown",
+        ...getGearDeleteConfirmKeyboard()
+      });
+    }
+
+    const removed = groupService.deleteGear({
+      groupId: flow.tripId,
+      gearId: flow.data.item.id
+    });
+    clearFlow(String(ctx.from.id));
+    await ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed?.name || flow.data.item.name),
+        "",
+        "Позицію прибрано зі спорядження походу."
+      ]),
+      { parse_mode: "HTML", ...getTripGearKeyboard() }
+    );
+    return showTripGear(ctx, groupService);
+  }
+
+  return null;
+}
+
 async function handleGearNeedFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
@@ -5640,6 +5966,16 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     return true;
   }
 
+  if (flow.type === "gear_edit") {
+    await handleGearEditFlow(ctx, flow, groupService, userService);
+    return true;
+  }
+
+  if (flow.type === "gear_delete") {
+    await handleGearDeleteFlow(ctx, flow, groupService);
+    return true;
+  }
+
   if (flow.type === "gear_need") {
     await handleGearNeedFlow(ctx, flow, groupService, userService);
     return true;
@@ -5793,6 +6129,8 @@ function showTripGearMenu(ctx, groupService) {
       "• `🧰 Додати запасне / позичу` — речі, які ти можеш дати іншому",
       "• `🆘 Мені бракує спорядження` — додати, чого тобі не вистачає",
       "• `📦 Переглянути все` — побачити всю картину по спорядженню походу",
+      "• `✏️ Редагувати спорядження` — змінити свої позиції, а з правами редагування — будь-які",
+      "• `🗑 Видалити спорядження` — прибрати зайву або помилково додану позицію",
       "",
       "⚠️ Зверни увагу:",
       "• краще одразу розділяти спільне, особисте і запасне",
@@ -6785,6 +7123,8 @@ export function createBot(store) {
   bot.hears("🆘 Мені бракує спорядження", (ctx) => startGearNeedWizard(ctx, groupService));
   bot.hears("📦 Переглянути все", (ctx) => showTripGear(ctx, groupService));
   bot.hears("📋 Мої запити", (ctx) => showMyNeeds(ctx, groupService));
+  bot.hears("✏️ Редагувати спорядження", (ctx) => startGearEditWizard(ctx, groupService));
+  bot.hears("🗑 Видалити спорядження", (ctx) => startGearDeleteWizard(ctx, groupService));
   bot.hears("🥘 Додати продукт", (ctx) => startFoodAddWizard(ctx, groupService));
   bot.hears("🗑 Видалити продукт", (ctx) => startFoodDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути все харчування", (ctx) => showTripFood(ctx, groupService, userService));
@@ -6830,7 +7170,7 @@ export function createBot(store) {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getRoutesMenuKeyboard(ctx.from.id) });
     }
 
-    if (activeFlow?.type === "gear_add" || activeFlow?.type === "gear_need") {
+    if (activeFlow?.type === "gear_add" || activeFlow?.type === "gear_edit" || activeFlow?.type === "gear_delete" || activeFlow?.type === "gear_need") {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripGearKeyboard() });
     }
 

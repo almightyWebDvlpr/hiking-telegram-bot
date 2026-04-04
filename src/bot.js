@@ -1076,20 +1076,34 @@ function getTripGearAddTypeKeyboard() {
   ]);
 }
 
-function getTripFoodKeyboard() {
-  return buildKeyboard([
-    ["🥘 Додати продукт", "🗑 Видалити продукт"],
-    ["🧾 Переглянути все харчування"],
-    ["⬅️ До походу"]
-  ]);
+function getTripFoodKeyboard({ hasItems = false } = {}) {
+  const rows = [["🥘 Додати продукт"]];
+  if (hasItems) {
+    rows[0].push("🗑 Видалити продукт");
+  }
+  rows.push(["🧾 Переглянути все харчування"]);
+  rows.push(["⬅️ До походу"]);
+  return buildKeyboard(rows);
 }
 
-function getTripExpensesKeyboard() {
-  return buildKeyboard([
-    ["💸 Додати витрату", "🗑 Видалити витрату"],
-    ["🧾 Переглянути всі витрати"],
-    ["⬅️ До походу"]
-  ]);
+function getTripExpensesKeyboard({ hasItems = false } = {}) {
+  const rows = [["💸 Додати витрату"]];
+  if (hasItems) {
+    rows[0].push("🗑 Видалити витрату");
+  }
+  rows.push(["🧾 Переглянути всі витрати"]);
+  rows.push(["⬅️ До походу"]);
+  return buildKeyboard(rows);
+}
+
+function getTripFoodMenuKeyboard(groupService, tripId) {
+  const hasItems = Boolean(groupService.getFoodSnapshot(tripId)?.items?.length);
+  return getTripFoodKeyboard({ hasItems });
+}
+
+function getTripExpensesMenuKeyboard(groupService, tripId) {
+  const hasItems = Boolean(groupService.getExpenseSnapshot(tripId)?.items?.length);
+  return getTripExpensesKeyboard({ hasItems });
 }
 
 function formatSafetySection(trip) {
@@ -2790,7 +2804,7 @@ function startFoodDeleteWizard(ctx, groupService) {
         "",
         "У поході поки немає позицій харчування для видалення."
       ]),
-      { parse_mode: "HTML", ...getTripFoodKeyboard() }
+      { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }
     );
   }
 
@@ -2861,7 +2875,7 @@ function startExpenseDeleteWizard(ctx, groupService) {
         "",
         "У поході поки немає витрат для видалення."
       ]),
-      { parse_mode: "HTML", ...getTripExpensesKeyboard() }
+      { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, trip.id) }
     );
   }
 
@@ -5637,7 +5651,7 @@ async function handleFoodAddFlow(ctx, flow, groupService, userService) {
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Додавання продуктів скасовано.", getTripFoodKeyboard());
+    return ctx.reply("Додавання продуктів скасовано.", getTripFoodMenuKeyboard(groupService, flow.tripId));
   }
 
   if (flow.step === "name") {
@@ -5737,7 +5751,7 @@ async function handleFoodAddFlow(ctx, flow, groupService, userService) {
         `Кількість: ${flow.data.quantity}`,
         `Вартість: ${formatMoney(cost)}`
       ]),
-      { parse_mode: "HTML", ...getTripFoodKeyboard() }
+      { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, flow.tripId) }
     );
   }
 
@@ -5749,7 +5763,7 @@ async function handleFoodDeleteFlow(ctx, flow, groupService) {
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Видалення продукту скасовано.", getTripFoodKeyboard());
+    return ctx.reply("Видалення продукту скасовано.", getTripFoodMenuKeyboard(groupService, flow.tripId));
   }
 
   if (flow.step === "pick") {
@@ -5772,7 +5786,7 @@ async function handleFoodDeleteFlow(ctx, flow, groupService) {
     if (!removed) {
       return ctx.reply(
         "Не вдалося знайти цю позицію. Спробуй ще раз відкрити список харчування.",
-        getTripFoodKeyboard()
+        getTripFoodMenuKeyboard(groupService, flow.tripId)
       );
     }
 
@@ -5784,7 +5798,7 @@ async function handleFoodDeleteFlow(ctx, flow, groupService) {
         `Кількість: ${removed.quantity || "—"}`,
         `Вартість: ${formatMoney(removed.cost)}`
       ]),
-      { parse_mode: "HTML", ...getTripFoodKeyboard() }
+      { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, flow.tripId) }
     );
 
     return showTripFood(ctx, groupService, userService);
@@ -5798,7 +5812,7 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Додавання витрати скасовано.", getTripExpensesKeyboard());
+    return ctx.reply("Додавання витрати скасовано.", getTripExpensesMenuKeyboard(groupService, flow.tripId));
   }
 
   if (flow.step === "title") {
@@ -5855,7 +5869,7 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
     });
 
     clearFlow(String(ctx.from.id));
-    return ctx.reply(`✅ Витрату "${flow.data.title}" додано.`, getTripExpensesKeyboard());
+    return ctx.reply(`✅ Витрату "${flow.data.title}" додано.`, getTripExpensesMenuKeyboard(groupService, flow.tripId));
   }
 
   return null;
@@ -5866,7 +5880,7 @@ async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Видалення витрати скасовано.", getTripExpensesKeyboard());
+    return ctx.reply("Видалення витрати скасовано.", getTripExpensesMenuKeyboard(groupService, flow.tripId));
   }
 
   if (flow.step === "pick") {
@@ -5889,7 +5903,7 @@ async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
     if (!removed) {
       return ctx.reply(
         "Не вдалося знайти цю витрату. Спробуй ще раз відкрити список витрат.",
-        getTripExpensesKeyboard()
+        getTripExpensesMenuKeyboard(groupService, flow.tripId)
       );
     }
 
@@ -5901,7 +5915,7 @@ async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
         `Ціна за одиницю: ${formatMoney(removed.price)}`,
         `Сума: ${formatMoney(removed.amount)}`
       ]),
-      { parse_mode: "HTML", ...getTripExpensesKeyboard() }
+      { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, flow.tripId) }
     );
 
     return showTripExpenses(ctx, groupService, userService);
@@ -7000,21 +7014,26 @@ function showTripFoodMenu(ctx, groupService) {
     return null;
   }
 
+  const hasItems = Boolean(groupService.getFoodSnapshot(trip.id)?.items?.length);
+  const actions = [
+    "• `🥘 Додати продукт` — додати позицію в загальний список продуктів походу",
+    hasItems ? "• `🗑 Видалити продукт` — прибрати позицію, якщо її внесли помилково" : null,
+    "• для кожної позиції вказуй вагу, кількість і вартість",
+    "• `🧾 Переглянути все харчування` — повний список продуктів і витрати"
+  ].filter(Boolean);
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("🍲 ХАРЧУВАННЯ ПОХОДУ", trip.name),
       "",
       formatSectionHeader("🧭", "Що Тут Можна Зробити"),
-      "• `🥘 Додати продукт` — додати позицію в загальний список продуктів походу",
-      "• `🗑 Видалити продукт` — прибрати позицію, якщо її внесли помилково",
-      "• для кожної позиції вказуй вагу, кількість і вартість",
-      "• `🧾 Переглянути все харчування` — повний список продуктів і витрати",
+      ...actions,
       "",
       "⚠️ Зверни увагу:",
       "• продукти автоматично потрапляють і в загальні витрати походу",
       "• вага продуктів використовується для попереднього розрахунку ваги рюкзака"
     ]),
-    { parse_mode: "HTML", ...getTripFoodKeyboard() }
+    { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }
   );
 }
 
@@ -7127,7 +7146,7 @@ function showTripFood(ctx, groupService, userService) {
         "⚠️ Зверни увагу:",
         "• продукти краще заносити відразу з кількістю та вартістю"
       ]),
-      { parse_mode: "HTML", ...getTripFoodKeyboard() }
+      { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }
     );
   }
 
@@ -7152,7 +7171,7 @@ function showTripFood(ctx, groupService, userService) {
       `• Загальна вага: ${formatWeightGrams(snapshot.totalWeight)}`,
       `• Загальні витрати: ${formatMoney(snapshot.totalCost)}`
     ]),
-    { parse_mode: "HTML", ...getTripFoodKeyboard() }
+    { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }
   );
 }
 
@@ -7222,19 +7241,25 @@ function showTripExpensesMenu(ctx, groupService) {
     return null;
   }
 
+  const hasItems = Boolean(groupService.getExpenseSnapshot(trip.id)?.items?.length);
+  const actions = [
+    "• `💸 Додати витрату` — ввести назву, кількість і ціну",
+    hasItems ? "• `🗑 Видалити витрату` — прибрати зайву або помилкову позицію" : null,
+    "• `🧾 Переглянути всі витрати` — повний облік витрат без непорозумінь",
+    "• у загальному зведенні автоматично враховуються продукти з розділу харчування"
+  ].filter(Boolean);
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("💸 ВИТРАТИ ПОХОДУ", trip.name),
       "",
       formatSectionHeader("🧭", "Що Тут Можна Зробити"),
-      "• `💸 Додати витрату` — ввести назву, кількість і ціну",
-      "• `🧾 Переглянути всі витрати` — повний облік витрат без непорозумінь",
-      "• у загальному зведенні автоматично враховуються продукти з розділу харчування",
+      ...actions,
       "",
       "⚠️ Зверни увагу:",
       "• тут видно і прямі витрати, і продукти, і хто скільки покрив"
     ]),
-    { parse_mode: "HTML", ...getTripExpensesKeyboard() }
+    { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, trip.id) }
   );
 }
 
@@ -7256,7 +7281,7 @@ function showTripExpenses(ctx, groupService, userService) {
         "",
         "У поході поки немає витрат."
       ]),
-      { parse_mode: "HTML", ...getTripExpensesKeyboard() }
+      { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, trip.id) }
     );
   }
 
@@ -7320,7 +7345,7 @@ function showTripExpenses(ctx, groupService, userService) {
       "",
       divider
     ]),
-    { parse_mode: "HTML", ...getTripExpensesKeyboard() }
+    { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, trip.id) }
   );
 }
 
@@ -7848,7 +7873,7 @@ export function createBot(store) {
     const cost = Number(String(costRaw || "").replace(",", "."));
 
     if (!name || !amountRaw || !quantity || !costRaw || !amount || Number.isNaN(cost) || cost < 0) {
-      return ctx.reply("Формат: `/addfood гречка;800 г;2 пачки;180`", { parse_mode: "Markdown", ...getTripFoodKeyboard() });
+      return ctx.reply("Формат: `/addfood гречка;800 г;2 пачки;180`", { parse_mode: "Markdown", ...getTripFoodMenuKeyboard(groupService, trip.id) });
     }
 
     groupService.addFood({
@@ -7858,7 +7883,7 @@ export function createBot(store) {
       food: { name, amountLabel: amount.amountLabel, weightGrams: amount.weightGrams, quantity, cost }
     });
 
-    return ctx.reply(`✅ "${name}" додано в харчування походу.`, getTripFoodKeyboard());
+    return ctx.reply(`✅ "${name}" додано в харчування походу.`, getTripFoodMenuKeyboard(groupService, trip.id));
   });
   bot.command("food", (ctx) => showTripFood(ctx, groupService, userService));
   bot.command("tripreminders", (ctx) => showTripReminders(ctx, groupService));
@@ -7873,7 +7898,7 @@ export function createBot(store) {
     const price = Number(String(priceRaw || "").replace(",", "."));
 
     if (!title || !quantityRaw || !priceRaw || Number.isNaN(quantity) || quantity <= 0 || Number.isNaN(price) || price < 0) {
-      return ctx.reply("Формат: `/addexpense Квиток Київ-Ворохта;1;450`", { parse_mode: "Markdown", ...getTripExpensesKeyboard() });
+      return ctx.reply("Формат: `/addexpense Квиток Київ-Ворохта;1;450`", { parse_mode: "Markdown", ...getTripExpensesMenuKeyboard(groupService, trip.id) });
     }
 
     groupService.addExpense({
@@ -7883,7 +7908,7 @@ export function createBot(store) {
       expense: { title, quantity, price, amount: quantity * price }
     });
 
-    return ctx.reply(`✅ Витрату "${title}" додано.`, getTripExpensesKeyboard());
+    return ctx.reply(`✅ Витрату "${title}" додано.`, getTripExpensesMenuKeyboard(groupService, trip.id));
   });
   bot.command("expenses", (ctx) => showTripExpenses(ctx, groupService, userService));
 
@@ -8102,11 +8127,11 @@ export function createBot(store) {
     }
 
     if (activeFlow?.type === "food_add" || activeFlow?.type === "food_delete") {
-      return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripFoodKeyboard() });
+      return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, activeFlow.tripId) });
     }
 
     if (activeFlow?.type === "expense_add" || activeFlow?.type === "expense_delete") {
-      return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripExpensesKeyboard() });
+      return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, activeFlow.tripId) });
     }
 
     if (menuContext === "trip-route-catalog") {

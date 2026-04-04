@@ -1521,22 +1521,40 @@ function getTripLifecycleLabel(status) {
   return "активний";
 }
 
-function getTripHistoryButtonLabel(trip, index) {
-  const title = String(trip?.name || trip?.finalSummary?.routeName || formatRouteStatus(trip?.routePlan) || "Похід").trim();
-  return `${index + 1}. ${truncateButtonLabel(title, 30)}`;
+function formatHistoryDateLabel(trip) {
+  const raw = trip?.archivedAt || trip?.completedAt || trip?.createdAt || "";
+  return raw ? String(raw).slice(0, 10) : "без дати";
 }
 
-function getTripHistoryKeyboard(items) {
+function getTripHistoryButtonLabel(trip, index) {
+  const title = String(trip?.name || trip?.finalSummary?.routeName || formatRouteStatus(trip?.routePlan) || "Похід").trim();
+  return `${index + 1}. ${truncateButtonLabel(`${title} • ${formatHistoryDateLabel(trip)}`, 30)}`;
+}
+
+function getTripHistoryKeyboard(items, { includeHistoryBack = false } = {}) {
   const rows = [];
   for (let index = 0; index < items.length; index += 2) {
     rows.push(items.slice(index, index + 2).map((item) => item.label));
   }
-  rows.push(["⬅️ Головне меню"]);
+  if (includeHistoryBack) {
+    rows.push([TRIP_HISTORY_BACK_LABEL, "⬅️ Головне меню"]);
+  } else {
+    rows.push(["⬅️ Головне меню"]);
+  }
   return buildKeyboard(rows);
 }
 
 function getTripHistoryDetailsKeyboard(items) {
-  return buildKeyboard([[TRIP_HISTORY_BACK_LABEL, "⬅️ Головне меню"]]);
+  return getTripHistoryKeyboard(items, { includeHistoryBack: true });
+}
+
+function buildMatchedNeedsSummaryLines(needs, userService) {
+  return needs.map((need) => {
+    const requester = need.memberId
+      ? userService.getDisplayName(String(need.memberId), need.memberName || "Учасник")
+      : (need.memberName || "Учасник");
+    return `• ${escapeHtml(requester)}: ${escapeHtml(need.name)} | ${escapeHtml(String(need.quantity))}`;
+  });
 }
 
 function formatTripCompletionSummary(trip, userService = null) {
@@ -2177,7 +2195,10 @@ async function handleTripHistoryFlow(ctx, flow, groupService, userService) {
   const items = flow.data?.items || [];
   const selected = items.find((item) => item.label === message);
   if (!selected) {
-    return ctx.reply("Обери похід кнопкою нижче.", getTripHistoryKeyboard(items));
+    return ctx.reply(
+      "Обери похід кнопкою нижче.",
+      flow.step === "detail" ? getTripHistoryDetailsKeyboard(items) : getTripHistoryKeyboard(items)
+    );
   }
 
   flow.step = "detail";
@@ -2661,6 +2682,48 @@ function buildGearNeedCancelledNotification(trip, requesterName, need) {
     `Учасник: <b>${escapeHtml(requesterName)}</b>`,
     `Річ: <b>${escapeHtml(need.name)}</b>`
   ]);
+}
+
+function buildGearCoverageAvailableNotification(trip, gearItem, actorName, need) {
+  return joinRichLines([
+    ...formatCardHeader("🤝", "З'ЯВИЛАСЯ МОЖЛИВА ДОПОМОГА"),
+    "",
+    `У поході <b>${escapeHtml(trip.name)}</b> з'явилося спорядження, яке може закрити твій запит.`,
+    `Запит: <b>${escapeHtml(need.name)}</b> | ${escapeHtml(String(need.quantity))}`,
+    `Додав: <b>${escapeHtml(actorName)}</b>`,
+    `Річ: <b>${escapeHtml(gearItem.name)}</b> | ${escapeHtml(getTripGearScopeLabel(gearItem))}`,
+    "",
+    "Відкрий <b>📋 Мої запити</b> → <b>🤝 Хто може допомогти</b>, щоб переглянути збіг."
+  ]);
+}
+
+async function notifyNeedOwnersAboutCoverage(telegram, trip, gearItem, needs, actorName) {
+  if (!telegram || !trip || !Array.isArray(needs) || !needs.length) {
+    return;
+  }
+
+  const delivered = new Set();
+  for (const need of needs) {
+    const memberId = String(need.memberId || "");
+    if (!memberId || delivered.has(memberId)) {
+      continue;
+    }
+
+    delivered.add(memberId);
+
+    try {
+      await telegram.sendMessage(
+        memberId,
+        buildGearCoverageAvailableNotification(trip, gearItem, actorName, need),
+        {
+          parse_mode: "HTML",
+          ...getTripGearKeyboard()
+        }
+      );
+    } catch {
+      // Ignore users who blocked the bot or have no active chat.
+    }
+  }
 }
 
 function parseTripGearScopeChoice(message, currentScope = "personal") {
@@ -4885,7 +4948,7 @@ async function handleGrantAccessFlow(ctx, flow, groupService) {
   );
 }
 
-async function handleGearAddFlow(ctx, flow, groupService, userService) {
+async function handleGearAddFlow(ctx, flow, groupService, userService, telegram = null) {
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
@@ -4980,7 +5043,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService) {
     const scope = flow.data.mode;
     const attributes = { ...(flow.data.attributes || {}) };
 
-    groupService.addGear({
+    const addedGear = groupService.addGear({
       groupId: flow.tripId,
       memberId: String(ctx.from.id),
       memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
@@ -4997,7 +5060,17 @@ async function handleGearAddFlow(ctx, flow, groupService, userService) {
       }
     });
 
+    const matchedNeeds = (scope === "shared" || scope === "spare" || addedGear.shareable)
+      ? groupService.findNeedsMatchedByGear(flow.tripId, addedGear.name, { excludeMemberId: String(ctx.from.id) })
+      : [];
+    const trip = groupService.findGroupByMember(String(ctx.from.id));
+    const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
+
     clearFlow(String(ctx.from.id));
+
+    if (trip && matchedNeeds.length) {
+      void notifyNeedOwnersAboutCoverage(telegram, trip, addedGear, matchedNeeds, actorName);
+    }
 
     const labels = {
       shared: "спільне спорядження",
@@ -5009,7 +5082,14 @@ async function handleGearAddFlow(ctx, flow, groupService, userService) {
       joinRichLines([
         ...formatCardHeader("✅ СПОРЯДЖЕННЯ ДОДАНО", flow.data.name),
         "",
-        ...buildGearAttributesSummaryLines(flow.data.name, quantity, attributes, [`Тип: ${labels[scope]}`])
+        ...buildGearAttributesSummaryLines(flow.data.name, quantity, attributes, [`Тип: ${labels[scope]}`]),
+        ...(matchedNeeds.length
+          ? [
+              "",
+              "🤝 Ця річ може допомогти закрити такі запити:",
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService)
+            ]
+          : [])
       ]),
       { parse_mode: "HTML", ...getTripGearKeyboard() }
     );
@@ -5018,7 +5098,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService) {
   return null;
 }
 
-async function handleGearEditFlow(ctx, flow, groupService, userService) {
+async function handleGearEditFlow(ctx, flow, groupService, userService, telegram = null) {
   const message = ctx.message.text.trim();
 
   if (flow.step === "delete_confirm" && message === "❌ Скасувати") {
@@ -5245,7 +5325,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService) {
     }
 
     const attributes = { ...(flow.data.attributes || {}) };
-    groupService.updateGear({
+    const updatedGear = groupService.updateGear({
       groupId: flow.tripId,
       gearId: flow.data.item.id,
       patch: {
@@ -5259,7 +5339,16 @@ async function handleGearEditFlow(ctx, flow, groupService, userService) {
         note: String(attributes.note || "").trim()
       }
     });
+    const matchedNeeds = (updatedGear?.scope === "shared" || updatedGear?.scope === "spare" || updatedGear?.shareable)
+      ? groupService.findNeedsMatchedByGear(flow.tripId, updatedGear.name, { excludeMemberId: String(ctx.from.id) })
+      : [];
+    const trip = groupService.findGroupByMember(String(ctx.from.id));
+    const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
     clearFlow(String(ctx.from.id));
+
+    if (trip && matchedNeeds.length && updatedGear) {
+      void notifyNeedOwnersAboutCoverage(telegram, trip, updatedGear, matchedNeeds, actorName);
+    }
     await ctx.reply(
       joinRichLines([
         ...formatCardHeader("✅ СПОРЯДЖЕННЯ ОНОВЛЕНО", flow.data.item.name),
@@ -5269,7 +5358,14 @@ async function handleGearEditFlow(ctx, flow, groupService, userService) {
           flow.data.quantity,
           attributes,
           [`Тип: ${getTripGearScopeLabel({ ...flow.data.item, scope: flow.data.scope, shareable: flow.data.shareable })}`]
-        )
+        ),
+        ...(matchedNeeds.length
+          ? [
+              "",
+              "🤝 Після оновлення ця річ може допомогти закрити такі запити:",
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService)
+            ]
+          : [])
       ]),
       { parse_mode: "HTML", ...getTripGearKeyboard() }
     );
@@ -6822,12 +6918,12 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "gear_add") {
-    await handleGearAddFlow(ctx, flow, groupService, userService);
+    await handleGearAddFlow(ctx, flow, groupService, userService, telegram);
     return true;
   }
 
   if (flow.type === "gear_edit") {
-    await handleGearEditFlow(ctx, flow, groupService, userService);
+    await handleGearEditFlow(ctx, flow, groupService, userService, telegram);
     return true;
   }
 
@@ -7794,7 +7890,7 @@ export function createBot(store) {
     const normalizedScope = String(scopeRaw || "shared").toLowerCase();
     const scope = ["personal", "spare"].includes(normalizedScope) ? normalizedScope : "shared";
     const shareable = scope === "spare" || ["так", "yes", "true", "1"].includes((shareableRaw || "").toLowerCase());
-    groupService.addGear({
+    const addedGear = groupService.addGear({
       groupId: trip.id,
       memberId: String(ctx.from.id),
       memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
@@ -7805,7 +7901,28 @@ export function createBot(store) {
         scope
       }
     });
-    return ctx.reply(`✅ "${name}" додано в похід.`, getTripGearKeyboard());
+    const matchedNeeds = (scope === "shared" || scope === "spare" || addedGear.shareable)
+      ? groupService.findNeedsMatchedByGear(trip.id, addedGear.name, { excludeMemberId: String(ctx.from.id) })
+      : [];
+    const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
+
+    if (matchedNeeds.length) {
+      void notifyNeedOwnersAboutCoverage(bot.telegram, trip, addedGear, matchedNeeds, actorName);
+    }
+
+    return ctx.reply(
+      joinRichLines([
+        `✅ "${escapeHtml(name)}" додано в похід.`,
+        ...(matchedNeeds.length
+          ? [
+              "",
+              "🤝 Ця річ може допомогти закрити такі запити:",
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService)
+            ]
+          : [])
+      ]),
+      { parse_mode: "HTML", ...getTripGearKeyboard() }
+    );
   });
   bot.command("needgear", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));

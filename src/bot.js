@@ -989,8 +989,7 @@ function getTripGearKeyboard() {
 
 function getGearDeleteConfirmKeyboard() {
   return buildKeyboard([
-    [GEAR_DELETE_CONFIRM_LABEL, GEAR_DELETE_CANCEL_LABEL],
-    ["❌ Скасувати"]
+    [GEAR_DELETE_CONFIRM_LABEL, "❌ Скасувати"]
   ]);
 }
 
@@ -4775,6 +4774,23 @@ async function handleGearAddFlow(ctx, flow, groupService, userService) {
 async function handleGearEditFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
+  if (flow.step === "delete_confirm" && message === "❌ Скасувати") {
+    flow.step = "action";
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Тип: ${getTripGearScopeLabel(flow.data.item)}`,
+        `Поточна кількість: ${flow.data.item.quantity}`,
+        flow.data.item.memberName ? `Додав: ${flow.data.item.memberName}` : null,
+        "",
+        "Що хочеш зробити з цією позицією?"
+      ].filter(Boolean)),
+      { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+    );
+  }
+
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
     return ctx.reply("Редагування спорядження скасовано.", getTripGearKeyboard());
@@ -4862,23 +4878,6 @@ async function handleGearEditFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "delete_confirm") {
-    if (message === GEAR_DELETE_CANCEL_LABEL) {
-      flow.step = "action";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(
-        joinRichLines([
-          ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name),
-          "",
-          `Тип: ${getTripGearScopeLabel(flow.data.item)}`,
-          `Поточна кількість: ${flow.data.item.quantity}`,
-          flow.data.item.memberName ? `Додав: ${flow.data.item.memberName}` : null,
-          "",
-          "Що хочеш зробити з цією позицією?"
-        ].filter(Boolean)),
-        { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
-      );
-    }
-
     if (message !== GEAR_DELETE_CONFIRM_LABEL) {
       return ctx.reply("Натисни кнопку підтвердження або повернись назад.", getGearDeleteConfirmKeyboard());
     }

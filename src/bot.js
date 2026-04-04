@@ -995,7 +995,10 @@ function getGearDeleteConfirmKeyboard() {
 }
 
 function getTripGearEditItemsKeyboard(items) {
-  const rows = items.map((item) => [item.actionLabel]);
+  const rows = [];
+  for (let index = 0; index < items.length; index += 2) {
+    rows.push(items.slice(index, index + 2).map((item) => item.actionLabel));
+  }
   rows.push(["❌ Скасувати"]);
   return buildKeyboard(rows);
 }

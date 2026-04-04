@@ -67,16 +67,15 @@ const MAIN_KEYBOARD = Markup.keyboard([
 const ROUTES_BACK_LABEL = "⬅️ До маршрутів";
 const ROUTES_GENERATE_LABEL = "🧭 Згенерувати маршрут";
 const ROUTES_EXISTING_LABEL = "📚 Знайти в каталозі маршрутів";
-const ROUTES_DETAILS_LABEL = "📍 Деталі знайденого маршруту";
+const ROUTES_DETAILS_LABEL = "📋 Деталі маршруту";
 const TRIP_WEATHER_BACK_LABEL = "⬅️ До походу";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
-const GEAR_DELETE_CANCEL_LABEL = "⬅️ Не видаляти";
 const GEAR_EDIT_ACTION_LABEL = "✏️ Редагувати";
 const GEAR_EDIT_DELETE_LABEL = "🗑 Видалити";
 const GEAR_EDIT_BACK_LABEL = "⬅️ Назад";
 const GEAR_NEED_HELP_LABEL = "🤝 Хто може допомогти";
 const GEAR_NEED_RECEIVED_LABEL = "✅ Позначити отриманим";
-const GEAR_NEED_CANCEL_LABEL = "🗑 Скасувати запит";
+const GEAR_NEED_CANCEL_LABEL = "❌ Скасувати запит";
 const GEAR_NEED_CONFIRM_CANCEL_LABEL = "✅ Так, скасувати запит";
 const GEAR_SCOPE_SHARED_LABEL = "🫕 Спільне";
 const GEAR_SCOPE_PERSONAL_LABEL = "🎒 Особисте";
@@ -407,10 +406,10 @@ function getTripKeyboard(trip, userId = "") {
   }
 
   const rows = [
-    ["🪪 Паспорт походу", "👤 Учасники походу", "🔔 Нагадування"],
+    ["🪪 Паспорт походу", "👥 Учасники походу", "🔔 Нагадування"],
     isTripOwner(trip, userId)
-      ? ["📍 Маршрут походу", "🎒 Спорядження походу", "🎒 Вага рюкзака"]
-      : ["📍 Маршрут походу", "🎒 Спорядження походу", KEYBOARD_PLACEHOLDER],
+      ? ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"]
+      : ["🗺 Маршрут походу", "🎒 Спорядження походу", KEYBOARD_PLACEHOLDER],
     ["🆘 Безпека походу", "🍲 Харчування походу", KEYBOARD_PLACEHOLDER],
     ["🌦 Погода походу", "💸 Витрати походу", isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],
     ["⬅️ Головне меню"]
@@ -695,7 +694,7 @@ function formatVpohidRoutePreview(detail, report = null) {
   lines.push("", "🔗 Джерело", detail.url);
 
   if (detail.points?.length) {
-    lines.push("", "🧭 Точки для генерації треку", detail.points.join(" -> "));
+    lines.push("", "🧭 Точки для генерації треку", detail.points.join(" → "));
   }
 
   if (report) {
@@ -742,7 +741,7 @@ function getTripWeatherSelectionKeyboard(settlements) {
 function formatVpohidChosenRoute(selection) {
   const { detail, report } = selection;
   const lines = [
-    "📍 Деталі маршруту",
+    "📋 Деталі маршруту",
     detail.title
   ];
 
@@ -751,15 +750,15 @@ function formatVpohidChosenRoute(selection) {
   }
 
   if (detail.start || detail.finish) {
-    lines.push(`Старт / фініш: ${detail.start || "—"}${detail.finish ? ` -> ${detail.finish}` : ""}`);
+    lines.push(`Старт / фініш: ${detail.start || "—"}${detail.finish ? ` → ${detail.finish}` : ""}`);
   }
 
   if (detail.points?.length) {
-    lines.push(`Точки маршруту: ${detail.points.join(" -> ")}`);
+    lines.push(`Точки маршруту: ${detail.points.join(" → ")}`);
   }
 
   if (selection.points?.length) {
-    lines.push(`Точки для генерації треку: ${selection.points.join(" -> ")}`);
+    lines.push(`Точки для генерації треку: ${selection.points.join(" → ")}`);
   }
 
   if (report?.meta?.trackQuality && ["verified", "router-generated"].includes(report.meta.trackQuality)) {
@@ -960,7 +959,7 @@ function getTripRouteKeyboard(trip, canManage = false) {
     return buildKeyboard(rows);
   }
 
-  const firstRow = ["🧭 Переглянути маршрут походу"];
+  const firstRow = ["🗺 Переглянути маршрут походу"];
 
   if (canManage) {
     firstRow.push(ROUTE_CHANGE_LABEL);
@@ -970,7 +969,7 @@ function getTripRouteKeyboard(trip, canManage = false) {
 
   if (hasExportTrack) {
     rows.push(["📄 GPX трек", "📄 KML трек"]);
-    rows.push(["🧭 HTML карта треку", "⬅️ До походу"]);
+    rows.push(["🗺 HTML карта треку", "⬅️ До походу"]);
   } else {
     rows.push(["⬅️ До походу"]);
   }
@@ -2364,7 +2363,7 @@ function showTripMembersMenu(ctx, groupService, userService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("👤 УЧАСНИКИ", trip.name),
+      ...formatCardHeader("👥 УЧАСНИКИ", trip.name),
       "",
       ...body
     ]),
@@ -2400,7 +2399,7 @@ function showTripMembers(ctx, groupService, userService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("👤 СПИСОК УЧАСНИКІВ", trip.name),
+      ...formatCardHeader("👥 СПИСОК УЧАСНИКІВ", trip.name),
       "",
       "Обери учасника кнопкою нижче.",
       "",
@@ -3320,7 +3319,7 @@ async function showRouteReport(ctx, groupService, routeService, vpohidLiveServic
   }
 
   if (!trip.routePlan) {
-    return ctx.reply("У походу ще немає маршруту. Натисни `📌 Задати маршрут походу`.", {
+    return ctx.reply("У походу ще немає маршруту. Натисни `🧭 Згенерувати власний маршрут` або `📚 Знайти в каталозі маршрутів`.", {
       parse_mode: "Markdown",
       ...getTripRouteKeyboard(trip, canManageTrip(trip, String(ctx.from.id)))
     });
@@ -3393,7 +3392,7 @@ function sendRouteMapLink(ctx, groupService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("🧭 КАРТА МАРШРУТУ", trip.name),
+      ...formatCardHeader("🗺 КАРТА МАРШРУТУ", trip.name),
       "",
       "Зовнішні Google/OSM directions-перегляди вимкнені, бо вони спотворюють hiking-трек.",
       "",
@@ -5279,7 +5278,10 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
 
   if (flow.step === "delete_confirm") {
     if (message !== GEAR_DELETE_CONFIRM_LABEL) {
-      return ctx.reply("Натисни кнопку підтвердження або повернись назад.", getGearDeleteConfirmKeyboard());
+      return ctx.reply("Натисни `✅ Так, видалити` або `❌ Скасувати`.", {
+        parse_mode: "Markdown",
+        ...getGearDeleteConfirmKeyboard()
+      });
     }
 
     const removed = groupService.deleteGear({
@@ -5350,7 +5352,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       flow.step = "save";
     } else {
       return ctx.reply(
-        buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
+        buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
         { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
       );
     }
@@ -5384,7 +5386,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
           setFlow(String(ctx.from.id), flow);
           return ctx.reply(
             buildGearFieldPromptMessage(
-              "✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ",
+              "✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ",
               flow.data.item.name,
               profile.fields[fieldIndex + 1],
               flow.data.attributes
@@ -5451,7 +5453,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
 async function handleGearDeleteFlow(ctx, flow, groupService) {
   const message = ctx.message.text.trim();
 
-  if (message === "❌ Скасувати" || message === GEAR_DELETE_CANCEL_LABEL) {
+  if (message === "❌ Скасувати" || message === "⬅️ Не видаляти") {
     clearFlow(String(ctx.from.id));
     return ctx.reply("Видалення спорядження скасовано.", getTripGearKeyboard());
   }
@@ -5483,7 +5485,7 @@ async function handleGearDeleteFlow(ctx, flow, groupService) {
 
   if (flow.step === "confirm") {
     if (message !== GEAR_DELETE_CONFIRM_LABEL) {
-      return ctx.reply("Натисни `✅ Так, видалити` або `⬅️ Не видаляти`.", {
+      return ctx.reply("Натисни `✅ Так, видалити` або `❌ Скасувати`.", {
         parse_mode: "Markdown",
         ...getGearDeleteConfirmKeyboard()
       });
@@ -6512,7 +6514,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
       flow.step = "save";
     } else {
       return ctx.reply(
-        buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
+        buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
         { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
       );
     }
@@ -6546,7 +6548,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
           setFlow(String(ctx.from.id), flow);
           return ctx.reply(
             buildGearFieldPromptMessage(
-              "✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ",
+              "✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ",
               flow.data.item.name,
               profile.fields[fieldIndex + 1],
               flow.data.attributes
@@ -7415,7 +7417,7 @@ function showBackpackWeight(ctx, groupService, userService) {
   if (!snapshot?.byMember?.length) {
     return ctx.reply(
       joinRichLines([
-        ...formatCardHeader("🎒 ВАГА РЮКЗАКА", trip.name),
+        ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
         "",
         "Поки що недостатньо даних для розрахунку.",
         "",
@@ -7433,7 +7435,7 @@ function showBackpackWeight(ctx, groupService, userService) {
   if (!member) {
     return ctx.reply(
       joinRichLines([
-        ...formatCardHeader("🎒 ВАГА РЮКЗАКА", trip.name),
+        ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
         "",
         "Для тебе поки немає розрахунку в цьому поході."
       ]),
@@ -7442,7 +7444,7 @@ function showBackpackWeight(ctx, groupService, userService) {
   }
 
   const lines = [
-    ...formatCardHeader("🎒 ВАГА РЮКЗАКА", trip.name),
+    ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
     "",
     snapshot.note,
     "",
@@ -8206,6 +8208,7 @@ export function createBot(store) {
       : startVpohidCatalogBrowse(ctx, vpohidLiveService, groupService, "routes");
   });
   bot.hears(ROUTES_DETAILS_LABEL, (ctx) => showVpohidChosenRoute(ctx, routeService, vpohidLiveService));
+  bot.hears("📋 Деталі маршруту vpohid", (ctx) => showVpohidChosenRoute(ctx, routeService, vpohidLiveService));
   bot.hears("📍 Деталі маршруту vpohid", (ctx) => showVpohidChosenRoute(ctx, routeService, vpohidLiveService));
   bot.hears("🗺 Переглянути маршрут vpohid", (ctx) => showVpohidChosenRoute(ctx, routeService, vpohidLiveService));
   bot.hears("📄 GPX vpohid", (ctx) => sendVpohidRouteExport(ctx, routeService, vpohidLiveService, "gpx"));
@@ -8217,6 +8220,7 @@ export function createBot(store) {
   });
   bot.hears(VPOHID_BACK_TO_TRIP_ROUTE_LABEL, (ctx) => showRouteMenu(ctx, groupService));
   bot.hears(VPOHID_BACK_TO_ROUTES_LABEL, (ctx) => showRoutesMenu(ctx));
+  bot.hears("👥 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("👤 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("📋 Список учасників", (ctx) => showTripMembers(ctx, groupService, userService));
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
@@ -8234,9 +8238,11 @@ export function createBot(store) {
   bot.hears("🔑 Приєднатися до походу", (ctx) => startJoinTripWizard(ctx));
   bot.hears("➕ Запросити учасників", (ctx) => showInviteInfo(ctx, groupService));
   bot.hears("🛡 Права редагування", (ctx) => startGrantAccessWizard(ctx, groupService, userService));
+  bot.hears("🗺 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService));
   bot.hears("📍 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService));
   bot.hears("📄 GPX трек", (ctx) => sendRouteExport(ctx, groupService, routeService, "gpx"));
   bot.hears("📄 KML трек", (ctx) => sendRouteExport(ctx, groupService, routeService, "kml"));
+  bot.hears("🗺 HTML карта треку", (ctx) => sendRouteExport(ctx, groupService, routeService, "html"));
   bot.hears("🧭 HTML карта треку", (ctx) => sendRouteExport(ctx, groupService, routeService, "html"));
   bot.hears("🎒 Спорядження походу", (ctx) => showTripGearMenu(ctx, groupService));
   bot.hears("🍲 Харчування походу", (ctx) => showTripFoodMenu(ctx, groupService));
@@ -8265,6 +8271,7 @@ export function createBot(store) {
   bot.hears("🧭 Згенерувати власний маршрут", (ctx) => startRouteWizard(ctx, groupService, groupService.findGroupByMember(String(ctx.from.id))?.routePlan ? "edit" : "create"));
   bot.hears(ROUTE_CHANGE_LABEL, (ctx) => showTripRouteChangeMenu(ctx, groupService));
   bot.hears("✏️ Редагувати маршрут походу", (ctx) => showTripRouteChangeMenu(ctx, groupService));
+  bot.hears("🗺 Переглянути маршрут походу", (ctx) => showRouteReport(ctx, groupService, routeService, vpohidLiveService));
   bot.hears("🧭 Переглянути маршрут походу", (ctx) => showRouteReport(ctx, groupService, routeService, vpohidLiveService));
   bot.hears("➕ Додати моє спорядження", (ctx) => startMyGearAddWizard(ctx));
   bot.hears("✏️ Редагувати моє спорядження", (ctx) => startMyGearEditWizard(ctx, userService));
@@ -8284,6 +8291,7 @@ export function createBot(store) {
   bot.hears("🥘 Додати продукт", (ctx) => startFoodAddWizard(ctx, groupService));
   bot.hears("🗑 Видалити продукт", (ctx) => startFoodDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути все харчування", (ctx) => showTripFood(ctx, groupService, userService));
+  bot.hears("⚖️ Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("🎒 Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("💸 Додати витрату", (ctx) => startExpenseAddWizard(ctx, groupService));
   bot.hears("🗑 Видалити витрату", (ctx) => startExpenseDeleteWizard(ctx, groupService));

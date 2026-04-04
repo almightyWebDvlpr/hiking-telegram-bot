@@ -1086,7 +1086,8 @@ function getTripFoodKeyboard() {
 
 function getTripExpensesKeyboard() {
   return buildKeyboard([
-    ["💸 Додати витрату", "🧾 Переглянути всі витрати"],
+    ["💸 Додати витрату", "🗑 Видалити витрату"],
+    ["🧾 Переглянути всі витрати"],
     ["⬅️ До походу"]
   ]);
 }
@@ -2844,6 +2845,59 @@ function startExpenseAddWizard(ctx, groupService) {
     parse_mode: "Markdown",
     ...FLOW_CANCEL_KEYBOARD
   });
+}
+
+function startExpenseDeleteWizard(ctx, groupService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  const snapshot = groupService.getExpenseSnapshot(trip.id);
+  if (!snapshot?.items?.length) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🗑 ВИДАЛЕННЯ ВИТРАТИ", trip.name),
+        "",
+        "У поході поки немає витрат для видалення."
+      ]),
+      { parse_mode: "HTML", ...getTripExpensesKeyboard() }
+    );
+  }
+
+  const items = snapshot.items.map((item, index) =>
+    `${index + 1}. ${item.title} — ${item.quantity} × ${formatMoney(item.price)} = ${formatMoney(item.amount)}`
+  );
+
+  setFlow(String(ctx.from.id), {
+    type: "expense_delete",
+    tripId: trip.id,
+    step: "pick",
+    data: {
+      items: snapshot.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        quantity: item.quantity,
+        price: item.price,
+        amount: item.amount
+      }))
+    }
+  });
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("🗑 ВИДАЛЕННЯ ВИТРАТИ", trip.name),
+      "",
+      "Введи номер витрати, яку потрібно видалити.",
+      "",
+      ...items,
+      "",
+      "⚠️ Зверни увагу:",
+      "• видалення одразу прибере позицію зі списку витрат",
+      "• якщо передумав, натисни <b>❌ Скасувати</b>"
+    ]),
+    { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+  );
 }
 
 function handleTripDataAction(ctx, groupService) {
@@ -5807,6 +5861,55 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
   return null;
 }
 
+async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
+  const message = ctx.message.text.trim();
+
+  if (message === "❌ Скасувати") {
+    clearFlow(String(ctx.from.id));
+    return ctx.reply("Видалення витрати скасовано.", getTripExpensesKeyboard());
+  }
+
+  if (flow.step === "pick") {
+    const index = Number.parseInt(message, 10);
+    if (!Number.isInteger(index) || index < 1 || index > flow.data.items.length) {
+      return ctx.reply(
+        `Введи номер позиції від 1 до ${flow.data.items.length}.`,
+        FLOW_CANCEL_KEYBOARD
+      );
+    }
+
+    const item = flow.data.items[index - 1];
+    const removed = groupService.deleteExpense({
+      groupId: flow.tripId,
+      expenseId: item.id
+    });
+
+    clearFlow(String(ctx.from.id));
+
+    if (!removed) {
+      return ctx.reply(
+        "Не вдалося знайти цю витрату. Спробуй ще раз відкрити список витрат.",
+        getTripExpensesKeyboard()
+      );
+    }
+
+    await ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✅ ВИТРАТУ ВИДАЛЕНО", removed.title),
+        "",
+        `Кількість: ${removed.quantity}`,
+        `Ціна за одиницю: ${formatMoney(removed.price)}`,
+        `Сума: ${formatMoney(removed.amount)}`
+      ]),
+      { parse_mode: "HTML", ...getTripExpensesKeyboard() }
+    );
+
+    return showTripExpenses(ctx, groupService, userService);
+  }
+
+  return null;
+}
+
 async function handleFaqFlow(ctx, flow, advisorService) {
   const message = ctx.message.text.trim();
   const questions = flow.data?.questions || [];
@@ -6746,6 +6849,11 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
 
   if (flow.type === "expense_add") {
     await handleExpenseAddFlow(ctx, flow, groupService, userService);
+    return true;
+  }
+
+  if (flow.type === "expense_delete") {
+    await handleExpenseDeleteFlow(ctx, flow, groupService, userService);
     return true;
   }
 
@@ -7711,7 +7819,20 @@ export function createBot(store) {
     }
     const coverage = groupService.findGearCoverage(trip.id, gearName, { excludeMemberId: String(ctx.from.id) });
     if (!coverage.matches.length) {
-      return ctx.reply(`Ніхто не позначив "${gearName}" як доступне для передачі.`, getTripGearKeyboard());
+      return ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("🤝 ХТО МОЖЕ ДОПОМОГТИ", gearName),
+          "",
+          "Поки що бот не знайшов відповідного спорядження.",
+          "",
+          "Що потрібно зробити:",
+          "• хтось із учасників має додати цю річ у спорядження походу",
+          "• тип речі має бути <b>спільне</b> або <b>запасне / позичу</b>",
+          "",
+          "Після цього бот зможе показати, хто може допомогти."
+        ]),
+        { parse_mode: "HTML", ...getTripGearKeyboard() }
+      );
     }
     const lines = coverage.matches.map((item) => `• ${item.memberName}: ${item.name} (${item.quantity})`);
     return ctx.reply(`🤝 Можуть поділитися:\n${lines.join("\n")}`, getTripGearKeyboard());
@@ -7886,6 +8007,7 @@ export function createBot(store) {
   bot.hears("🧾 Переглянути все харчування", (ctx) => showTripFood(ctx, groupService, userService));
   bot.hears("🎒 Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("💸 Додати витрату", (ctx) => startExpenseAddWizard(ctx, groupService));
+  bot.hears("🗑 Видалити витрату", (ctx) => startExpenseDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути всі витрати", (ctx) => showTripExpenses(ctx, groupService, userService));
   bot.hears("⬅️ До походу", (ctx) => showTripMenu(ctx, groupService));
   bot.hears("⬅️ Головне меню", (ctx) => {
@@ -7983,7 +8105,7 @@ export function createBot(store) {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripFoodKeyboard() });
     }
 
-    if (activeFlow?.type === "expense_add") {
+    if (activeFlow?.type === "expense_add" || activeFlow?.type === "expense_delete") {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripExpensesKeyboard() });
     }
 

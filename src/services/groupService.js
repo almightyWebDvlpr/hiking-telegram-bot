@@ -529,6 +529,27 @@ export class GroupService {
     this.store.write(data);
   }
 
+  deleteExpense({ groupId, expenseId }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const index = group.expenses.findIndex((item) => item.id === expenseId);
+    if (index === -1) {
+      return null;
+    }
+
+    const [removed] = group.expenses.splice(index, 1);
+    this.store.write(data);
+    return removed;
+  }
+
   setRoutePlan({ groupId, routePlan, region }) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);

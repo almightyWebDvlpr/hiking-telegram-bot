@@ -1019,7 +1019,6 @@ function getMyGearNeedItemsKeyboard(items) {
   for (let index = 0; index < items.length; index += 2) {
     rows.push(items.slice(index, index + 2).map((item) => item.actionLabel));
   }
-  rows.push([TRIP_GEAR_ADD_BACK_LABEL]);
   rows.push(["❌ Скасувати"]);
   return buildKeyboard(rows);
 }

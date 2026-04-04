@@ -75,6 +75,8 @@ const GEAR_SCOPE_SHARED_LABEL = "🫕 Спільне";
 const GEAR_SCOPE_PERSONAL_LABEL = "🎒 Особисте";
 const GEAR_SCOPE_SPARE_LABEL = "🧰 Запасне / позичу";
 const GEAR_SCOPE_KEEP_LABEL = "⏭ Без змін";
+const TRIP_GEAR_ADD_LABEL = "➕ Додати спорядження";
+const TRIP_GEAR_ADD_BACK_LABEL = "⬅️ До спорядження походу";
 
 const MY_GEAR_KEYBOARD = Markup.keyboard([
   ["➕ Додати моє спорядження", "✏️ Редагувати моє спорядження"],
@@ -976,8 +978,7 @@ function getTripRouteChangeKeyboard() {
 
 function getTripGearKeyboard() {
   return buildKeyboard([
-    ["🫕 Додати спільне", "🧰 Додати запасне / позичу"],
-    ["🎒 Додати особисте", "🆘 Мені бракує спорядження"],
+    [TRIP_GEAR_ADD_LABEL, "🆘 Мені бракує спорядження"],
     ["📦 Переглянути все", "📋 Мої запити"],
     ["✏️ Редагувати спорядження", "⬅️ До походу"],
   ]);
@@ -1002,6 +1003,14 @@ function getTripGearScopeKeyboard(allowKeep = false) {
 
   rows.push(["❌ Скасувати"]);
   return buildKeyboard(rows);
+}
+
+function getTripGearAddTypeKeyboard() {
+  return buildKeyboard([
+    ["🫕 Додати спільне", "🎒 Додати особисте"],
+    ["🧰 Додати запасне / позичу", TRIP_GEAR_ADD_BACK_LABEL],
+    ["❌ Скасувати"]
+  ]);
 }
 
 function getTripFoodKeyboard() {
@@ -2378,6 +2387,27 @@ function startGearAddWizard(ctx, groupService, mode) {
     parse_mode: "Markdown",
     ...FLOW_CANCEL_KEYBOARD
   });
+}
+
+function showTripGearAddMenu(ctx, groupService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("➕ ДОДАТИ СПОРЯДЖЕННЯ", trip.name),
+      "",
+      "Обери тип спорядження, яке хочеш додати:",
+      "• спільне — для всієї групи",
+      "• особисте — твоя індивідуальна річ у межах походу",
+      "• запасне / позичу — те, чим ти можеш поділитися",
+      "",
+      "Після вибору типу бот продовжить звичний сценарій додавання."
+    ]),
+    { parse_mode: "HTML", ...getTripGearAddTypeKeyboard() }
+  );
 }
 
 function startGearNeedWizard(ctx, groupService) {
@@ -6224,15 +6254,13 @@ function showTripGearMenu(ctx, groupService) {
       ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
       "",
       formatSectionHeader("🧭", "Що Тут Можна Зробити"),
-      "• `🫕 Додати спільне` — речі для всіх: намет, казанок, сокира",
-      "• `🎒 Додати особисте` — твій особистий чекліст: спальник, килимок, ліхтарик",
-      "• `🧰 Додати запасне / позичу` — речі, які ти можеш дати іншому",
+      "• `➕ Додати спорядження` — спочатку обрати тип, а далі додати річ у похід",
       "• `🆘 Мені бракує спорядження` — додати, чого тобі не вистачає",
       "• `📦 Переглянути все` — побачити всю картину по спорядженню походу",
       "• `✏️ Редагувати спорядження` — змінити свої позиції, а з правами редагування — будь-які",
       "",
       "⚠️ Зверни увагу:",
-      "• краще одразу розділяти спільне, особисте і запасне",
+      "• після натискання `➕ Додати спорядження` бот запропонує тип: спільне, особисте або запасне",
       "• так легше зрозуміти, чого ще бракує групі"
     ]),
     { parse_mode: "HTML", ...getTripGearKeyboard() }
@@ -7220,6 +7248,8 @@ export function createBot(store) {
   bot.hears("🎒 Додати особисте", (ctx) => startGearAddWizard(ctx, groupService, "personal"));
   bot.hears("🧰 Додати запасне / позичу", (ctx) => startGearAddWizard(ctx, groupService, "spare"));
   bot.hears("🆘 Мені бракує спорядження", (ctx) => startGearNeedWizard(ctx, groupService));
+  bot.hears(TRIP_GEAR_ADD_LABEL, (ctx) => showTripGearAddMenu(ctx, groupService));
+  bot.hears(TRIP_GEAR_ADD_BACK_LABEL, (ctx) => showTripGearMenu(ctx, groupService));
   bot.hears("📦 Переглянути все", (ctx) => showTripGear(ctx, groupService));
   bot.hears("📋 Мої запити", (ctx) => showMyNeeds(ctx, groupService));
   bot.hears("✏️ Редагувати спорядження", (ctx) => startGearEditWizard(ctx, groupService));

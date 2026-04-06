@@ -1748,6 +1748,14 @@ function formatGearCoverageNotice(matches = []) {
   return `⚠️ Є схожі речі, але зараз вони недоступні в наявній кількості: ${matches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`;
 }
 
+function formatGearCoverageFollowup(matches = []) {
+  if (!Array.isArray(matches) || !matches.some((item) => item.isEnough)) {
+    return null;
+  }
+
+  return "Відкрий <b>📋 Мої запити</b>, щоб переглянути учасників, у яких є спорядження, яке можна позичити.";
+}
+
 function buildGearNeedActionStatusLines(matchState) {
   const matches = Array.isArray(matchState?.matches) ? matchState.matches : [];
   const fullMatches = Array.isArray(matchState?.fullMatches) ? matchState.fullMatches : [];
@@ -6208,7 +6216,8 @@ async function handleGearNeedFlow(ctx, flow, groupService, userService, telegram
         "",
         ...formatGearNeedSummaryLines(need),
         "",
-        formatGearCoverageNotice(coverage.matches)
+        formatGearCoverageNotice(coverage.matches),
+        formatGearCoverageFollowup(coverage.matches)
       ]),
       { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );

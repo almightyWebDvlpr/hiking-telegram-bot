@@ -8614,9 +8614,12 @@ function showBackpackWeight(ctx, groupService, userService) {
     member.foodShare > 0 ? `• Частка їжі: ${formatWeightGrams(member.foodShare)}` : null,
     member.totalWeight > 0 ? `• Попередня вага рюкзака: ${formatWeightGrams(member.totalWeight)}` : null,
     member.missingWeights > 0 ? `• Незаповнених ваг у розрахунку: ${member.missingWeights}` : null,
+    "",
+    "⚠️ Зверни увагу",
     member.totalWeight <= 0 && member.missingWeights <= 0 ? "• Для тебе поки немає доданого спорядження чи їжі з вагою." : null,
-    member.missingWeights > 0 ? "" : null,
-    member.missingWeights > 0 ? "⚠️ Деякі ваги ще не заповнені, тому розрахунок поки неповний." : null
+    member.missingWeights > 0 ? "• Деякі ваги ще не заповнені, тому розрахунок поки неповний." : null,
+    "• Позичені речі додаються саме до ваги того, хто їх зараз несе.",
+    "• Вільне спільне спорядження і їжа діляться порівну між усіма учасниками."
   ];
 
   return ctx.reply(joinRichLines(lines), { parse_mode: "HTML", ...getTripKeyboard(trip, viewerId) });

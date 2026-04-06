@@ -1558,6 +1558,7 @@ export class GroupService {
     }));
 
     const sharedGearItems = gearItems.filter((item) => item.scope === "shared");
+    const loanTrackedItems = gearItems.filter((item) => Array.isArray(item.loans) && item.loans.length > 0);
     const borrowedWeightByMember = new Map();
     let sharedGearWeight = 0;
     let sharedGearMissing = 0;
@@ -1572,7 +1573,11 @@ export class GroupService {
       } else if (availableQuantity > 0) {
         sharedGearMissing += 1;
       }
+    }
 
+    for (const item of loanTrackedItems) {
+      const weightPerUnit = Number(item.weightGrams) || 0;
+      const loans = Array.isArray(item.loans) ? item.loans : [];
       for (const loan of loans) {
         const borrowerId = String(loan.borrowerMemberId || "");
         const quantity = Math.max(0, Number(loan.quantity) || 0);
@@ -1620,7 +1625,7 @@ export class GroupService {
       sharedGearWeight,
       sharedGearMissing,
       foodMissing,
-      note: "Попередній розрахунок: позичені речі додаються тому, хто їх несе, а порівну між усіма учасниками діляться тільки вільне спільне спорядження і їжа."
+      note: ""
     };
   }
 

@@ -97,6 +97,9 @@ const GEAR_NAME_ALIASES = [
   { canonical: "Павербанк", keywords: ["павербанк", "повербанк", "powerbank"] },
   { canonical: "Сонячна панель", keywords: ["сонячна панель", "solar panel"] },
   { canonical: "Ремнабір", keywords: ["ремнабір", "ремкомплект"] },
+  { canonical: "Ніж", keywords: ["ніж", "нож", "ножик", "туристичний ніж", "складний ніж"] },
+  { canonical: "Мультитул", keywords: ["мультитул", "мультиінструмент", "multitool", "leatherman"] },
+  { canonical: "Ножиці", keywords: ["ножиці", "ножиц", "ножнички"] },
   { canonical: "Сокира", keywords: ["сокира", "топір"] },
   { canonical: "Пилка", keywords: ["пилка", "пила"] },
   { canonical: "Черевики", keywords: ["черевики", "черевик", "ботинки"] },
@@ -534,6 +537,37 @@ export const GEAR_PROFILES = [
         key: "powerSource",
         label: "Живлення",
         prompt: "Вкажи джерело живлення.\nПриклад: `AA`, `вбудований акумулятор`, `не потребує`.",
+        type: "text_optional"
+      },
+      COMMON_FIELDS[0],
+      COMMON_FIELDS[1]
+    ]
+  },
+  {
+    key: "knife",
+    label: "Ніж / мультитул",
+    keywords: [
+      "ніж", "нож", "ножик", "туристичний ніж", "складний ніж", "фіксований ніж",
+      "мультитул", "мультиінструмент", "multitool", "leatherman",
+      "ножиці", "ножиц", "ножнич", "лезо"
+    ],
+    fields: [
+      {
+        key: "toolType",
+        label: "Тип",
+        prompt: "Вкажи тип.\nПриклад: `складний ніж`, `мультитул`, `ножиці`, `фіксований ніж`.",
+        type: "text_optional"
+      },
+      {
+        key: "bladeLengthCm",
+        label: "Розмір",
+        prompt: "Вкажи довжину леза або розмір.\nПриклад: `8 см`, `10 см`, `компактний`.",
+        type: "text_optional"
+      },
+      {
+        key: "purpose",
+        label: "Призначення",
+        prompt: "Для чого використовуєш?\nПриклад: `кухня`, `табір`, `ремонт`, `EDC`.",
         type: "text_optional"
       },
       COMMON_FIELDS[0],

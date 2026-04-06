@@ -1023,12 +1023,34 @@ function getCurrentTripGearKeyboard(ctx, groupService) {
   return getTripGearKeyboard(trip, groupService, userId);
 }
 
-function getTripGearAccountingKeyboard() {
-  return buildKeyboard([
-    [GEAR_NEED_CREATE_LABEL, "📋 Мої запити"],
-    [GEAR_BORROWED_LABEL, GEAR_LOANED_LABEL],
-    [TRIP_GEAR_ADD_BACK_LABEL]
-  ]);
+function getTripGearAccountingKeyboard(trip = null, groupService = null, userId = "") {
+  const rows = [
+    [GEAR_NEED_CREATE_LABEL, "📋 Мої запити"]
+  ];
+
+  const borrowedCount = trip && groupService && userId
+    ? groupService.getBorrowedGearForMember(trip.id, userId).length
+    : 0;
+  const loanedCount = trip && groupService && userId
+    ? groupService.getLoanedOutGearForMember(trip.id, userId).length
+    : 0;
+
+  if (borrowedCount > 0 && loanedCount > 0) {
+    rows.push([GEAR_BORROWED_LABEL, GEAR_LOANED_LABEL]);
+  } else if (borrowedCount > 0) {
+    rows.push([GEAR_BORROWED_LABEL]);
+  } else if (loanedCount > 0) {
+    rows.push([GEAR_LOANED_LABEL]);
+  }
+
+  rows.push([TRIP_GEAR_ADD_BACK_LABEL]);
+  return buildKeyboard(rows);
+}
+
+function getCurrentTripGearAccountingKeyboard(ctx, groupService) {
+  const userId = String(ctx.from?.id || "");
+  const trip = groupService?.findGroupByMember(userId) || null;
+  return getTripGearAccountingKeyboard(trip, groupService, userId);
 }
 
 function getLoanedGearShortcutKeyboard() {
@@ -2819,7 +2841,7 @@ function startMyNeedsWizard(ctx, groupService) {
             ]
           : [])
       ]),
-      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
   }
 
@@ -6175,7 +6197,7 @@ async function handleGearNeedFlow(ctx, flow, groupService, userService, telegram
         "",
         formatGearCoverageNotice(coverage.matches)
       ]),
-      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
   }
 
@@ -6737,7 +6759,7 @@ async function handleBorrowedGearManageFlow(ctx, flow, groupService, userService
         "",
         "Тепер очікуємо підтвердження від власника."
       ]),
-      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
   }
 
@@ -6841,7 +6863,7 @@ async function handleLoanedGearManageFlow(ctx, flow, groupService, userService, 
               userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
               borrower.quantity
             ),
-            { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+            { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
           );
         } catch {
           // ignore
@@ -6856,7 +6878,7 @@ async function handleLoanedGearManageFlow(ctx, flow, groupService, userService, 
         `Річ: <b>${escapeHtml(flow.data.item.gearName)}</b>`,
         ...(confirmed.returnedBorrowers || []).map((borrower) => `Повернув: <b>${escapeHtml(borrower.borrowerMemberName)}</b> | ${escapeHtml(String(borrower.quantity))} шт.`)
       ]),
-      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
   }
 
@@ -8280,7 +8302,7 @@ function showTripGearAccountingMenu(ctx, groupService) {
       "• річ переходить у користування тільки після згоди її власника",
       "• бот веде облік доступної кількості, щоб одну й ту саму річ не видали двічі"
     ]),
-    { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+    { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
   );
 }
 
@@ -8298,7 +8320,7 @@ function showBorrowedGear(ctx, groupService) {
         "",
         "Зараз ти не користуєшся речами інших учасників."
       ]),
-      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
   }
 
@@ -8338,7 +8360,7 @@ function showLoanedOutGear(ctx, groupService) {
         "",
         "Зараз ніхто не користується твоїм спорядженням."
       ]),
-      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
   }
 
@@ -9293,7 +9315,7 @@ export function createBot(store) {
     const [name, quantityRaw, note] = ctx.message.text.replace("/needgear", "").trim().split(";").map((part) => part?.trim());
     const quantity = Number(quantityRaw);
     if (!name || !quantityRaw || Number.isNaN(quantity)) {
-      return ctx.reply("Формат: `/needgear кішки;1;не маю власних`", { parse_mode: "Markdown", ...getTripGearAccountingKeyboard() });
+      return ctx.reply("Формат: `/needgear кішки;1;не маю власних`", { parse_mode: "Markdown", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) });
     }
     const requesterName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
     const need = groupService.addGearNeed({
@@ -9308,7 +9330,7 @@ export function createBot(store) {
       buildGearNeedCreatedNotification(trip, requesterName, need),
       { excludeMemberId: String(ctx.from.id) }
     );
-    return ctx.reply(`📌 Запит "${name}" додано.`, getTripGearAccountingKeyboard());
+    return ctx.reply(`📌 Запит "${name}" додано.`, getCurrentTripGearAccountingKeyboard(ctx, groupService));
   });
   bot.command("gear", (ctx) => showTripGear(ctx, groupService));
   bot.command("requestgear", (ctx) => {
@@ -9318,7 +9340,7 @@ export function createBot(store) {
     }
     const gearName = ctx.message.text.replace("/requestgear", "").trim();
     if (!gearName) {
-      return ctx.reply("Формат: `/requestgear намет`", { parse_mode: "Markdown", ...getTripGearAccountingKeyboard() });
+      return ctx.reply("Формат: `/requestgear намет`", { parse_mode: "Markdown", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) });
     }
     const coverage = groupService.findGearCoverage(trip.id, gearName, {
       excludeMemberId: String(ctx.from.id),
@@ -9337,7 +9359,7 @@ export function createBot(store) {
           "",
           "Після цього бот зможе показати, хто може допомогти."
         ]),
-        { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+        { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
       );
     }
     return ctx.reply(
@@ -9348,7 +9370,7 @@ export function createBot(store) {
         "",
         ...buildGearCoverageMatchLines(coverage.matches)
       ]),
-      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
   });
   bot.command("myneeds", (ctx) => startMyNeedsWizard(ctx, groupService));

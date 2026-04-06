@@ -8960,6 +8960,27 @@ function buildAutoReminderMessage(trip, reminderKey) {
   ].join("\n");
 }
 
+function buildBorrowedGearReminderMessage(trip, borrowedItems, daysAfterEnd) {
+  const lines = [
+    `🔔 Нагадування після походу "${trip.name}"`,
+    "",
+    daysAfterEnd === 1
+      ? "Минув день після завершення походу. Якщо ці речі ще в тебе, саме час м'яко домовитися про повернення."
+      : "Минуло вже два дні після завершення походу. Якщо ці речі ще в тебе, будь ласка, поверни їх власникам найближчим часом.",
+    "",
+    "Що ще потрібно повернути:"
+  ];
+
+  for (const [index, item] of borrowedItems.entries()) {
+    lines.push(`${index + 1}. ${item.gearName} — ${item.quantity} шт.`);
+    lines.push(`• Власник: ${item.ownerMemberName}`);
+  }
+
+  lines.push("");
+  lines.push("Коли повернення відбудеться, власник підтвердить це в розділі `👥 Користуються`.");
+  return lines.join("\n");
+}
+
 function startTripReminderLoop(bot, groupService) {
   const sendDueReminders = async () => {
     const activeTrips = groupService.getActiveGroups();
@@ -8968,29 +8989,61 @@ function startTripReminderLoop(bot, groupService) {
       const startDate = trip.tripCard?.startDate;
       const daysUntil = calculateDaysUntil(startDate);
 
-      if (daysUntil === null) {
-        continue;
-      }
+      if (daysUntil !== null) {
+        const reminderKey = daysUntil === 3 ? "d3" : daysUntil === 1 ? "d1" : daysUntil === 0 ? "d0" : null;
+        if (reminderKey && !trip.reminderState?.[reminderKey]) {
+          const text = buildAutoReminderMessage(trip, reminderKey);
 
-      const reminderKey = daysUntil === 3 ? "d3" : daysUntil === 1 ? "d1" : daysUntil === 0 ? "d0" : null;
-      if (!reminderKey || trip.reminderState?.[reminderKey]) {
-        continue;
-      }
+          let delivered = false;
+          for (const member of trip.members || []) {
+            try {
+              await bot.telegram.sendMessage(member.id, text, getTripKeyboard(trip, member.id));
+              delivered = true;
+            } catch {
+              // Ignore users who haven't opened the bot or blocked it.
+            }
+          }
 
-      const text = buildAutoReminderMessage(trip, reminderKey);
-
-      let delivered = false;
-      for (const member of trip.members || []) {
-        try {
-          await bot.telegram.sendMessage(member.id, text, getTripKeyboard(trip, member.id));
-          delivered = true;
-        } catch {
-          // Ignore users who haven't opened the bot or blocked it.
+          if (delivered) {
+            groupService.markReminderSent({ groupId: trip.id, reminderKey });
+          }
         }
       }
 
-      if (delivered) {
-        groupService.markReminderSent({ groupId: trip.id, reminderKey });
+      const endDate = trip.tripCard?.endDate;
+      const daysUntilEnd = calculateDaysUntil(endDate);
+      const returnReminderKeyBase = daysUntilEnd === -1 ? "return_d1" : daysUntilEnd === -2 ? "return_d2" : null;
+
+      if (!returnReminderKeyBase) {
+        continue;
+      }
+
+      for (const member of trip.members || []) {
+        const memberId = String(member.id || "");
+        if (!memberId) {
+          continue;
+        }
+
+        const memberReminderKey = `${returnReminderKeyBase}:${memberId}`;
+        if (trip.reminderState?.[memberReminderKey]) {
+          continue;
+        }
+
+        const borrowedItems = groupService.getBorrowedGearForMember(trip.id, memberId);
+        if (!borrowedItems.length) {
+          continue;
+        }
+
+        try {
+          await bot.telegram.sendMessage(
+            member.id,
+            buildBorrowedGearReminderMessage(trip, borrowedItems, Math.abs(daysUntilEnd)),
+            getTripKeyboard(trip, memberId)
+          );
+          groupService.markReminderSent({ groupId: trip.id, reminderKey: memberReminderKey });
+        } catch {
+          // Ignore users who haven't opened the bot or blocked it.
+        }
       }
     }
   };

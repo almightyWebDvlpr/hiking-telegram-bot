@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { categorizeGearName, enrichGearItem, resolveGearProfile } from "../data/gearCatalog.js";
+import { canonicalizeGearName, categorizeGearName, enrichGearItem, resolveGearProfile } from "../data/gearCatalog.js";
 
 function createInviteCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -45,7 +45,7 @@ function normalizeGearNeed(need = {}) {
     id: need.id || crypto.randomUUID(),
     memberId: need.memberId || "",
     memberName: need.memberName || "",
-    name: need.name || "",
+    name: canonicalizeGearName(need.name || ""),
     quantity: Number(need.quantity) || 1,
     note: need.note || "",
     status,
@@ -530,7 +530,7 @@ export class GroupService {
       id: crypto.randomUUID(),
       memberId,
       memberName,
-      name: gear.name,
+      name: canonicalizeGearName(gear.name),
       quantity: gear.quantity,
       attributes: gear.attributes || {},
       shareable: gear.shareable,
@@ -579,6 +579,7 @@ export class GroupService {
     const next = enrichTripGearItem({
       ...current,
       ...patch,
+      name: typeof patch.name !== "undefined" ? canonicalizeGearName(patch.name) : current.name,
       id: current.id,
       memberId: patch.memberId || current.memberId,
       memberName: patch.memberName || current.memberName,

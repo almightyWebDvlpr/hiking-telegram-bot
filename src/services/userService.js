@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { enrichGearItem } from "../data/gearCatalog.js";
+import { canonicalizeGearName, enrichGearItem } from "../data/gearCatalog.js";
 import {
   BADGE_SERIES,
   ONE_TIME_AWARDS,
@@ -444,7 +444,7 @@ export class UserService {
 
     user.personalGear.push(enrichGearItem({
       id: crypto.randomUUID(),
-      name: gear.name,
+      name: canonicalizeGearName(gear.name),
       quantity: gear.quantity,
       attributes: gear.attributes || {},
       note: gear.note || "",
@@ -466,7 +466,7 @@ export class UserService {
       throw new Error("Personal gear not found");
     }
 
-    item.name = normalizeText(patch.name ?? item.name);
+    item.name = canonicalizeGearName(patch.name ?? item.name);
     item.quantity = Number(patch.quantity ?? item.quantity) || item.quantity;
     if (patch.attributes && typeof patch.attributes === "object") {
       item.attributes = { ...patch.attributes };

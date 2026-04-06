@@ -19,6 +19,93 @@ function formatWeightGrams(value) {
   return `${grams} г`;
 }
 
+function capitalizeWord(word) {
+  if (!word) {
+    return "";
+  }
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function humanizeGearName(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replaceAll(/\s+/g, " ")
+    .replaceAll(/\s*-\s*/g, " - ");
+
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized
+    .split(" ")
+    .map((word) => capitalizeWord(word))
+    .join(" ");
+}
+
+function buildSearchTokens(value) {
+  return normalizeSearch(value)
+    .split(" ")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function matchesKeyword(normalizedValue, tokens, keyword) {
+  const normalizedKeyword = normalizeSearch(keyword);
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  if (normalizedValue === normalizedKeyword) {
+    return true;
+  }
+
+  if (normalizedKeyword.includes(" ")) {
+    return normalizedValue.includes(normalizedKeyword);
+  }
+
+  return tokens.some((token) => token === normalizedKeyword || token.startsWith(normalizedKeyword));
+}
+
+const GEAR_NAME_ALIASES = [
+  { canonical: "Намет", keywords: ["намет", "палатка", "палатка туристична", "палатка трекінгова"] },
+  { canonical: "Тент", keywords: ["тент", "тарп", "укриття", "навіс"] },
+  { canonical: "Спальний мішок", keywords: ["спальник", "спальний мішок", "мішок для сну", "sleeping bag"] },
+  { canonical: "Квілт", keywords: ["квілт", "quilt"] },
+  { canonical: "Спальний килимок", keywords: ["килимок", "каремат", "карімат", "каримат", "пінка", "пенка", "спальний килимок"] },
+  { canonical: "Подушка", keywords: ["подушка", "camp pillow"] },
+  { canonical: "Рюкзак", keywords: ["рюкзак", "наплічник"] },
+  { canonical: "Гермомішок", keywords: ["гермомішок", "герма", "гермосумка", "гермоміш"] },
+  { canonical: "Бананка", keywords: ["бананка", "поясна сумка"] },
+  { canonical: "Трекінгові палиці", keywords: ["трекінгові палиці", "палиці", "трекинговые палки", "trekking poles"] },
+  { canonical: "Ліхтар", keywords: ["ліхтар", "ліхтарик", "фонарик"] },
+  { canonical: "Налобний ліхтар", keywords: ["налобник", "налобний ліхтар", "налобний"] },
+  { canonical: "Компас", keywords: ["компас"] },
+  { canonical: "GPS-навігатор", keywords: ["gps", "джіпіес", "навігатор", "garmin", "etrex", "gpsmap"] },
+  { canonical: "Пальник", keywords: ["пальник", "газовий пальник", "бензиновий пальник"] },
+  { canonical: "Система приготування", keywords: ["система приготування", "jetboil", "reactor", "windburner"] },
+  { canonical: "Пальне / газ", keywords: ["газовий балон", "газовий балончик", "газ", "балон", "пальне"] },
+  { canonical: "Казанок", keywords: ["казанок", "котелок", "котелок туристичний"] },
+  { canonical: "Горнятко", keywords: ["горнятко", "горнятко туристичне", "кружка", "чашка"] },
+  { canonical: "Термос", keywords: ["термос"] },
+  { canonical: "Фляга", keywords: ["фляга", "фляжка"] },
+  { canonical: "Пляшка для води", keywords: ["пляшка", "бутилка", "бутылка"] },
+  { canonical: "Гідратор", keywords: ["гідратор", "питна система"] },
+  { canonical: "Фільтр для води", keywords: ["фільтр для води", "sawyer", "katadyn", "lifestraw", "befree"] },
+  { canonical: "Аптечка", keywords: ["аптечка", "аптечка групова", "first aid"] },
+  { canonical: "Турнікет", keywords: ["турнікет", "джгут", "жгут"] },
+  { canonical: "Рація", keywords: ["рація", "рации", "walkie talkie"] },
+  { canonical: "Павербанк", keywords: ["павербанк", "повербанк", "powerbank"] },
+  { canonical: "Сонячна панель", keywords: ["сонячна панель", "solar panel"] },
+  { canonical: "Ремнабір", keywords: ["ремнабір", "ремкомплект"] },
+  { canonical: "Сокира", keywords: ["сокира", "топір"] },
+  { canonical: "Пилка", keywords: ["пилка", "пила"] },
+  { canonical: "Черевики", keywords: ["черевики", "черевик", "ботинки"] },
+  { canonical: "Кросівки", keywords: ["кросівки", "кросівок", "кроси"] },
+  { canonical: "Дощовик", keywords: ["дощовик", "пончо"] },
+  { canonical: "Фліска", keywords: ["фліска", "фліс"] },
+  { canonical: "Термобілизна", keywords: ["термобілизна", "термо білизна", "термо"] }
+];
+
 export const GEAR_CATEGORIES = [
   {
     key: "bivouac",
@@ -290,7 +377,7 @@ export const GEAR_PROFILES = [
   },
   {
     key: "sleeping_bag",
-    label: "Спальник",
+    label: "Спальний мішок",
     keywords: [
       "спальник", "спальн", "спальнич", "спальний міш", "мішок для сну",
       "квілт", "quilt", "лайнер", "вкладиш", "внутрішній мішок"
@@ -338,7 +425,7 @@ export const GEAR_PROFILES = [
   },
   {
     key: "pad",
-    label: "Килимок",
+    label: "Спальний килимок",
     keywords: [
       "килим", "килимок", "каремат", "каримат", "карімат",
       "мат", "матик", "матрац", "матрас", "пенк", "пінк", "пенопка",
@@ -412,7 +499,7 @@ export const GEAR_PROFILES = [
   },
   {
     key: "headlamp",
-    label: "Ліхтар",
+    label: "Ліхтар / налобник",
     keywords: [
       "налобн", "налобник", "налобний", "ліхтар", "ліхтарик",
       "фонар", "фонарик", "лампа", "лампочка", "світильник"
@@ -592,7 +679,7 @@ export const GEAR_PROFILES = [
   },
   {
     key: "water_filter",
-    label: "Фільтр / очищення води",
+    label: "Фільтр для води",
     keywords: [
       "фільтр", "филтр", "очистк", "очищувач води", "акватабс", "таблетки для води",
       "lifestraw", "sawyer", "katadyn", "befree", "гравітаційний фільтр", "насосний фільтр"
@@ -754,9 +841,24 @@ export const GEAR_PROFILES = [
 
 function findByKeywords(source, name) {
   const normalized = normalizeSearch(name);
+  const tokens = buildSearchTokens(name);
   return source.find((item) =>
-    item.keywords.some((keyword) => normalized.includes(normalizeSearch(keyword)))
+    item.keywords.some((keyword) => matchesKeyword(normalized, tokens, keyword))
   );
+}
+
+export function canonicalizeGearName(name) {
+  const normalized = normalizeSearch(name);
+  if (!normalized) {
+    return "";
+  }
+
+  const alias = GEAR_NAME_ALIASES.find((item) => item.keywords.some((keyword) => matchesKeyword(normalized, buildSearchTokens(name), keyword)));
+  if (alias) {
+    return alias.canonical;
+  }
+
+  return humanizeGearName(name);
 }
 
 export function categorizeGearName(name) {
@@ -817,6 +919,7 @@ export function summarizeGearAttributes(item) {
 }
 
 export function enrichGearItem(item) {
+  const canonicalName = canonicalizeGearName(item?.name);
   const category = categorizeGearName(item?.name);
   const profile = resolveGearProfile(item?.name);
   const sourceAttributes = item?.attributes && typeof item.attributes === "object" ? item.attributes : {};
@@ -844,6 +947,7 @@ export function enrichGearItem(item) {
 
   return {
     ...item,
+    name: canonicalName || String(item?.name || "").trim(),
     categoryKey: item?.categoryKey || category.key,
     categoryIcon: item?.categoryIcon || category.icon,
     categoryLabel: item?.categoryLabel || category.label,

@@ -4231,7 +4231,7 @@ function formatGearList(items, { includeOwner = false } = {}) {
     sections.push(`<b>${group.title}</b>`);
     sections.push("────────");
     for (const [index, item] of group.items.entries()) {
-      sections.push(`${index + 1}. ${item.name}: ${item.quantity} шт.`);
+      sections.push(`${index + 1}. <b>${escapeHtml(item.name)}</b> — ${item.quantity} шт.`);
 
       for (const line of formatGearAvailabilityLines(item, { includeOwner })) {
         sections.push(line);
@@ -4240,6 +4240,10 @@ function formatGearList(items, { includeOwner = false } = {}) {
       const attributes = summarizeGearAttributes(item);
       for (const line of attributes) {
         sections.push(`◦ ${line}`);
+      }
+
+      if (index < group.items.length - 1) {
+        sections.push("");
       }
     }
     sections.push("");

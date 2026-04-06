@@ -9853,7 +9853,7 @@ export function createBot(store) {
     clearFlow(String(ctx.from.id));
     return sendHome(ctx);
   });
-  bot.hears("❌ Скасувати", (ctx) => {
+  bot.hears("❌ Скасувати", async (ctx) => {
     const activeFlow = getFlow(String(ctx.from.id));
     const menuContext = getMenuContext(ctx.from.id);
 
@@ -9898,6 +9898,10 @@ export function createBot(store) {
       );
     }
 
+    if (activeFlow?.type === "gear_edit" && ["quantity", "scope", "field"].includes(activeFlow.step)) {
+      return handleGearEditFlow(ctx, activeFlow, groupService, userService, bot.telegram);
+    }
+
     if (activeFlow?.type === "my_gear_edit" && activeFlow.step === "delete_confirm" && activeFlow.data?.item) {
       activeFlow.step = "action";
       setFlow(String(ctx.from.id), activeFlow);
@@ -9911,6 +9915,10 @@ export function createBot(store) {
         ]),
         { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
       );
+    }
+
+    if (activeFlow?.type === "my_gear_edit" && ["quantity", "field"].includes(activeFlow.step)) {
+      return handleMyGearEditFlow(ctx, activeFlow, userService);
     }
 
     if (activeFlow?.type === "gear_need_manage" && activeFlow.step === "cancel_confirm" && activeFlow.data?.need) {

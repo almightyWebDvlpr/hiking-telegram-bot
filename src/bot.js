@@ -5246,7 +5246,15 @@ function buildTripPhotoShareCaption(trip, authorName, caption = "") {
 }
 
 async function shareTripPhotoWithMembers(telegram, trip, senderId, fileId, caption, authorName) {
-  const recipients = (trip.members || []).filter((member) => String(member.id) !== String(senderId));
+  const seen = new Set();
+  const recipients = (trip.members || []).filter((member) => {
+    const memberId = String(member.id || "");
+    if (!memberId || memberId === String(senderId) || seen.has(memberId)) {
+      return false;
+    }
+    seen.add(memberId);
+    return true;
+  });
   let delivered = 0;
 
   for (const member of recipients) {
@@ -5265,10 +5273,17 @@ async function shareTripPhotoWithMembers(telegram, trip, senderId, fileId, capti
 }
 
 async function handleTripPhotoMessage(ctx, flow, groupService, userService, telegram) {
-  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
-  if (!trip) {
+  const trip = groupService.getGroup(flow.tripId);
+  const senderId = String(ctx.from.id);
+
+  if (!trip || trip.status !== "active") {
     clearFlow(String(ctx.from.id));
-    return null;
+    return ctx.reply("Активний похід для цього сценарію вже недоступний.", getTripKeyboard(groupService.findGroupByMember(senderId), senderId));
+  }
+
+  if (!trip.members.some((member) => String(member.id) === senderId)) {
+    clearFlow(String(ctx.from.id));
+    return ctx.reply("Ти більше не є учасником цього походу, тому розсилку фото зупинено.", getTripKeyboard(groupService.findGroupByMember(senderId), senderId));
   }
 
   const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
@@ -5277,15 +5292,26 @@ async function handleTripPhotoMessage(ctx, flow, groupService, userService, tele
   }
 
   const caption = String(ctx.message?.caption || "").trim();
-  const authorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
+  const authorName = userService.getDisplayName(senderId, getUserLabel(ctx));
   const delivery = await shareTripPhotoWithMembers(
     telegram,
     trip,
-    String(ctx.from.id),
+    senderId,
     photo.file_id,
     caption,
     authorName
   );
+
+  if (delivery.recipients === 0) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("📸 ФОТО НЕ РОЗІСЛАНО", trip.name),
+        "",
+        "У цьому поході поки немає інших учасників, яким можна надіслати фото."
+      ]),
+      { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+    );
+  }
 
   return ctx.reply(
     joinRichLines([

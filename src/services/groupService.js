@@ -273,6 +273,12 @@ export class GroupService {
     return group ? createEmptyGroupFields(group) : null;
   }
 
+  getGroup(groupId) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+    return group ? createEmptyGroupFields(group) : null;
+  }
+
   getActiveGroups() {
     const data = this.store.read();
     return data.groups

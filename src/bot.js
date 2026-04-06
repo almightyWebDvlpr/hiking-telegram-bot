@@ -1697,6 +1697,37 @@ function formatGearCoverageNotice(matches = []) {
   return `⚠️ Є схожі речі, але зараз вони недоступні в наявній кількості: ${matches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`;
 }
 
+function buildGearNeedActionStatusLines(matchState) {
+  const matches = Array.isArray(matchState?.matches) ? matchState.matches : [];
+  const fullMatches = Array.isArray(matchState?.fullMatches) ? matchState.fullMatches : [];
+
+  if (fullMatches.length > 0) {
+    return [
+      "🤝 У поході вже є відповідне спорядження в наявності.",
+      `Може допомогти: ${fullMatches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`
+    ];
+  }
+
+  if (!matches.length) {
+    return [
+      "⚠️ Поки що в поході немає відповідного спорядження для цього запиту."
+    ];
+  }
+
+  const partialMatches = matches.filter((item) => Number(item.availableQuantity) > 0);
+  if (partialMatches.length) {
+    return [
+      "⚠️ Є лише часткові збіги, але доступної кількості поки недостатньо.",
+      `Зараз видно: ${partialMatches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`
+    ];
+  }
+
+  return [
+    "⚠️ Є схожі речі, але зараз вони недоступні в наявній кількості.",
+    `Зараз видно: ${matches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`
+  ];
+}
+
 function formatResolvedGearNeedListLine(need) {
   const matched = need.matchedByMemberName ? ` | допоміг: ${escapeHtml(need.matchedByMemberName)}` : "";
   return `• ${escapeHtml(need.name)}: ${escapeHtml(String(need.quantity))} | ${escapeHtml(getGearNeedStatusLabel(need.status))}${matched}`;
@@ -6087,6 +6118,8 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         "",
         ...formatGearNeedSummaryLines(flow.data.need),
         "",
+        ...buildGearNeedActionStatusLines(matchState),
+        "",
         "Що хочеш зробити з цим запитом?"
       ]),
       { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(flow.data.need, matchState) }
@@ -6119,6 +6152,8 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", need.name),
         "",
         ...formatGearNeedSummaryLines(need),
+        "",
+        ...buildGearNeedActionStatusLines(matchState),
         "",
         "Що хочеш зробити з цим запитом?"
       ]),
@@ -6297,6 +6332,8 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
           ...formatCardHeader("📋 МОЇ ЗАПИТИ", flow.data.need.name),
           "",
           ...formatGearNeedSummaryLines(flow.data.need),
+          "",
+          ...buildGearNeedActionStatusLines(getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id))),
           "",
           "Що хочеш зробити з цим запитом?"
         ]),
@@ -9376,6 +9413,8 @@ export function createBot(store) {
           ...formatCardHeader("📋 МОЇ ЗАПИТИ", activeFlow.data.need.name),
           "",
           ...formatGearNeedSummaryLines(activeFlow.data.need),
+          "",
+          ...buildGearNeedActionStatusLines(matchState),
           "",
           "Що хочеш зробити з цим запитом?"
         ]),

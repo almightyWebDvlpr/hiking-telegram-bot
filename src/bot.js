@@ -5780,6 +5780,107 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
     );
   }
 
+  if (flow.step === "quantity" && message === "❌ Скасувати") {
+    flow.step = "action";
+    delete flow.data.quantity;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Тип: ${getTripGearScopeLabel(flow.data.item)}`,
+        `Поточна кількість: ${flow.data.item.quantity}`,
+        flow.data.item.memberName ? `Додав: ${flow.data.item.memberName}` : null,
+        (Number(flow.data.item?.inUseQuantity) || 0) > 0
+          ? `Зараз у користуванні: ${flow.data.item.inUseQuantity} шт. Поки річ не повернуть, не можна змінити її тип або видалити.`
+          : null,
+        "",
+        "Що хочеш зробити з цією позицією?"
+      ].filter(Boolean)),
+      { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+    );
+  }
+
+  if (flow.step === "scope" && message === "❌ Скасувати") {
+    flow.step = "quantity";
+    delete flow.data.scope;
+    delete flow.data.shareable;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Тип: ${getTripGearScopeLabel(flow.data.item)}`,
+        `Поточна кількість: ${flow.data.item.quantity}`,
+        "Введи нову кількість.",
+        `Щоб просто продовжити редагування без зміни кількості, введи <code>${flow.data.item.quantity}</code>.`,
+        "",
+        "⚠️ Зверни увагу:",
+        "• якщо не хочеш змінювати кількість, просто введи поточне значення"
+      ]),
+      { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+    );
+  }
+
+  if (flow.step === "field" && message === "❌ Скасувати") {
+    const fieldIndex = Math.max(0, Number(flow.data.fieldIndex) || 0);
+
+    if (fieldIndex > 0) {
+      flow.data.fieldIndex = fieldIndex - 1;
+      setFlow(String(ctx.from.id), flow);
+      const { field } = getGearFlowField({
+        ...flow,
+        data: {
+          ...flow.data,
+          name: flow.data.item.name,
+          attributes: flow.data.attributes,
+          fieldIndex: flow.data.fieldIndex
+        }
+      });
+      return ctx.reply(
+        buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
+        { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+      );
+    }
+
+    if ((Number(flow.data.item?.inUseQuantity) || 0) > 0) {
+      flow.step = "quantity";
+      delete flow.data.fieldIndex;
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name),
+          "",
+          `Тип: ${getTripGearScopeLabel(flow.data.item)}`,
+          `Поточна кількість: ${flow.data.item.quantity}`,
+          "Введи нову кількість.",
+          `Щоб просто продовжити редагування без зміни кількості, введи <code>${flow.data.item.quantity}</code>.`,
+          "",
+          "⚠️ Зверни увагу:",
+          "• якщо не хочеш змінювати кількість, просто введи поточне значення"
+        ]),
+        { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+      );
+    }
+
+    flow.step = "scope";
+    delete flow.data.fieldIndex;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ ТИП СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Поточний тип: ${getTripGearScopeLabel(flow.data.item)}`,
+        "Обери новий тип або залиш без змін.",
+        "",
+        "⚠️ Зверни увагу:",
+        "• це працює тільки для спорядження походу",
+        "• тип визначає, чи річ спільна, особиста або доступна для позики"
+      ]),
+      { parse_mode: "HTML", ...getTripGearScopeKeyboard(true) }
+    );
+  }
+
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
     return ctx.reply("Редагування спорядження скасовано.", getCurrentTripGearKeyboard(ctx, groupService));
@@ -7546,6 +7647,58 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
         "Що хочеш зробити з цією річчю?"
       ]),
       { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+    );
+  }
+
+  if (flow.step === "quantity" && message === "❌ Скасувати") {
+    flow.step = "action";
+    delete flow.data.quantity;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Поточна кількість: ${flow.data.item.quantity}`,
+        "",
+        "Що хочеш зробити з цією річчю?"
+      ]),
+      { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+    );
+  }
+
+  if (flow.step === "field" && message === "❌ Скасувати") {
+    const fieldIndex = Math.max(0, Number(flow.data.fieldIndex) || 0);
+
+    if (fieldIndex > 0) {
+      flow.data.fieldIndex = fieldIndex - 1;
+      setFlow(String(ctx.from.id), flow);
+      const { field } = getGearFlowField({
+        ...flow,
+        data: {
+          ...flow.data,
+          name: flow.data.item.name,
+          attributes: flow.data.attributes,
+          fieldIndex: flow.data.fieldIndex
+        }
+      });
+      return ctx.reply(
+        buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
+        { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+      );
+    }
+
+    flow.step = "quantity";
+    delete flow.data.fieldIndex;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name),
+        "",
+        `Поточна кількість: ${flow.data.item.quantity}`,
+        "Введи нову кількість.",
+        `Щоб просто продовжити редагування без зміни кількості, введи <code>${flow.data.item.quantity}</code>.`
+      ]),
+      { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
     );
   }
 

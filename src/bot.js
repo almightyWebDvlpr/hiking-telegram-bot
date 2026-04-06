@@ -6954,7 +6954,7 @@ async function handleLoanedGearManageFlow(ctx, flow, groupService, userService, 
     if (message === GEAR_EDIT_BACK_LABEL) {
       if (flow.data?.directConfirm) {
         clearFlow(String(ctx.from.id));
-        return showTripGearAccountingMenu(ctx, groupService);
+        return showLoanedOutGear(ctx, groupService);
       }
 
       flow.step = "pick";

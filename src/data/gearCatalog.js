@@ -75,6 +75,7 @@ const GEAR_NAME_ALIASES = [
   { canonical: "Подушка", keywords: ["подушка", "camp pillow"] },
   { canonical: "Рюкзак", keywords: ["рюкзак", "наплічник"] },
   { canonical: "Гермомішок", keywords: ["гермомішок", "герма", "гермосумка", "гермоміш"] },
+  { canonical: "Чохол на рюкзак", keywords: ["чохол на рюкзак", "накидка на рюкзак", "рейнкавер", "rain cover"] },
   { canonical: "Бананка", keywords: ["бананка", "поясна сумка"] },
   { canonical: "Трекінгові палиці", keywords: ["трекінгові палиці", "палиці", "трекинговые палки", "trekking poles"] },
   { canonical: "Ліхтар", keywords: ["ліхтар", "ліхтарик", "фонарик"] },
@@ -93,7 +94,9 @@ const GEAR_NAME_ALIASES = [
   { canonical: "Фільтр для води", keywords: ["фільтр для води", "sawyer", "katadyn", "lifestraw", "befree"] },
   { canonical: "Аптечка", keywords: ["аптечка", "аптечка групова", "first aid"] },
   { canonical: "Турнікет", keywords: ["турнікет", "джгут", "жгут"] },
+  { canonical: "Свисток", keywords: ["свисток", "сигнальний свисток"] },
   { canonical: "Рація", keywords: ["рація", "рации", "walkie talkie"] },
+  { canonical: "Супутниковий маяк", keywords: ["супутниковий маяк", "inreach", "zoleo", "маяк безпеки"] },
   { canonical: "Павербанк", keywords: ["павербанк", "повербанк", "powerbank"] },
   { canonical: "Сонячна панель", keywords: ["сонячна панель", "solar panel"] },
   { canonical: "Ремнабір", keywords: ["ремнабір", "ремкомплект"] },
@@ -102,11 +105,24 @@ const GEAR_NAME_ALIASES = [
   { canonical: "Ножиці", keywords: ["ножиці", "ножиц", "ножнички"] },
   { canonical: "Сокира", keywords: ["сокира", "топір"] },
   { canonical: "Пилка", keywords: ["пилка", "пила"] },
+  { canonical: "Запальничка", keywords: ["запальничка", "зажигалка", "lighter"] },
+  { canonical: "Кресало", keywords: ["кресало", "ferro rod", "firesteel"] },
+  { canonical: "Сірники", keywords: ["сірники", "спички", "storm matches"] },
   { canonical: "Черевики", keywords: ["черевики", "черевик", "ботинки"] },
   { canonical: "Кросівки", keywords: ["кросівки", "кросівок", "кроси"] },
+  { canonical: "Сандалі", keywords: ["сандалі", "сандалії", "camp sandals"] },
   { canonical: "Дощовик", keywords: ["дощовик", "пончо"] },
+  { canonical: "Гамаші", keywords: ["гамаші", "бахіли", "gaiters"] },
   { canonical: "Фліска", keywords: ["фліска", "фліс"] },
-  { canonical: "Термобілизна", keywords: ["термобілизна", "термо білизна", "термо"] }
+  { canonical: "Термобілизна", keywords: ["термобілизна", "термо білизна", "термо"] },
+  { canonical: "Баф", keywords: ["баф", "buff", "горловик"] },
+  { canonical: "Рукавиці", keywords: ["рукавиці", "рукавички", "перчатки", "mittens"] },
+  { canonical: "Шапка", keywords: ["шапка", "баф шапка", "beanie"] },
+  { canonical: "Панама", keywords: ["панама", "капелюх", "sun hat"] },
+  { canonical: "Окуляри", keywords: ["окуляри", "сонцезахисні окуляри", "glasses", "sunglasses"] },
+  { canonical: "Карта", keywords: ["карта", "мапа", "топокарта", "paper map"] },
+  { canonical: "Паракорд", keywords: ["паракорд", "шнур", "корд", "репшнур"] },
+  { canonical: "Сидушка", keywords: ["сидушка", "сидушка-пінка", "сітпад", "sit pad"] }
 ];
 
 export const GEAR_CATEGORIES = [
@@ -478,6 +494,31 @@ export const GEAR_PROFILES = [
     ]
   },
   {
+    key: "dry_storage",
+    label: "Гермозахист / чохли",
+    keywords: [
+      "гермомішок", "герма", "гермосумка", "гермоміш", "drybag", "dry bag",
+      "чохол на рюкзак", "накидка на рюкзак", "рейнкавер", "rain cover",
+      "гермочохол", "водонепроникний чохол", "чохол для телефону", "чохол для документів"
+    ],
+    fields: [
+      {
+        key: "storageType",
+        label: "Тип",
+        prompt: "Вкажи тип.\nПриклад: `гермомішок`, `чохол на рюкзак`, `гермочохол для телефону`.",
+        type: "text_optional"
+      },
+      {
+        key: "capacityMl",
+        label: "Обʼєм / розмір",
+        prompt: "Вкажи обʼєм або розмір.\nПриклад: `10 л`, `20 л`, `для 60-літрового рюкзака`.",
+        type: "text_optional"
+      },
+      COMMON_FIELDS[0],
+      COMMON_FIELDS[1]
+    ]
+  },
+  {
     key: "trekking_poles",
     label: "Трекінгові палиці",
     keywords: [
@@ -520,6 +561,30 @@ export const GEAR_PROFILES = [
     ]
   },
   {
+    key: "fire_starter",
+    label: "Розпалювання",
+    keywords: [
+      "запальничка", "зажигалка", "lighter", "кресало", "firesteel", "ferro rod",
+      "сірники", "спички", "storm matches", "розпалювач", "розпалювання"
+    ],
+    fields: [
+      {
+        key: "starterType",
+        label: "Тип",
+        prompt: "Вкажи тип.\nПриклад: `запальничка`, `кресало`, `штормові сірники`.",
+        type: "text_optional"
+      },
+      {
+        key: "waterResistance",
+        label: "Захист",
+        prompt: "Чи захищене від води?\nПриклад: `водостійке`, `в гермочохлі`, `звичайне`.",
+        type: "text_optional"
+      },
+      COMMON_FIELDS[0],
+      COMMON_FIELDS[1]
+    ]
+  },
+  {
     key: "navigation_device",
     label: "Навігація",
     keywords: [
@@ -537,6 +602,30 @@ export const GEAR_PROFILES = [
         key: "powerSource",
         label: "Живлення",
         prompt: "Вкажи джерело живлення.\nПриклад: `AA`, `вбудований акумулятор`, `не потребує`.",
+        type: "text_optional"
+      },
+      COMMON_FIELDS[0],
+      COMMON_FIELDS[1]
+    ]
+  },
+  {
+    key: "communication",
+    label: "Зв'язок / маяк",
+    keywords: [
+      "рація", "рації", "walkie talkie", "радіостанція",
+      "супутниковий маяк", "маяк безпеки", "inreach", "zoleo", "sat messenger"
+    ],
+    fields: [
+      {
+        key: "communicationType",
+        label: "Тип",
+        prompt: "Вкажи тип.\nПриклад: `рація`, `супутниковий маяк`, `sat messenger`.",
+        type: "text_optional"
+      },
+      {
+        key: "powerSource",
+        label: "Живлення",
+        prompt: "Вкажи джерело живлення.\nПриклад: `USB-C`, `вбудований акумулятор`, `AAA`.",
         type: "text_optional"
       },
       COMMON_FIELDS[0],

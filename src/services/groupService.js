@@ -411,12 +411,46 @@ export class GroupService {
       );
   }
 
+  getOutstandingGearLoans(groupId) {
+    const snapshot = this.getGearSnapshot(groupId);
+    if (!snapshot) {
+      return [];
+    }
+
+    const combined = [...snapshot.sharedGear, ...snapshot.personalGear, ...snapshot.spareGear];
+    return combined
+      .filter((item) => Array.isArray(item.loans) && item.loans.length > 0)
+      .map((item) => ({
+        gearId: item.id,
+        gearName: item.name,
+        ownerMemberId: item.memberId,
+        ownerMemberName: item.memberName || "учасник",
+        totalQuantity: item.quantity,
+        availableQuantity: item.availableQuantity,
+        inUseQuantity: item.inUseQuantity,
+        loans: item.loans.map((loan) => ({
+          borrowerMemberId: loan.borrowerMemberId,
+          borrowerMemberName: loan.borrowerMemberName || "учасник",
+          quantity: Number(loan.quantity) || 0
+        }))
+      }));
+  }
+
   completeGroup(groupId) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);
 
     if (!group) {
       throw new Error("Group not found");
+    }
+
+    const outstandingLoans = this.getOutstandingGearLoans(groupId);
+    if (outstandingLoans.length > 0) {
+      return {
+        ok: false,
+        message: "Похід не можна завершити, поки учасники не повернуть позичене спорядження.",
+        outstandingLoans
+      };
     }
 
     const preparedGroup = createEmptyGroupFields(group);
@@ -427,7 +461,10 @@ export class GroupService {
     group.finalSummary = buildFinalSummary(group);
     this.store.write(data);
 
-    return createEmptyGroupFields(group);
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group)
+    };
   }
 
   archiveGroup(groupId) {

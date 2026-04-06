@@ -3045,6 +3045,18 @@ function buildGearReturnConfirmedNotification(trip, gearName, ownerName, quantit
   ]);
 }
 
+function buildOutstandingLoansSummaryLines(loans = []) {
+  const lines = [];
+  for (const [index, item] of loans.entries()) {
+    lines.push(`${index + 1}. ${item.gearName}`);
+    lines.push(`◦ Власник: ${item.ownerMemberName}`);
+    for (const loan of item.loans || []) {
+      lines.push(`◦ Не повернув: ${loan.borrowerMemberName} | ${loan.quantity} шт.`);
+    }
+  }
+  return lines;
+}
+
 function buildGearNeedFulfilledNotification(trip, requesterName, need) {
   return joinRichLines([
     ...formatCardHeader("✅", "ЗАПИТ ЗАКРИТО"),
@@ -8698,7 +8710,22 @@ async function finishTrip(ctx, groupService, userService, telegram = null) {
     return null;
   }
 
-  const completed = groupService.completeGroup(trip.id);
+  const completionResult = groupService.completeGroup(trip.id);
+  if (!completionResult?.ok) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("⚠️ ПОХІД ПОКИ НЕ МОЖНА ЗАВЕРШИТИ", trip.name),
+        "",
+        completionResult?.message || "Спочатку потрібно закрити всі активні позики спорядження.",
+        "",
+        "Що ще потрібно повернути:",
+        ...buildOutstandingLoansSummaryLines(completionResult?.outstandingLoans || [])
+      ]),
+      { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+    );
+  }
+
+  const completed = completionResult.group;
   const awardResults = completed.members.map((member) => ({
     member,
     awards: userService.grantTripAwards({
@@ -8752,6 +8779,23 @@ function startFinishTripConfirm(ctx, groupService) {
   const trip = requireOwnerTrip(ctx, groupService);
   if (!trip) {
     return null;
+  }
+
+  const outstandingLoans = groupService.getOutstandingGearLoans(trip.id);
+  if (outstandingLoans.length > 0) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("⚠️ ПОХІД ПОКИ НЕ МОЖНА ЗАВЕРШИТИ", trip.name),
+        "",
+        "Поки в поході є позичене спорядження, завершення недоступне.",
+        "",
+        "Що ще не повернули:",
+        ...buildOutstandingLoansSummaryLines(outstandingLoans),
+        "",
+        "Спочатку учасники мають повернути ці речі, а власники — підтвердити повернення."
+      ]),
+      { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+    );
   }
 
   setFlow(String(ctx.from.id), {

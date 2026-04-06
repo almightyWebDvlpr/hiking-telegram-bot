@@ -5,6 +5,34 @@ function createInviteCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
 }
 
+function normalizeGearLoan(loan = {}) {
+  return {
+    id: loan.id || crypto.randomUUID(),
+    needId: loan.needId || "",
+    borrowerMemberId: loan.borrowerMemberId || "",
+    borrowerMemberName: loan.borrowerMemberName || "",
+    quantity: Math.max(1, Number(loan.quantity) || 1),
+    createdAt: loan.createdAt || new Date().toISOString()
+  };
+}
+
+function enrichTripGearItem(item = {}) {
+  const enriched = enrichGearItem(item);
+  const loans = Array.isArray(enriched.loans)
+    ? enriched.loans.map((loan) => normalizeGearLoan(loan)).filter((loan) => loan.quantity > 0)
+    : [];
+  const quantity = Math.max(0, Number(enriched.quantity) || 0);
+  const inUseQuantity = loans.reduce((sum, loan) => sum + (Number(loan.quantity) || 0), 0);
+  const availableQuantity = Math.max(0, quantity - inUseQuantity);
+
+  return {
+    ...enriched,
+    loans,
+    inUseQuantity,
+    availableQuantity
+  };
+}
+
 function isActiveGearNeedStatus(status = "") {
   return status === "open" || status === "matched";
 }
@@ -137,7 +165,7 @@ function createEmptyGroupFields(group) {
   return {
     ...group,
     ownerId: group.ownerId || group.members?.[0]?.id || null,
-    gear: Array.isArray(group.gear) ? group.gear : [],
+    gear: Array.isArray(group.gear) ? group.gear.map((item) => enrichTripGearItem(item)) : [],
     gearNeeds: Array.isArray(group.gearNeeds) ? group.gearNeeds.map((item) => normalizeGearNeed(item)) : [],
     food: Array.isArray(group.food) ? group.food : [],
     expenses: Array.isArray(group.expenses) ? group.expenses : [],
@@ -447,7 +475,7 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     Object.assign(group, preparedGroup);
 
-    const addedItem = enrichGearItem({
+    const addedItem = enrichTripGearItem({
       id: crypto.randomUUID(),
       memberId,
       memberName,
@@ -484,8 +512,8 @@ export class GroupService {
       return null;
     }
 
-    const current = enrichGearItem(group.gear[index]);
-    const next = enrichGearItem({
+    const current = enrichTripGearItem(group.gear[index]);
+    const next = enrichTripGearItem({
       ...current,
       ...patch,
       id: current.id,
@@ -518,9 +546,21 @@ export class GroupService {
       return null;
     }
 
+    const current = enrichTripGearItem(group.gear[index]);
+    if ((Number(current.inUseQuantity) || 0) > 0) {
+      return {
+        ok: false,
+        message: "Цю річ зараз не можна видалити, бо частина кількості вже в користуванні.",
+        item: current
+      };
+    }
+
     const [removed] = group.gear.splice(index, 1);
     this.store.write(data);
-    return enrichGearItem(removed);
+    return {
+      ok: true,
+      item: enrichTripGearItem(removed)
+    };
   }
 
   addFood({ groupId, memberId, memberName, food }) {
@@ -847,14 +887,71 @@ export class GroupService {
   }
 
   fulfillGearNeed({ groupId, needId }) {
-    return this.updateGearNeed({
-      groupId,
-      needId,
-      patch: {
-        status: "fulfilled",
-        fulfilledAt: new Date().toISOString()
-      }
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const needIndex = group.gearNeeds.findIndex((item) => item.id === needId);
+    if (needIndex === -1) {
+      return { ok: false, message: "Запит не знайдено." };
+    }
+
+    const need = normalizeGearNeed(group.gearNeeds[needIndex]);
+    if (need.status === "fulfilled") {
+      return { ok: false, message: "Цей запит уже позначено як отриманий." };
+    }
+
+    if (!need.matchedGearId) {
+      return { ok: false, message: "Спочатку потрібно визначити, хто саме поділиться цією річчю." };
+    }
+
+    const gearIndex = group.gear.findIndex((item) => item.id === need.matchedGearId);
+    if (gearIndex === -1) {
+      return { ok: false, message: "Річ, якою мали поділитися, вже недоступна в спорядженні походу." };
+    }
+
+    const gearItem = enrichTripGearItem(group.gear[gearIndex]);
+    if (gearItem.availableQuantity < need.quantity) {
+      return {
+        ok: false,
+        message: `Цієї речі зараз недостатньо в наявності. Доступно: ${gearItem.availableQuantity}/${need.quantity}.`
+      };
+    }
+
+    const loan = normalizeGearLoan({
+      needId: need.id,
+      borrowerMemberId: need.memberId,
+      borrowerMemberName: need.memberName,
+      quantity: need.quantity
     });
+
+    const updatedGear = enrichTripGearItem({
+      ...gearItem,
+      loans: [...(gearItem.loans || []), loan]
+    });
+    const fulfilledNeed = normalizeGearNeed({
+      ...need,
+      status: "fulfilled",
+      fulfilledAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    group.gear[gearIndex] = updatedGear;
+    group.gearNeeds[needIndex] = fulfilledNeed;
+    this.store.write(data);
+
+    return {
+      ok: true,
+      need: fulfilledNeed,
+      gear: updatedGear,
+      loan
+    };
   }
 
   matchGearNeed({ groupId, needId, lenderMemberId, lenderMemberName, gearId }) {
@@ -910,8 +1007,8 @@ export class GroupService {
         && gearNamesMatch(item.name, gearName)
         && (!excludeMemberId || String(item.memberId) !== String(excludeMemberId))
     ).map((item) => {
-      const enriched = enrichGearItem(item);
-      const availableQuantity = Math.max(0, Number(enriched.quantity) || 0);
+      const enriched = enrichTripGearItem(item);
+      const availableQuantity = Math.max(0, Number(enriched.availableQuantity) || 0);
       return {
         ...enriched,
         requestedQuantity: requested,
@@ -944,9 +1041,9 @@ export class GroupService {
     }
 
     const preparedGroup = createEmptyGroupFields(group);
-    const sharedGear = preparedGroup.gear.filter((item) => item.scope === "shared").map((item) => enrichGearItem(item));
-    const personalGear = preparedGroup.gear.filter((item) => item.scope === "personal").map((item) => enrichGearItem(item));
-    const spareGear = preparedGroup.gear.filter((item) => item.scope === "spare" || item.shareable).map((item) => enrichGearItem(item));
+    const sharedGear = preparedGroup.gear.filter((item) => item.scope === "shared").map((item) => enrichTripGearItem(item));
+    const personalGear = preparedGroup.gear.filter((item) => item.scope === "personal").map((item) => enrichTripGearItem(item));
+    const spareGear = preparedGroup.gear.filter((item) => item.scope === "spare" || item.shareable).map((item) => enrichTripGearItem(item));
     const shareableGear = spareGear;
     const allGearNeeds = preparedGroup.gearNeeds.map((item) => normalizeGearNeed(item));
     const activeGearNeeds = allGearNeeds.filter((item) => isActiveGearNeedStatus(item.status));

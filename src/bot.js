@@ -1604,11 +1604,14 @@ function getGearNeedMatchState(groupService, tripId, need, memberId) {
     requestedQuantity: need.quantity
   }).matches;
   const fullMatches = matches.filter((item) => item.isEnough);
+  const matchedCandidate = need?.matchedGearId
+    ? matches.find((item) => String(item.id) === String(need.matchedGearId))
+    : null;
   return {
     matches,
     fullMatches,
     showHelp: need?.status === "matched" || fullMatches.length > 0,
-    allowReceived: need?.status === "matched" || fullMatches.length > 0
+    allowReceived: Boolean(matchedCandidate?.isEnough) || fullMatches.length > 0
   };
 }
 
@@ -2729,6 +2732,30 @@ function getTripGearScopeLabel(item) {
   return "особисте";
 }
 
+function formatGearAvailabilitySummary(item) {
+  const totalQuantity = Math.max(0, Number(item?.quantity) || 0);
+  const availableQuantity = Math.max(0, Number(item?.availableQuantity ?? totalQuantity) || 0);
+  const inUseQuantity = Math.max(0, Number(item?.inUseQuantity) || 0);
+  const isShareable = item?.scope === "shared" || item?.scope === "spare" || item?.shareable;
+
+  if (!isShareable && inUseQuantity <= 0) {
+    return "";
+  }
+
+  const parts = [
+    availableQuantity > 0
+      ? `в наявності: ${availableQuantity}/${totalQuantity}`
+      : `немає в наявності: 0/${totalQuantity}`
+  ];
+
+  if (inUseQuantity > 0) {
+    const borrowerNames = [...new Set((item?.loans || []).map((loan) => loan.borrowerMemberName).filter(Boolean))];
+    parts.push(`в користуванні: ${inUseQuantity}${borrowerNames.length ? ` (${borrowerNames.join(", ")})` : ""}`);
+  }
+
+  return parts.join(" | ");
+}
+
 function getGearNeedStatusLabel(status = "open") {
   if (status === "matched") {
     return "знайдено";
@@ -2804,8 +2831,9 @@ function buildGearNeedFulfilledNotification(trip, requesterName, need) {
     `У поході <b>${escapeHtml(trip.name)}</b> закрито запит на спорядження.`,
     `Учасник: <b>${escapeHtml(requesterName)}</b>`,
     `Річ: <b>${escapeHtml(need.name)}</b>`,
+    need.matchedByMemberName ? `Отримано від: <b>${escapeHtml(need.matchedByMemberName)}</b>` : null,
     `Статус: <b>отримано</b>`
-  ]);
+  ].filter(Boolean));
 }
 
 function buildGearNeedCancelledNotification(trip, requesterName, need) {
@@ -2895,8 +2923,15 @@ function parseTripGearScopeChoice(message, currentScope = "personal") {
 
 function formatTripGearSelectionLines(items) {
   return items.map((item, index) => {
-    const owner = item.memberName ? ` | ${item.memberName}` : "";
-    return `${index + 1}. ${item.name} | ${getTripGearScopeLabel(item)} | ${item.quantity} шт.${owner}`;
+    const tail = [];
+    if (item.memberName) {
+      tail.push(item.memberName);
+    }
+    const availability = formatGearAvailabilitySummary(item);
+    if (availability) {
+      tail.push(availability);
+    }
+    return `${index + 1}. ${item.name} | ${getTripGearScopeLabel(item)} | ${item.quantity} шт.${tail.length ? ` | ${tail.join(" | ")}` : ""}`;
   });
 }
 
@@ -3914,6 +3949,10 @@ function formatGearList(items, { includeOwner = false } = {}) {
       const tail = [];
       if (includeOwner && item.memberName) {
         tail.push(item.memberName);
+      }
+      const availability = formatGearAvailabilitySummary(item);
+      if (availability) {
+        tail.push(availability);
       }
       sections.push(`${index + 1}. ${item.name}: ${item.quantity} шт.${tail.length ? ` | ${tail.join(" | ")}` : ""}`);
 
@@ -5226,7 +5265,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
           ? [
               "",
               "🤝 Ця річ може допомогти закрити такі запити:",
-              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(addedGear.quantity) || 0 })
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(addedGear.availableQuantity ?? addedGear.quantity) || 0 })
             ]
           : [])
       ]),
@@ -5475,10 +5514,16 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       groupId: flow.tripId,
       gearId: flow.data.item.id
     });
+    if (!removed?.ok) {
+      return ctx.reply(
+        removed?.message || "Цю позицію зараз не можна видалити.",
+        { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+      );
+    }
     clearFlow(String(ctx.from.id));
     await ctx.reply(
       joinRichLines([
-        ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed?.name || flow.data.item.name),
+        ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed?.item?.name || flow.data.item.name),
         "",
         "Позицію прибрано зі спорядження походу."
       ]),
@@ -5494,6 +5539,13 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
+    }
+    const minQuantity = Math.max(0, Number(flow.data.item?.inUseQuantity) || 0);
+    if (quantity < minQuantity) {
+      return ctx.reply(
+        `Зараз у користуванні вже ${minQuantity} шт. Не можна зменшити кількість нижче цього значення, поки річ не повернуть.`,
+        { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+      );
     }
 
     flow.data.quantity = quantity;
@@ -5625,7 +5677,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
           ? [
               "",
               "🤝 Після оновлення ця річ може допомогти закрити такі запити:",
-              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(updatedGear.quantity) || 0 })
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(updatedGear.availableQuantity ?? updatedGear.quantity) || 0 })
             ]
           : [])
       ]),
@@ -5682,10 +5734,16 @@ async function handleGearDeleteFlow(ctx, flow, groupService) {
       groupId: flow.tripId,
       gearId: flow.data.item.id
     });
+    if (!removed?.ok) {
+      return ctx.reply(
+        removed?.message || "Цю позицію зараз не можна видалити.",
+        { parse_mode: "HTML", ...getGearDeleteConfirmKeyboard() }
+      );
+    }
     clearFlow(String(ctx.from.id));
     await ctx.reply(
       joinRichLines([
-        ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed?.name || flow.data.item.name),
+        ...formatCardHeader("🗑 СПОРЯДЖЕННЯ ВИДАЛЕНО", removed?.item?.name || flow.data.item.name),
         "",
         "Позицію прибрано зі спорядження походу."
       ]),
@@ -5893,6 +5951,26 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
 
     if (message === GEAR_NEED_RECEIVED_LABEL) {
       const matchState = getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id));
+      if (flow.data.need?.status !== "matched" && matchState.fullMatches.length > 1) {
+        const preparedMatches = matchState.fullMatches.map((item, index) => ({
+          ...item,
+          actionLabel: `${index + 1}. ${truncateButtonLabel(item.memberName || item.name, 18)}`
+        }));
+        flow.step = "match_pick";
+        flow.data.matches = preparedMatches;
+        setFlow(String(ctx.from.id), flow);
+        return ctx.reply(
+          joinRichLines([
+            ...formatCardHeader("🤝 ХТО САМЕ ПОДІЛИВСЯ", flow.data.need.name),
+            "",
+            "Обери, від кого ти реально отримав цю річ.",
+            "",
+            ...buildGearCoverageMatchLines(preparedMatches)
+          ]),
+          { parse_mode: "HTML", ...getMyGearNeedMatchesKeyboard(preparedMatches) }
+        );
+      }
+
       if (!matchState.allowReceived) {
         return ctx.reply(
           "Позначити запит як отриманий можна тільки тоді, коли вже є реальний збіг і зрозуміло, хто може поділитися спорядженням.",
@@ -5900,10 +5978,37 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         );
       }
 
-      const fulfilledNeed = groupService.fulfillGearNeed({
+      if (flow.data.need?.status !== "matched" && matchState.fullMatches.length === 1) {
+        const picked = matchState.fullMatches[0];
+        const matchedNeed = groupService.matchGearNeed({
+          groupId: flow.tripId,
+          needId: flow.data.need.id,
+          lenderMemberId: picked.memberId,
+          lenderMemberName: picked.memberName,
+          gearId: picked.id
+        });
+        flow.data.need = matchedNeed;
+        setFlow(String(ctx.from.id), flow);
+      }
+
+      const fulfilledResult = groupService.fulfillGearNeed({
         groupId: flow.tripId,
         needId: flow.data.need.id
       });
+      if (!fulfilledResult?.ok) {
+        return ctx.reply(
+          fulfilledResult?.message || "Не вдалося позначити запит як отриманий.",
+          {
+            parse_mode: "HTML",
+            ...getMyGearNeedActionKeyboard(
+              flow.data.need,
+              getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id))
+            )
+          }
+        );
+      }
+
+      const fulfilledNeed = fulfilledResult.need;
       clearFlow(String(ctx.from.id));
       void notifyTripMembers(
         telegram,
@@ -5915,8 +6020,13 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         joinRichLines([
           ...formatCardHeader("✅ ЗАПИТ ЗАКРИТО", fulfilledNeed.name),
           "",
-          "Запит позначено як отриманий."
-        ]),
+          "Запит позначено як отриманий.",
+          `Отримано від: <b>${escapeHtml(fulfilledNeed.matchedByMemberName || "учасника")}</b>`,
+          fulfilledNeed.matchedGearName ? `Річ: <b>${escapeHtml(fulfilledNeed.matchedGearName)}</b>` : null,
+          fulfilledResult.gear
+            ? `Річ у наявності тепер: <b>${escapeHtml(String(fulfilledResult.gear.availableQuantity))}/${escapeHtml(String(fulfilledResult.gear.quantity))}</b>`
+            : null
+        ].filter(Boolean)),
         { parse_mode: "HTML", ...getTripGearKeyboard() }
       );
       return startMyNeedsWizard(ctx, groupService);
@@ -5951,10 +6061,6 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
       flow.step = "action";
       delete flow.data.matches;
       setFlow(String(ctx.from.id), flow);
-      const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, {
-        excludeMemberId: String(ctx.from.id),
-        requestedQuantity: flow.data.need.quantity
-      }).matches;
       return ctx.reply(
         joinRichLines([
           ...formatCardHeader("📋 МОЇ ЗАПИТИ", flow.data.need.name),
@@ -5995,27 +6101,50 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
       gearId: picked.id
     });
     flow.data.need = matchedNeed;
-    flow.step = "action";
     delete flow.data.matches;
     setFlow(String(ctx.from.id), flow);
+
+    const fulfilledResult = groupService.fulfillGearNeed({
+      groupId: flow.tripId,
+      needId: matchedNeed.id
+    });
+    if (!fulfilledResult?.ok) {
+      flow.step = "action";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        fulfilledResult?.message || "Не вдалося позначити запит як отриманий.",
+        {
+          parse_mode: "HTML",
+          ...getMyGearNeedActionKeyboard(
+            matchedNeed,
+            getGearNeedMatchState(groupService, flow.tripId, matchedNeed, String(ctx.from.id))
+          )
+        }
+      );
+    }
+
+    clearFlow(String(ctx.from.id));
 
     void notifyTripMembers(
       telegram,
       trip,
-      buildGearNeedMatchedNotification(trip, matchedNeed),
+      buildGearNeedFulfilledNotification(trip, userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)), fulfilledResult.need),
       { excludeMemberId: String(ctx.from.id) }
     );
 
-    return ctx.reply(
+    await ctx.reply(
       joinRichLines([
-        ...formatCardHeader("🤝 ЗНАЙДЕНО СПОРЯДЖЕННЯ", matchedNeed.name),
+        ...formatCardHeader("✅ ЗАПИТ ЗАКРИТО", fulfilledResult.need.name),
         "",
-        ...formatGearNeedSummaryLines(matchedNeed),
-        "",
-        "Запит оновлено. Тепер можеш позначити його як отриманий, коли річ буде у тебе."
-      ]),
-      { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(matchedNeed, { showHelp: true, allowReceived: true }) }
+        `Отримано від: <b>${escapeHtml(fulfilledResult.need.matchedByMemberName || picked.memberName || "учасника")}</b>`,
+        fulfilledResult.need.matchedGearName ? `Річ: <b>${escapeHtml(fulfilledResult.need.matchedGearName)}</b>` : null,
+        fulfilledResult.gear
+          ? `Річ у наявності тепер: <b>${escapeHtml(String(fulfilledResult.gear.availableQuantity))}/${escapeHtml(String(fulfilledResult.gear.quantity))}</b>`
+          : null
+      ].filter(Boolean)),
+      { parse_mode: "HTML", ...getTripGearKeyboard() }
     );
+    return startMyNeedsWizard(ctx, groupService);
   }
 
   if (flow.step === "cancel_confirm") {
@@ -8257,7 +8386,7 @@ export function createBot(store) {
           ? [
               "",
               "🤝 Ця річ може допомогти закрити такі запити:",
-              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(addedGear.quantity) || 0 })
+              ...buildMatchedNeedsSummaryLines(matchedNeeds, userService, { availableQuantity: Number(addedGear.availableQuantity ?? addedGear.quantity) || 0 })
             ]
           : [])
       ]),

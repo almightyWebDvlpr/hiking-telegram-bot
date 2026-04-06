@@ -8604,24 +8604,19 @@ function showBackpackWeight(ctx, groupService, userService) {
   const lines = [
     ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
     "",
-    snapshot.note,
-    "",
     formatSectionHeader("👤", getMemberDisplayName(userService, {
       id: member.memberId,
       name: member.memberName
     })),
-    `• Особисте спорядження: ${formatWeightGrams(member.personalGearWeight)}`,
+    member.personalGearWeight > 0 ? `• Особисте спорядження: ${formatWeightGrams(member.personalGearWeight)}` : null,
     member.borrowedGearWeight > 0 ? `• Позичені речі в користуванні: ${formatWeightGrams(member.borrowedGearWeight)}` : null,
-    `• Частка спільного спорядження: ${formatWeightGrams(member.sharedGearShare)}`,
-    `• Частка їжі: ${formatWeightGrams(member.foodShare)}`,
-    `• Попередня вага рюкзака: ${formatWeightGrams(member.totalWeight)}`,
+    member.sharedGearShare > 0 ? `• Частка спільного спорядження: ${formatWeightGrams(member.sharedGearShare)}` : null,
+    member.foodShare > 0 ? `• Частка їжі: ${formatWeightGrams(member.foodShare)}` : null,
+    member.totalWeight > 0 ? `• Попередня вага рюкзака: ${formatWeightGrams(member.totalWeight)}` : null,
     member.missingWeights > 0 ? `• Незаповнених ваг у розрахунку: ${member.missingWeights}` : null,
-    "",
-    "⚠️ Зверни увагу:",
-    "• це персональний попередній розрахунок саме твого рюкзака",
-    "• позичені речі додаються саме до ваги того, хто їх зараз несе",
-    "• вільне спільне спорядження і їжа поки діляться порівну між усіма учасниками",
-    "• якщо для речі або продукту вага не вказана, розрахунок буде менш точним"
+    member.totalWeight <= 0 && member.missingWeights <= 0 ? "• Для тебе поки немає доданого спорядження чи їжі з вагою." : null,
+    member.missingWeights > 0 ? "" : null,
+    member.missingWeights > 0 ? "⚠️ Деякі ваги ще не заповнені, тому розрахунок поки неповний." : null
   ];
 
   return ctx.reply(joinRichLines(lines), { parse_mode: "HTML", ...getTripKeyboard(trip, viewerId) });

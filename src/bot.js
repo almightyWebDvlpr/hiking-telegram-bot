@@ -1046,13 +1046,14 @@ function getMyGearNeedItemsKeyboard(items) {
   return buildKeyboard(rows);
 }
 
-function getMyGearNeedActionKeyboard(need, hasMatches = false) {
+function getMyGearNeedActionKeyboard(need, { showHelp = false, allowReceived = false } = {}) {
   const rows = [];
 
-  if (hasMatches || need?.status === "matched") {
+  if (showHelp && allowReceived) {
     rows.push([GEAR_NEED_HELP_LABEL, GEAR_NEED_RECEIVED_LABEL]);
-  } else {
+  } else if (showHelp) {
     rows.push([GEAR_NEED_HELP_LABEL]);
+  } else if (allowReceived) {
     rows.push([GEAR_NEED_RECEIVED_LABEL]);
   }
 
@@ -1595,6 +1596,20 @@ function getGearCoverageStatusLabel(match) {
     return `повністю: ${match.availableQuantity}/${match.requestedQuantity}`;
   }
   return `частково: ${match.availableQuantity}/${match.requestedQuantity}`;
+}
+
+function getGearNeedMatchState(groupService, tripId, need, memberId) {
+  const matches = groupService.findGearCoverage(tripId, need.name, {
+    excludeMemberId: String(memberId),
+    requestedQuantity: need.quantity
+  }).matches;
+  const fullMatches = matches.filter((item) => item.isEnough);
+  return {
+    matches,
+    fullMatches,
+    showHelp: need?.status === "matched" || fullMatches.length > 0,
+    allowReceived: need?.status === "matched" || fullMatches.length > 0
+  };
 }
 
 function buildGearCoverageMatchLines(matches) {
@@ -5786,10 +5801,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
   if (flow.step === "cancel_confirm" && message === "❌ Скасувати") {
     flow.step = "action";
     setFlow(String(ctx.from.id), flow);
-    const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, {
-      excludeMemberId: String(ctx.from.id),
-      requestedQuantity: flow.data.need.quantity
-    }).matches;
+    const matchState = getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id));
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", flow.data.need.name),
@@ -5798,7 +5810,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         "",
         "Що хочеш зробити з цим запитом?"
       ]),
-      { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(flow.data.need, matches.length > 0) }
+      { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(flow.data.need, matchState) }
     );
   }
 
@@ -5817,10 +5829,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
     flow.step = "action";
     flow.data.need = need;
     setFlow(String(ctx.from.id), flow);
-    const matches = groupService.findGearCoverage(flow.tripId, need.name, {
-      excludeMemberId: String(ctx.from.id),
-      requestedQuantity: need.quantity
-    }).matches;
+    const matchState = getGearNeedMatchState(groupService, flow.tripId, need, String(ctx.from.id));
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", need.name),
@@ -5829,7 +5838,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         "",
         "Що хочеш зробити з цим запитом?"
       ]),
-      { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(need, matches.length > 0) }
+      { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(need, matchState) }
     );
   }
 
@@ -5849,37 +5858,48 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
     }
 
     if (message === GEAR_NEED_HELP_LABEL) {
-      const matches = groupService.findGearCoverage(flow.tripId, flow.data.need.name, {
-        excludeMemberId: String(ctx.from.id),
-        requestedQuantity: flow.data.need.quantity
-      }).matches;
-      if (!matches.length) {
+      const matchState = getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id));
+      if (!matchState.showHelp) {
         return ctx.reply(
           "Поки що ніхто не позначив відповідне спільне або запасне спорядження.",
-          getMyGearNeedActionKeyboard(flow.data.need, false)
+          getMyGearNeedActionKeyboard(flow.data.need, matchState)
         );
       }
 
-      const preparedMatches = matches.map((item, index) => ({
-        ...item,
-        actionLabel: `${index + 1}. ${truncateButtonLabel(item.name, 18)}`
-      }));
-      flow.step = "match_pick";
-      flow.data.matches = preparedMatches;
-      setFlow(String(ctx.from.id), flow);
+      if (!matchState.fullMatches.length && flow.data.need.matchedByMemberName) {
+        return ctx.reply(
+          joinRichLines([
+            ...formatCardHeader("🤝 ХТО МОЖЕ ДОПОМОГТИ", flow.data.need.name),
+            "",
+            `Може допомогти: <b>${escapeHtml(flow.data.need.matchedByMemberName)}</b>`,
+            flow.data.need.memberName ? `Кому: <b>${escapeHtml(flow.data.need.memberName)}</b>` : null,
+            flow.data.need.matchedGearName ? `Річ: <b>${escapeHtml(flow.data.need.matchedGearName)}</b>` : null
+          ].filter(Boolean)),
+          { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(flow.data.need, matchState) }
+        );
+      }
+
       return ctx.reply(
         joinRichLines([
           ...formatCardHeader("🤝 ХТО МОЖЕ ДОПОМОГТИ", flow.data.need.name),
           "",
-          "Обери спорядження, яким можуть закрити твій запит.",
+          "Ось хто зараз реально може закрити твій запит.",
           "",
-          ...buildGearCoverageMatchLines(preparedMatches)
+          ...buildGearCoverageMatchLines(matchState.fullMatches)
         ]),
-        { parse_mode: "HTML", ...getMyGearNeedMatchesKeyboard(preparedMatches) }
+        { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(flow.data.need, matchState) }
       );
     }
 
     if (message === GEAR_NEED_RECEIVED_LABEL) {
+      const matchState = getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id));
+      if (!matchState.allowReceived) {
+        return ctx.reply(
+          "Позначити запит як отриманий можна тільки тоді, коли вже є реальний збіг і зрозуміло, хто може поділитися спорядженням.",
+          getMyGearNeedActionKeyboard(flow.data.need, matchState)
+        );
+      }
+
       const fulfilledNeed = groupService.fulfillGearNeed({
         groupId: flow.tripId,
         needId: flow.data.need.id
@@ -5917,7 +5937,13 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
       );
     }
 
-    return ctx.reply("Обери дію кнопкою нижче.", getMyGearNeedActionKeyboard(flow.data.need));
+    return ctx.reply(
+      "Обери дію кнопкою нижче.",
+      getMyGearNeedActionKeyboard(
+        flow.data.need,
+        getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id))
+      )
+    );
   }
 
   if (flow.step === "match_pick") {
@@ -5937,7 +5963,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
           "",
           "Що хочеш зробити з цим запитом?"
         ]),
-        { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(flow.data.need, matches.length > 0) }
+        { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(flow.data.need, getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id))) }
       );
     }
 
@@ -5988,7 +6014,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         "",
         "Запит оновлено. Тепер можеш позначити його як отриманий, коли річ буде у тебе."
       ]),
-      { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(matchedNeed, true) }
+      { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(matchedNeed, { showHelp: true, allowReceived: true }) }
     );
   }
 
@@ -8520,10 +8546,7 @@ export function createBot(store) {
     if (activeFlow?.type === "gear_need_manage" && activeFlow.step === "cancel_confirm" && activeFlow.data?.need) {
       activeFlow.step = "action";
       setFlow(String(ctx.from.id), activeFlow);
-      const matches = groupService.findGearCoverage(activeFlow.tripId, activeFlow.data.need.name, {
-        excludeMemberId: String(ctx.from.id),
-        requestedQuantity: activeFlow.data.need.quantity
-      }).matches;
+      const matchState = getGearNeedMatchState(groupService, activeFlow.tripId, activeFlow.data.need, String(ctx.from.id));
       return ctx.reply(
         joinRichLines([
           ...formatCardHeader("📋 МОЇ ЗАПИТИ", activeFlow.data.need.name),
@@ -8532,7 +8555,7 @@ export function createBot(store) {
           "",
           "Що хочеш зробити з цим запитом?"
         ]),
-        { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(activeFlow.data.need, matches.length > 0) }
+        { parse_mode: "HTML", ...getMyGearNeedActionKeyboard(activeFlow.data.need, matchState) }
       );
     }
 

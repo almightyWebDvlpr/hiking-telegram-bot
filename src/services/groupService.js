@@ -68,7 +68,7 @@ function normalizeGearSearchValue(value = "") {
 
 function extractSearchTokens(value = "") {
   return normalizeGearSearchValue(value)
-    .split(/\s+/)
+    .split(/[^\p{L}\p{N}]+/u)
     .map((item) => item.trim())
     .filter((item) => item.length >= 4);
 }
@@ -94,14 +94,17 @@ function gearNamesMatch(left = "", right = "") {
     return false;
   }
 
-  if (leftValue.includes(rightValue) || rightValue.includes(leftValue)) {
+  if (leftValue === rightValue) {
     return true;
   }
+
+  const sharedTokens = leftIdentity.tokens.filter((item) => rightIdentity.tokens.includes(item));
 
   if (
     leftIdentity.profileKey !== "generic" &&
     rightIdentity.profileKey !== "generic" &&
-    leftIdentity.profileKey === rightIdentity.profileKey
+    leftIdentity.profileKey === rightIdentity.profileKey &&
+    (sharedTokens.length > 0 || leftIdentity.tokens.length === 0 || rightIdentity.tokens.length === 0)
   ) {
     return true;
   }
@@ -110,8 +113,14 @@ function gearNamesMatch(left = "", right = "") {
     leftIdentity.categoryKey !== "other" &&
     leftIdentity.categoryKey === rightIdentity.categoryKey
   ) {
-    const sharedTokens = leftIdentity.tokens.filter((item) => rightIdentity.tokens.includes(item));
     if (sharedTokens.length > 0) {
+      return true;
+    }
+  }
+
+  if (sharedTokens.length > 0) {
+    const oneSideIsSingleToken = leftIdentity.tokens.length === 1 || rightIdentity.tokens.length === 1;
+    if (oneSideIsSingleToken) {
       return true;
     }
   }

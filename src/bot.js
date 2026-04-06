@@ -2753,7 +2753,7 @@ function formatGearNeedSummaryLines(need, { includeMember = false } = {}) {
 
 function formatGearNeedListLine(need, { includeMember = false } = {}) {
   const suffix = includeMember && need.memberName ? ` | ${need.memberName}` : "";
-  const match = need.matchedByMemberName ? ` | допоможе: ${need.matchedByMemberName}` : "";
+  const match = need.matchedByMemberName ? ` | може допомогти: ${need.matchedByMemberName}` : "";
   return `• ${need.name}: ${need.quantity} | ${getGearNeedStatusLabel(need.status)}${suffix}${match}`;
 }
 
@@ -2776,7 +2776,8 @@ function buildGearNeedMatchedNotification(trip, need) {
     `Для запиту в поході <b>${escapeHtml(trip.name)}</b> знайдено відповідь.`,
     `Потрібно: <b>${escapeHtml(need.name)}</b>`,
     `Кількість: <b>${escapeHtml(String(need.quantity))}</b>`,
-    need.matchedByMemberName ? `Допоможе: <b>${escapeHtml(need.matchedByMemberName)}</b>` : null,
+    need.matchedByMemberName ? `Може допомогти: <b>${escapeHtml(need.matchedByMemberName)}</b>` : null,
+    need.memberName ? `Кому: <b>${escapeHtml(need.memberName)}</b>` : null,
     need.matchedGearName ? `Річ: <b>${escapeHtml(need.matchedGearName)}</b>` : null
   ].filter(Boolean));
 }

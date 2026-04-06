@@ -365,8 +365,7 @@ function getProfileKeyboard() {
 
 function getProfileEditKeyboard() {
   return buildKeyboard([
-    [PROFILE_SKIP_LABEL, "❌ Скасувати"],
-    [PROFILE_BACK_LABEL]
+    [PROFILE_SKIP_LABEL, "❌ Скасувати"]
   ]);
 }
 

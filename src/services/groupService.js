@@ -1558,18 +1558,47 @@ export class GroupService {
     }));
 
     const sharedGearItems = gearItems.filter((item) => item.scope === "shared" || item.scope === "spare" || item.shareable);
-    const sharedGearWeight = sharedGearItems.reduce((sum, item) => sum + ((Number(item.weightGrams) || 0) * (Number(item.quantity) || 0)), 0);
-    const sharedGearMissing = sharedGearItems.filter((item) => !(Number(item.weightGrams) > 0)).length;
+    const borrowedWeightByMember = new Map();
+    let sharedGearWeight = 0;
+    let sharedGearMissing = 0;
+
+    for (const item of sharedGearItems) {
+      const weightPerUnit = Number(item.weightGrams) || 0;
+      const availableQuantity = Math.max(0, Number(item.availableQuantity ?? item.quantity) || 0);
+      const loans = Array.isArray(item.loans) ? item.loans : [];
+
+      if (weightPerUnit > 0) {
+        sharedGearWeight += weightPerUnit * availableQuantity;
+      } else if (availableQuantity > 0) {
+        sharedGearMissing += 1;
+      }
+
+      for (const loan of loans) {
+        const borrowerId = String(loan.borrowerMemberId || "");
+        const quantity = Math.max(0, Number(loan.quantity) || 0);
+        if (!borrowerId || quantity <= 0) {
+          continue;
+        }
+
+        const currentBorrowed = borrowedWeightByMember.get(borrowerId) || 0;
+        borrowedWeightByMember.set(
+          borrowerId,
+          currentBorrowed + (weightPerUnit > 0 ? weightPerUnit * quantity : 0)
+        );
+      }
+    }
+
     const totalFoodWeight = foodItems.reduce((sum, item) => sum + (Number(item.weightGrams) || 0), 0);
     const foodMissing = foodItems.filter((item) => !(Number(item.weightGrams) > 0)).length;
 
     const byMember = members.map((member) => {
       const personalGearItems = gearItems.filter((item) => item.scope === "personal" && item.memberId === member.id);
       const personalGearWeight = personalGearItems.reduce(
-        (sum, item) => sum + ((Number(item.weightGrams) || 0) * (Number(item.quantity) || 0)),
+        (sum, item) => sum + ((Number(item.weightGrams) || 0) * Math.max(0, Number(item.availableQuantity ?? item.quantity) || 0)),
         0
       );
-      const personalGearMissing = personalGearItems.filter((item) => !(Number(item.weightGrams) > 0)).length;
+      const personalGearMissing = personalGearItems.filter((item) => !(Number(item.weightGrams) > 0) && Math.max(0, Number(item.availableQuantity ?? item.quantity) || 0) > 0).length;
+      const borrowedGearWeight = borrowedWeightByMember.get(String(member.id)) || 0;
       const sharedGearShare = sharedGearWeight / memberCount;
       const foodShare = totalFoodWeight / memberCount;
 
@@ -1577,9 +1606,10 @@ export class GroupService {
         memberId: member.id,
         memberName: member.name,
         personalGearWeight,
+        borrowedGearWeight,
         sharedGearShare,
         foodShare,
-        totalWeight: personalGearWeight + sharedGearShare + foodShare,
+        totalWeight: personalGearWeight + borrowedGearWeight + sharedGearShare + foodShare,
         missingWeights: personalGearMissing + sharedGearMissing + foodMissing
       };
     });
@@ -1590,7 +1620,7 @@ export class GroupService {
       sharedGearWeight,
       sharedGearMissing,
       foodMissing,
-      note: "Попередній розрахунок: спільне спорядження і їжа діляться порівну між усіма учасниками."
+      note: "Попередній розрахунок: позичені речі додаються тому, хто їх несе, а вільне спільне спорядження і їжа діляться порівну між усіма учасниками."
     };
   }
 

@@ -12,7 +12,9 @@ function normalizeGearLoan(loan = {}) {
     borrowerMemberId: loan.borrowerMemberId || "",
     borrowerMemberName: loan.borrowerMemberName || "",
     quantity: Math.max(1, Number(loan.quantity) || 1),
-    createdAt: loan.createdAt || new Date().toISOString()
+    createdAt: loan.createdAt || new Date().toISOString(),
+    returnRequestStatus: loan.returnRequestStatus === "pending" ? "pending" : "",
+    returnRequestedAt: loan.returnRequestedAt || null
   };
 }
 
@@ -1275,6 +1277,7 @@ export class GroupService {
         const current = aggregated.get(key);
         if (current) {
           current.quantity += Number(loan.quantity) || 0;
+          current.pendingReturnQuantity += loan.returnRequestStatus === "pending" ? Number(loan.quantity) || 0 : 0;
           current.loanCreatedAt = current.loanCreatedAt < loan.createdAt ? current.loanCreatedAt : loan.createdAt;
           continue;
         }
@@ -1285,6 +1288,7 @@ export class GroupService {
           ownerMemberId: item.memberId,
           ownerMemberName: item.memberName || "учасник",
           quantity: Number(loan.quantity) || 0,
+          pendingReturnQuantity: loan.returnRequestStatus === "pending" ? Number(loan.quantity) || 0 : 0,
           totalQuantity: item.quantity,
           availableQuantity: item.availableQuantity,
           scope: item.scope,
@@ -1314,13 +1318,15 @@ export class GroupService {
           const current = aggregatedLoans.get(key);
           if (current) {
             current.quantity += Number(loan.quantity) || 0;
+            current.pendingReturnQuantity += loan.returnRequestStatus === "pending" ? Number(loan.quantity) || 0 : 0;
             continue;
           }
 
           aggregatedLoans.set(key, {
             borrowerMemberId: borrowerId,
             borrowerMemberName: loan.borrowerMemberName || "учасник",
-            quantity: Number(loan.quantity) || 0
+            quantity: Number(loan.quantity) || 0,
+            pendingReturnQuantity: loan.returnRequestStatus === "pending" ? Number(loan.quantity) || 0 : 0
           });
         }
 
@@ -1331,9 +1337,124 @@ export class GroupService {
           availableQuantity: item.availableQuantity,
           inUseQuantity: item.inUseQuantity,
           scope: item.scope,
-          loans: [...aggregatedLoans.values()]
+          loans: [...aggregatedLoans.values()],
+          hasPendingReturns: [...aggregatedLoans.values()].some((loan) => loan.pendingReturnQuantity > 0)
         };
       });
+  }
+
+  requestGearReturn({ groupId, gearId, borrowerMemberId = "" }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const gearIndex = group.gear.findIndex((item) => item.id === gearId);
+    if (gearIndex === -1) {
+      return { ok: false, message: "Річ не знайдено." };
+    }
+
+    const gearItem = enrichTripGearItem(group.gear[gearIndex]);
+    const activeLoans = gearItem.loans.filter((loan) => String(loan.borrowerMemberId) === String(borrowerMemberId));
+    if (!activeLoans.length) {
+      return { ok: false, message: "Ти зараз не користуєшся цією річчю." };
+    }
+
+    const pendingLoans = activeLoans.filter((loan) => loan.returnRequestStatus === "pending");
+    if (pendingLoans.length === activeLoans.length) {
+      return { ok: false, message: "Повернення цієї речі вже очікує підтвердження власника." };
+    }
+
+    const updatedLoans = gearItem.loans.map((loan) => {
+      if (String(loan.borrowerMemberId) !== String(borrowerMemberId)) {
+        return loan;
+      }
+      return normalizeGearLoan({
+        ...loan,
+        returnRequestStatus: "pending",
+        returnRequestedAt: new Date().toISOString()
+      });
+    });
+
+    const updatedGear = enrichTripGearItem({
+      ...gearItem,
+      loans: updatedLoans
+    });
+
+    group.gear[gearIndex] = updatedGear;
+    this.store.write(data);
+
+    const quantity = activeLoans.reduce((sum, loan) => sum + (Number(loan.quantity) || 0), 0);
+
+    return {
+      ok: true,
+      gear: updatedGear,
+      ownerMemberId: gearItem.memberId,
+      ownerMemberName: gearItem.memberName || "учасник",
+      quantity
+    };
+  }
+
+  confirmGearReturn({ groupId, gearId, ownerMemberId = "" }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const gearIndex = group.gear.findIndex((item) => item.id === gearId);
+    if (gearIndex === -1) {
+      return { ok: false, message: "Річ не знайдено." };
+    }
+
+    const gearItem = enrichTripGearItem(group.gear[gearIndex]);
+    if (ownerMemberId && String(gearItem.memberId) !== String(ownerMemberId)) {
+      return { ok: false, message: "Підтвердити повернення може тільки власник цієї речі." };
+    }
+
+    const pendingLoans = gearItem.loans.filter((loan) => loan.returnRequestStatus === "pending");
+    if (!pendingLoans.length) {
+      return { ok: false, message: "Зараз немає речей, які очікують підтвердження повернення." };
+    }
+
+    const remainingLoans = gearItem.loans.filter((loan) => loan.returnRequestStatus !== "pending");
+    const updatedGear = enrichTripGearItem({
+      ...gearItem,
+      loans: remainingLoans
+    });
+
+    group.gear[gearIndex] = updatedGear;
+    this.store.write(data);
+
+    const borrowers = new Map();
+    for (const loan of pendingLoans) {
+      const key = String(loan.borrowerMemberId || "");
+      const current = borrowers.get(key);
+      if (current) {
+        current.quantity += Number(loan.quantity) || 0;
+        continue;
+      }
+      borrowers.set(key, {
+        borrowerMemberId: key,
+        borrowerMemberName: loan.borrowerMemberName || "учасник",
+        quantity: Number(loan.quantity) || 0
+      });
+    }
+
+    return {
+      ok: true,
+      gear: updatedGear,
+      returnedBorrowers: [...borrowers.values()]
+    };
   }
 
   getFoodSnapshot(groupId) {

@@ -8583,6 +8583,7 @@ function showBackpackWeight(ctx, groupService, userService) {
       name: member.memberName
     })),
     `• Особисте спорядження: ${formatWeightGrams(member.personalGearWeight)}`,
+    member.borrowedGearWeight > 0 ? `• Позичені речі в користуванні: ${formatWeightGrams(member.borrowedGearWeight)}` : null,
     `• Частка спільного спорядження: ${formatWeightGrams(member.sharedGearShare)}`,
     `• Частка їжі: ${formatWeightGrams(member.foodShare)}`,
     `• Попередня вага рюкзака: ${formatWeightGrams(member.totalWeight)}`,
@@ -8590,7 +8591,8 @@ function showBackpackWeight(ctx, groupService, userService) {
     "",
     "⚠️ Зверни увагу:",
     "• це персональний попередній розрахунок саме твого рюкзака",
-    "• спільне спорядження і їжа поки діляться порівну між усіма учасниками",
+    "• позичені речі додаються саме до ваги того, хто їх зараз несе",
+    "• вільне спільне спорядження і їжа поки діляться порівну між усіма учасниками",
     "• якщо для речі або продукту вага не вказана, розрахунок буде менш точним"
   ];
 

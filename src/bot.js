@@ -994,12 +994,33 @@ function getTripRouteChangeKeyboard() {
   ]);
 }
 
-function getTripGearKeyboard() {
-  return buildKeyboard([
-    [TRIP_GEAR_ADD_LABEL, "📦 Переглянути все"],
-    ["✏️ Редагувати спорядження", TRIP_GEAR_ACCOUNTING_LABEL],
-    ["⬅️ До походу"],
-  ]);
+function hasEditableTripGear(trip, groupService, userId = "") {
+  if (!trip || !groupService || !userId) {
+    return false;
+  }
+
+  return getEditableTripGearItems(trip, groupService, userId).length > 0;
+}
+
+function getTripGearKeyboard(trip = null, groupService = null, userId = "") {
+  const rows = [
+    [TRIP_GEAR_ADD_LABEL, "📦 Переглянути все"]
+  ];
+
+  if (hasEditableTripGear(trip, groupService, userId)) {
+    rows.push(["✏️ Редагувати спорядження", TRIP_GEAR_ACCOUNTING_LABEL]);
+  } else {
+    rows.push([TRIP_GEAR_ACCOUNTING_LABEL]);
+  }
+
+  rows.push(["⬅️ До походу"]);
+  return buildKeyboard(rows);
+}
+
+function getCurrentTripGearKeyboard(ctx, groupService) {
+  const userId = String(ctx.from?.id || "");
+  const trip = groupService?.findGroupByMember(userId) || null;
+  return getTripGearKeyboard(trip, groupService, userId);
 }
 
 function getTripGearAccountingKeyboard() {
@@ -3116,7 +3137,7 @@ async function notifyNeedOwnersAboutCoverage(telegram, trip, gearItem, needs, ac
         buildGearCoverageAvailableNotification(trip, gearItem, actorName, need),
         {
           parse_mode: "HTML",
-          ...getTripGearKeyboard()
+          ...getTripKeyboard(trip, memberId)
         }
       );
     } catch {
@@ -3208,7 +3229,7 @@ function startGearEditWizard(ctx, groupService) {
   if (!items.length) {
     return ctx.reply(
       "Немає позицій спорядження, які ти можеш редагувати.",
-      getTripGearKeyboard()
+      getCurrentTripGearKeyboard(ctx, groupService)
     );
   }
 
@@ -3249,7 +3270,7 @@ function startGearDeleteWizard(ctx, groupService) {
   if (!items.length) {
     return ctx.reply(
       "Немає позицій спорядження, які ти можеш видалити.",
-      getTripGearKeyboard()
+      getCurrentTripGearKeyboard(ctx, groupService)
     );
   }
 
@@ -5391,7 +5412,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Додавання спорядження скасовано.", getTripGearKeyboard());
+    return ctx.reply("Додавання спорядження скасовано.", getCurrentTripGearKeyboard(ctx, groupService));
   }
 
   if (flow.step === "name") {
@@ -5529,7 +5550,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
             ]
           : [])
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearKeyboard(ctx, groupService) }
     );
   }
 
@@ -5664,7 +5685,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Редагування спорядження скасовано.", getTripGearKeyboard());
+    return ctx.reply("Редагування спорядження скасовано.", getCurrentTripGearKeyboard(ctx, groupService));
   }
 
   if (flow.step === "pick") {
@@ -5796,7 +5817,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
         "",
         "Позицію прибрано зі спорядження походу."
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearKeyboard(ctx, groupService) }
     );
     return showTripGear(ctx, groupService);
   }
@@ -5989,7 +6010,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
             ]
           : [])
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearKeyboard(ctx, groupService) }
     );
     return showTripGear(ctx, groupService);
   }
@@ -6002,7 +6023,7 @@ async function handleGearDeleteFlow(ctx, flow, groupService) {
 
   if (message === "❌ Скасувати" || message === "⬅️ Не видаляти") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Видалення спорядження скасовано.", getTripGearKeyboard());
+    return ctx.reply("Видалення спорядження скасовано.", getCurrentTripGearKeyboard(ctx, groupService));
   }
 
   if (flow.step === "pick") {
@@ -6055,7 +6076,7 @@ async function handleGearDeleteFlow(ctx, flow, groupService) {
         "",
         "Позицію прибрано зі спорядження походу."
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearKeyboard(ctx, groupService) }
     );
     return showTripGear(ctx, groupService);
   }
@@ -6496,7 +6517,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
         "",
         "Запит більше не активний."
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearKeyboard(ctx, groupService) }
     );
     return startMyNeedsWizard(ctx, groupService);
   }
@@ -8222,7 +8243,7 @@ function showTripGearMenu(ctx, groupService) {
       "• після натискання `➕ Додати спорядження` бот запропонує тип: спільне, особисте або запасне",
       "• запит на позичання проходить через згоду власника речі, а не закривається односторонньо"
     ]),
-    { parse_mode: "HTML", ...getTripGearKeyboard() }
+    { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
   );
 }
 
@@ -8383,7 +8404,7 @@ function showTripGear(ctx, groupService) {
         "• додай спільне або особисте спорядження",
         "• якщо чогось бракує, створи запит у цьому ж розділі"
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
     );
   }
 
@@ -8410,7 +8431,7 @@ function showTripGear(ctx, groupService) {
       formatSectionHeader("🆘", "Кому Чого Бракує"),
       needs
     ]),
-    { parse_mode: "HTML", ...getTripGearKeyboard() }
+    { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
   );
 }
 
@@ -8431,7 +8452,7 @@ function showMyNeeds(ctx, groupService) {
         "",
         "У тебе немає активних запитів у цьому поході."
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
     );
   }
 
@@ -8453,7 +8474,7 @@ function showMyNeeds(ctx, groupService) {
           ]
         : [])
     ]),
-    { parse_mode: "HTML", ...getTripGearKeyboard() }
+    { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
   );
 }
 
@@ -9158,7 +9179,7 @@ export function createBot(store) {
     const [name, quantityRaw, scopeRaw, shareableRaw] = ctx.message.text.replace("/addgear", "").trim().split(";").map((part) => part?.trim());
     const quantity = Number(quantityRaw);
     if (!name || !quantityRaw || Number.isNaN(quantity)) {
-      return ctx.reply("Формат: `/addgear пальник;1;shared|personal|spare;так|ні`", { parse_mode: "Markdown", ...getTripGearKeyboard() });
+      return ctx.reply("Формат: `/addgear пальник;1;shared|personal|spare;так|ні`", { parse_mode: "Markdown", ...getCurrentTripGearKeyboard(ctx, groupService) });
     }
     const normalizedScope = String(scopeRaw || "shared").toLowerCase();
     const scope = ["personal", "spare"].includes(normalizedScope) ? normalizedScope : "shared";
@@ -9194,7 +9215,7 @@ export function createBot(store) {
             ]
           : [])
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getCurrentTripGearKeyboard(ctx, groupService) }
     );
   });
   bot.command("needgear", (ctx) => {
@@ -9569,7 +9590,7 @@ export function createBot(store) {
     }
 
     if (activeFlow?.type === "gear_add" || activeFlow?.type === "gear_edit" || activeFlow?.type === "gear_delete") {
-      return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripGearKeyboard() });
+      return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getCurrentTripGearKeyboard(ctx, groupService) });
     }
 
     if (activeFlow?.type === "food_add" || activeFlow?.type === "food_delete") {

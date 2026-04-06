@@ -1031,6 +1031,14 @@ function getTripGearAccountingKeyboard() {
   ]);
 }
 
+function getLoanedGearShortcutKeyboard() {
+  return buildKeyboard([
+    [GEAR_LOANED_LABEL],
+    [TRIP_GEAR_ACCOUNTING_LABEL],
+    ["⬅️ До походу"]
+  ]);
+}
+
 function getGearDeleteConfirmKeyboard() {
   return buildKeyboard([
     [GEAR_DELETE_CONFIRM_LABEL, "❌ Скасувати"]
@@ -3050,7 +3058,7 @@ function buildGearReturnRequestNotification(trip, borrowerName, item) {
     `Річ: <b>${escapeHtml(item.gearName)}</b>`,
     `Кількість: <b>${escapeHtml(String(item.quantity))}</b>`,
     "",
-    "Перейдіть у розділ <b>👥 Користуються</b>, щоб підтвердити факт повернення."
+    "Натисни кнопку <b>👥 Користуються</b> нижче, щоб підтвердити факт повернення."
   ]);
 }
 
@@ -6712,7 +6720,7 @@ async function handleBorrowedGearManageFlow(ctx, flow, groupService, userService
             userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
             { gearName: flow.data.item.gearName, quantity: requested.quantity }
           ),
-          { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+          { parse_mode: "HTML", ...getLoanedGearShortcutKeyboard() }
         );
       } catch {
         // ignore

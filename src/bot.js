@@ -2881,8 +2881,23 @@ function formatGearAvailabilityLines(item, { includeOwner = false } = {}) {
   lines.push(`◦ Доступно зараз: ${availableQuantity}/${totalQuantity}`);
 
   if (Array.isArray(item?.loans) && item.loans.length) {
+    const aggregatedLoans = new Map();
     for (const loan of item.loans) {
-      lines.push(`◦ В користуванні: ${loan.borrowerMemberName || "учасник"} | ${loan.quantity} шт.`);
+      const key = String(loan.borrowerMemberId || loan.borrowerMemberName || "");
+      const current = aggregatedLoans.get(key);
+      if (current) {
+        current.quantity += Number(loan.quantity) || 0;
+        continue;
+      }
+
+      aggregatedLoans.set(key, {
+        borrowerMemberName: loan.borrowerMemberName || "учасник",
+        quantity: Number(loan.quantity) || 0
+      });
+    }
+
+    for (const loan of aggregatedLoans.values()) {
+      lines.push(`◦ В користуванні: ${loan.borrowerMemberName} | ${loan.quantity} шт.`);
     }
   }
 

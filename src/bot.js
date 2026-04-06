@@ -1056,7 +1056,7 @@ function getMyGearNeedItemsKeyboard(items) {
   for (let index = 0; index < items.length; index += 2) {
     rows.push(items.slice(index, index + 2).map((item) => item.actionLabel));
   }
-  rows.push(["❌ Скасувати"]);
+  rows.push([GEAR_EDIT_BACK_LABEL]);
   return buildKeyboard(rows);
 }
 
@@ -1072,7 +1072,6 @@ function getMyGearNeedActionKeyboard(need, { showHelp = false, allowBorrowReques
   }
 
   rows.push([GEAR_NEED_CANCEL_LABEL, GEAR_EDIT_BACK_LABEL]);
-  rows.push(["❌ Скасувати"]);
   return buildKeyboard(rows);
 }
 
@@ -1082,7 +1081,6 @@ function getMyGearNeedMatchesKeyboard(items) {
     rows.push(items.slice(index, index + 2).map((item) => item.actionLabel));
   }
   rows.push([GEAR_EDIT_BACK_LABEL]);
-  rows.push(["❌ Скасувати"]);
   return buildKeyboard(rows);
 }
 
@@ -6040,6 +6038,11 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
 
   if (flow.step === "pick") {
     const items = flow.data.items || [];
+    if (message === GEAR_EDIT_BACK_LABEL) {
+      clearFlow(String(ctx.from.id));
+      return showTripGearAccountingMenu(ctx, groupService);
+    }
+
     const need = items.find((item) => item.actionLabel === message);
     if (!need) {
       return ctx.reply("Обери запит кнопкою нижче.", getMyGearNeedItemsKeyboard(items));

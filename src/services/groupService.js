@@ -1557,7 +1557,7 @@ export class GroupService {
       weightGrams: Number(item.weightGrams) || 0
     }));
 
-    const sharedGearItems = gearItems.filter((item) => item.scope === "shared" || item.scope === "spare" || item.shareable);
+    const sharedGearItems = gearItems.filter((item) => item.scope === "shared");
     const borrowedWeightByMember = new Map();
     let sharedGearWeight = 0;
     let sharedGearMissing = 0;
@@ -1620,7 +1620,7 @@ export class GroupService {
       sharedGearWeight,
       sharedGearMissing,
       foodMissing,
-      note: "Попередній розрахунок: позичені речі додаються тому, хто їх несе, а вільне спільне спорядження і їжа діляться порівну між усіма учасниками."
+      note: "Попередній розрахунок: позичені речі додаються тому, хто їх несе, а порівну між усіма учасниками діляться тільки вільне спільне спорядження і їжа."
     };
   }
 

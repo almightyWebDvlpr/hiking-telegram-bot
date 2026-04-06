@@ -1643,6 +1643,24 @@ function buildGearCoverageMatchLines(matches) {
   );
 }
 
+function formatGearCoverageNotice(matches = []) {
+  if (!Array.isArray(matches) || !matches.length) {
+    return "🤝 Поки що бот не знайшов спорядження, яке відповідає цьому запиту.";
+  }
+
+  const fullMatches = matches.filter((item) => item.isEnough);
+  if (fullMatches.length) {
+    return `🤝 Уже є учасники, які можуть допомогти: ${fullMatches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`;
+  }
+
+  const partialMatches = matches.filter((item) => Number(item.availableQuantity) > 0);
+  if (partialMatches.length) {
+    return `⚠️ Є лише часткові збіги, але кількості поки недостатньо: ${partialMatches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`;
+  }
+
+  return `⚠️ Є схожі речі, але зараз вони недоступні в наявній кількості: ${matches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`;
+}
+
 function formatResolvedGearNeedListLine(need) {
   const matched = need.matchedByMemberName ? ` | допоміг: ${escapeHtml(need.matchedByMemberName)}` : "";
   return `• ${escapeHtml(need.name)}: ${escapeHtml(String(need.quantity))} | ${escapeHtml(getGearNeedStatusLabel(need.status))}${matched}`;
@@ -5956,11 +5974,9 @@ async function handleGearNeedFlow(ctx, flow, groupService, userService, telegram
         "",
         ...formatGearNeedSummaryLines(need),
         "",
-        coverage.matches.length
-          ? `🤝 Уже є учасники, які потенційно можуть допомогти: ${coverage.matches.map((item) => `${item.memberName || "учасник"} (${getGearCoverageStatusLabel(item)})`).join(", ")}`
-          : "🤝 Поки що бот не знайшов готового спорядження для цього запиту."
+        formatGearCoverageNotice(coverage.matches)
       ]),
-      { parse_mode: "HTML", ...getTripGearKeyboard() }
+      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
     );
   }
 
@@ -8779,8 +8795,16 @@ export function createBot(store) {
         { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
       );
     }
-    const lines = coverage.matches.map((item) => `• ${item.memberName}: ${item.name} (${getGearCoverageStatusLabel(item)})`);
-    return ctx.reply(`🤝 Можуть поділитися:\n${lines.join("\n")}`, getTripGearAccountingKeyboard());
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🤝 ХТО МОЖЕ ДОПОМОГТИ", gearName),
+        "",
+        formatGearCoverageNotice(coverage.matches),
+        "",
+        ...buildGearCoverageMatchLines(coverage.matches)
+      ]),
+      { parse_mode: "HTML", ...getTripGearAccountingKeyboard() }
+    );
   });
   bot.command("myneeds", (ctx) => startMyNeedsWizard(ctx, groupService));
   bot.command("addfood", (ctx) => {

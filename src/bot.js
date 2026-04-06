@@ -1053,9 +1053,7 @@ function getCurrentTripGearAccountingKeyboard(ctx, groupService) {
 
 function getLoanedGearShortcutKeyboard() {
   return buildKeyboard([
-    [GEAR_LOANED_LABEL],
-    [TRIP_GEAR_ACCOUNTING_LABEL],
-    ["⬅️ До походу"]
+    [GEAR_LOANED_LABEL]
   ]);
 }
 

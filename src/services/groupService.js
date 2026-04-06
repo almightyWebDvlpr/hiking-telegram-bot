@@ -1254,21 +1254,37 @@ export class GroupService {
     }
 
     const combined = [...snapshot.sharedGear, ...snapshot.personalGear, ...snapshot.spareGear];
-    return combined.flatMap((item) =>
-      (item.loans || [])
-        .filter((loan) => String(loan.borrowerMemberId) === String(memberId))
-        .map((loan) => ({
+    const aggregated = new Map();
+
+    for (const item of combined) {
+      for (const loan of item.loans || []) {
+        if (String(loan.borrowerMemberId) !== String(memberId)) {
+          continue;
+        }
+
+        const key = `${item.id}:${item.memberId}`;
+        const current = aggregated.get(key);
+        if (current) {
+          current.quantity += Number(loan.quantity) || 0;
+          current.loanCreatedAt = current.loanCreatedAt < loan.createdAt ? current.loanCreatedAt : loan.createdAt;
+          continue;
+        }
+
+        aggregated.set(key, {
           gearId: item.id,
           gearName: item.name,
           ownerMemberId: item.memberId,
           ownerMemberName: item.memberName || "учасник",
-          quantity: loan.quantity,
+          quantity: Number(loan.quantity) || 0,
           totalQuantity: item.quantity,
           availableQuantity: item.availableQuantity,
           scope: item.scope,
           loanCreatedAt: loan.createdAt
-        }))
-    );
+        });
+      }
+    }
+
+    return [...aggregated.values()];
   }
 
   getLoanedOutGearForMember(groupId, memberId) {
@@ -1280,15 +1296,35 @@ export class GroupService {
     const combined = [...snapshot.sharedGear, ...snapshot.personalGear, ...snapshot.spareGear];
     return combined
       .filter((item) => String(item.memberId) === String(memberId) && Array.isArray(item.loans) && item.loans.length > 0)
-      .map((item) => ({
-        gearId: item.id,
-        gearName: item.name,
-        quantity: item.quantity,
-        availableQuantity: item.availableQuantity,
-        inUseQuantity: item.inUseQuantity,
-        scope: item.scope,
-        loans: item.loans
-      }));
+      .map((item) => {
+        const aggregatedLoans = new Map();
+
+        for (const loan of item.loans) {
+          const borrowerId = String(loan.borrowerMemberId || "");
+          const key = borrowerId || `${loan.borrowerMemberName}:${loan.needId}`;
+          const current = aggregatedLoans.get(key);
+          if (current) {
+            current.quantity += Number(loan.quantity) || 0;
+            continue;
+          }
+
+          aggregatedLoans.set(key, {
+            borrowerMemberId: borrowerId,
+            borrowerMemberName: loan.borrowerMemberName || "учасник",
+            quantity: Number(loan.quantity) || 0
+          });
+        }
+
+        return {
+          gearId: item.id,
+          gearName: item.name,
+          quantity: item.quantity,
+          availableQuantity: item.availableQuantity,
+          inUseQuantity: item.inUseQuantity,
+          scope: item.scope,
+          loans: [...aggregatedLoans.values()]
+        };
+      });
   }
 
   getFoodSnapshot(groupId) {

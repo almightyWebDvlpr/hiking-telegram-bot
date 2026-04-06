@@ -2818,7 +2818,6 @@ function startMyNeedsWizard(ctx, groupService) {
 
 function getEditableTripGearItems(trip, groupService, memberId) {
   const snapshot = groupService.getGearSnapshot(trip.id);
-  const canManage = canManageTrip(trip, memberId);
   const combined = [...snapshot.sharedGear, ...snapshot.personalGear, ...snapshot.spareGear];
   const seen = new Set();
 
@@ -2827,7 +2826,7 @@ function getEditableTripGearItems(trip, groupService, memberId) {
       return false;
     }
     seen.add(item.id);
-    return canManage || String(item.memberId) === String(memberId);
+    return String(item.memberId) === String(memberId);
   });
 }
 
@@ -3229,9 +3228,10 @@ function startGearEditWizard(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", trip.name),
       "",
-      "Обери спорядження, яке хочеш змінити.",
+      "Обери своє спорядження, яке хочеш змінити.",
       "",
       "⚠️ Зверни увагу:",
+      "• у списку є тільки ті позиції, які додав саме ти",
       "• після вибору відкриється окреме меню дій",
       "• кнопка <b>❌ Скасувати</b> поверне до розділу спорядження"
     ]),
@@ -5701,6 +5701,9 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
         `Тип: ${getTripGearScopeLabel(item)}`,
         `Поточна кількість: ${item.quantity}`,
         item.memberName ? `Додав: ${item.memberName}` : null,
+        (Number(item.inUseQuantity) || 0) > 0
+          ? `Зараз у користуванні: ${item.inUseQuantity} шт. Поки річ не повернуть, не можна змінити її тип або видалити.`
+          : null,
         "",
         "Що хочеш зробити з цією позицією?"
       ].filter(Boolean)),
@@ -5717,13 +5720,19 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
         joinRichLines([
           ...formatCardHeader("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", "Вибір позиції"),
           "",
-          "Обери спорядження, яке хочеш змінити."
+          "Обери своє спорядження, яке хочеш змінити."
         ]),
         { parse_mode: "HTML", ...getTripGearEditItemsKeyboard(flow.data.items || [], flow.data.page || 0) }
       );
     }
 
     if (message === GEAR_EDIT_DELETE_LABEL) {
+      if ((Number(flow.data.item?.inUseQuantity) || 0) > 0) {
+        return ctx.reply(
+          "Цю річ зараз не можна видалити, бо вона вже в користуванні іншого учасника. Спочатку її мають повернути.",
+          { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
+        );
+      }
       flow.step = "delete_confirm";
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
@@ -5809,6 +5818,38 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
     }
 
     flow.data.quantity = quantity;
+    const itemInUseQuantity = Math.max(0, Number(flow.data.item?.inUseQuantity) || 0);
+    if (itemInUseQuantity > 0) {
+      flow.data.scope = flow.data.item.scope;
+      flow.data.shareable = flow.data.item.shareable;
+      flow.data.attributes = { ...(flow.data.item.attributes || {}) };
+      flow.data.fieldIndex = 0;
+      flow.step = "field";
+      setFlow(String(ctx.from.id), flow);
+      const { field } = getGearFlowField({
+        ...flow,
+        data: {
+          ...flow.data,
+          name: flow.data.item.name,
+          attributes: flow.data.attributes,
+          fieldIndex: flow.data.fieldIndex
+        }
+      });
+      if (!field) {
+        flow.step = "save";
+        setFlow(String(ctx.from.id), flow);
+      } else {
+        return ctx.reply(
+          joinRichLines([
+            "⚠️ Тип спорядження зараз змінювати не можна, бо річ уже в користуванні.",
+            "",
+            buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes)
+          ]),
+          { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+        );
+      }
+    }
+
     flow.step = "scope";
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
@@ -5913,15 +5954,22 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
         note: String(attributes.note || "").trim()
       }
     });
-    const matchedNeeds = (updatedGear?.scope === "shared" || updatedGear?.scope === "spare" || updatedGear?.shareable)
-      ? groupService.findNeedsMatchedByGear(flow.tripId, updatedGear.name, { excludeMemberId: String(ctx.from.id) })
+    if (!updatedGear?.ok) {
+      return ctx.reply(
+        updatedGear?.message || "Не вдалося оновити спорядження.",
+        { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+      );
+    }
+    const savedGear = updatedGear.item;
+    const matchedNeeds = (savedGear?.scope === "shared" || savedGear?.scope === "spare" || savedGear?.shareable)
+      ? groupService.findNeedsMatchedByGear(flow.tripId, savedGear.name, { excludeMemberId: String(ctx.from.id) })
       : [];
     const trip = groupService.findGroupByMember(String(ctx.from.id));
     const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
     clearFlow(String(ctx.from.id));
 
-    if (trip && matchedNeeds.length && updatedGear) {
-      void notifyNeedOwnersAboutCoverage(telegram, trip, updatedGear, matchedNeeds, actorName);
+    if (trip && matchedNeeds.length && savedGear) {
+      void notifyNeedOwnersAboutCoverage(telegram, trip, savedGear, matchedNeeds, actorName);
     }
     await ctx.reply(
       joinRichLines([

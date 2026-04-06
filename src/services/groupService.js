@@ -564,6 +564,18 @@ export class GroupService {
     }
 
     const current = enrichTripGearItem(group.gear[index]);
+    const currentInUseQuantity = Number(current.inUseQuantity) || 0;
+    const scopeChanged = typeof patch.scope !== "undefined" && String(patch.scope) !== String(current.scope);
+    const shareableChanged = typeof patch.shareable !== "undefined" && Boolean(patch.shareable) !== Boolean(current.shareable);
+
+    if (currentInUseQuantity > 0 && (scopeChanged || shareableChanged)) {
+      return {
+        ok: false,
+        message: "Не можна змінити тип спорядження, поки ця річ перебуває в користуванні іншого учасника.",
+        item: current
+      };
+    }
+
     const next = enrichTripGearItem({
       ...current,
       ...patch,
@@ -578,7 +590,10 @@ export class GroupService {
 
     group.gear[index] = next;
     this.store.write(data);
-    return next;
+    return {
+      ok: true,
+      item: next
+    };
   }
 
   deleteGear({ groupId, gearId }) {

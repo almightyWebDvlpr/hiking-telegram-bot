@@ -3088,7 +3088,7 @@ function buildGearReturnRequestNotification(trip, borrowerName, item) {
     `Річ: <b>${escapeHtml(item.gearName)}</b>`,
     `Кількість: <b>${escapeHtml(String(item.quantity))}</b>`,
     "",
-    "Натисни кнопку <b>👥 Користуються</b> нижче, щоб підтвердити факт повернення."
+    "Натисни кнопку <b>✅ Підтвердити повернення</b> нижче або повернись назад."
   ]);
 }
 
@@ -3101,7 +3101,7 @@ function buildGearReturnReminderNotification(trip, borrowerName, item) {
     `Річ: <b>${escapeHtml(item.gearName)}</b>`,
     `Кількість: <b>${escapeHtml(String(item.quantity))}</b>`,
     "",
-    "Натисни кнопку <b>👥 Користуються</b> нижче, щоб підтвердити факт повернення."
+    "Натисни кнопку <b>✅ Підтвердити повернення</b> нижче або повернись назад."
   ]);
 }
 
@@ -3224,6 +3224,48 @@ async function sendGearLoanApprovalRequest(telegram, trip, need) {
     return true;
   } catch {
     clearFlow(lenderId);
+    return false;
+  }
+}
+
+async function sendGearReturnConfirmationRequest(telegram, groupService, trip, ownerId, borrowerName, item, { reminder = false } = {}) {
+  const normalizedOwnerId = String(ownerId || "");
+  if (!telegram || !groupService || !trip || !normalizedOwnerId || !item?.gearId) {
+    return false;
+  }
+
+  const currentItem = groupService
+    .getLoanedOutGearForMember(trip.id, normalizedOwnerId)
+    .find((entry) => entry.gearId === item.gearId && entry.hasPendingReturns);
+
+  if (!currentItem) {
+    return false;
+  }
+
+  setFlow(normalizedOwnerId, {
+    type: "loaned_gear_manage",
+    tripId: trip.id,
+    step: "action",
+    data: {
+      item: currentItem,
+      directConfirm: true
+    }
+  });
+
+  try {
+    await telegram.sendMessage(
+      normalizedOwnerId,
+      reminder
+        ? buildGearReturnReminderNotification(trip, borrowerName, { gearName: currentItem.gearName, quantity: currentItem.pendingReturnQuantity || currentItem.quantity })
+        : buildGearReturnRequestNotification(trip, borrowerName, { gearName: currentItem.gearName, quantity: currentItem.pendingReturnQuantity || currentItem.quantity }),
+      {
+        parse_mode: "HTML",
+        ...getLoanedGearActionKeyboard({ allowConfirm: currentItem.hasPendingReturns })
+      }
+    );
+    return true;
+  } catch {
+    clearFlow(normalizedOwnerId);
     return false;
   }
 }
@@ -6767,14 +6809,14 @@ async function handleBorrowedGearManageFlow(ctx, flow, groupService, userService
       }
 
       try {
-        await telegram.sendMessage(
+        await sendGearReturnConfirmationRequest(
+          telegram,
+          groupService,
+          trip,
           flow.data.item.ownerMemberId,
-          buildGearReturnReminderNotification(
-            trip,
-            userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
-            { gearName: flow.data.item.gearName, quantity: flow.data.item.pendingReturnQuantity || flow.data.item.quantity }
-          ),
-          { parse_mode: "HTML", ...getLoanedGearShortcutKeyboard() }
+          userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
+          flow.data.item,
+          { reminder: true }
         );
       } catch {
         return ctx.reply(
@@ -6822,14 +6864,13 @@ async function handleBorrowedGearManageFlow(ctx, flow, groupService, userService
 
     if (telegram && requested.ownerMemberId) {
       try {
-        await telegram.sendMessage(
+        await sendGearReturnConfirmationRequest(
+          telegram,
+          groupService,
+          trip,
           requested.ownerMemberId,
-          buildGearReturnRequestNotification(
-            trip,
-            userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
-            { gearName: flow.data.item.gearName, quantity: requested.quantity }
-          ),
-          { parse_mode: "HTML", ...getLoanedGearShortcutKeyboard() }
+          userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
+          { gearId: flow.data.item.gearId, gearName: flow.data.item.gearName, quantity: requested.quantity }
         );
       } catch {
         // ignore
@@ -6865,6 +6906,14 @@ async function handleLoanedGearManageFlow(ctx, flow, groupService, userService, 
     ...item,
     actionLabel: `${index + 1}. ${truncateButtonLabel(item.gearName, 20)}`
   }));
+
+  if (flow.step === "action" && flow.data?.item?.gearId) {
+    const currentItem = items.find((entry) => entry.gearId === flow.data.item.gearId);
+    if (currentItem) {
+      flow.data.item = currentItem;
+      setFlow(String(ctx.from.id), flow);
+    }
+  }
 
   if (!items.length) {
     clearFlow(String(ctx.from.id));
@@ -6903,6 +6952,11 @@ async function handleLoanedGearManageFlow(ctx, flow, groupService, userService, 
 
   if (flow.step === "action") {
     if (message === GEAR_EDIT_BACK_LABEL) {
+      if (flow.data?.directConfirm) {
+        clearFlow(String(ctx.from.id));
+        return showTripGearAccountingMenu(ctx, groupService);
+      }
+
       flow.step = "pick";
       delete flow.data.item;
       setFlow(String(ctx.from.id), flow);

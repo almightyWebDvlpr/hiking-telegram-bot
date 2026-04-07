@@ -433,7 +433,7 @@ function getTripKeyboard(trip, userId = "") {
     [TRIP_DETAILS_LABEL, "👥 Учасники походу", "🔔 Нагадування"],
     ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"],
     ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
-    ["🌦 Погода походу", "💸 Витрати походу", TRIP_CRITICAL_GEAR_LABEL],
+    ["🌦 Погода походу", "💸 Витрати походу"],
     [isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],
     ["⬅️ Головне меню"]
   ];
@@ -1024,7 +1024,8 @@ function hasEditableTripGear(trip, groupService, userId = "") {
 
 function getTripGearKeyboard(trip = null, groupService = null, userId = "") {
   const rows = [
-    [TRIP_GEAR_ADD_LABEL, "📦 Переглянути все"]
+    [TRIP_GEAR_ADD_LABEL, "📦 Переглянути все"],
+    [TRIP_CRITICAL_GEAR_LABEL]
   ];
 
   if (hasEditableTripGear(trip, groupService, userId)) {
@@ -2987,8 +2988,8 @@ function showTripMenu(ctx, groupService) {
     "• Деталі походу — головна зведена картка",
     "• Маршрут походу — трек, GPX/KML і перегляд карти",
     "• Учасники походу — список, запрошення і права доступу",
-    "• Критичне спорядження — швидка перевірка, що реально блокує старт",
-    "• Спорядження / Харчування / Витрати — робочі списки походу",
+    "• Спорядження походу — речі, запити, облік і критичне спорядження",
+    "• Харчування / Витрати — робочі списки походу",
     "• Фото походу — кадри з маршруту і короткі підписи до них"
   ];
 
@@ -3039,7 +3040,10 @@ function showTripCriticalGear(ctx, groupService) {
   }
 
   const criticalReport = groupService.getCriticalGearStatus(trip.id);
-  return ctx.reply(formatCriticalGearDetailedLines(criticalReport), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
+  return ctx.reply(formatCriticalGearDetailedLines(criticalReport), {
+    parse_mode: "HTML",
+    ...getTripGearKeyboard(trip, groupService, String(ctx.from.id))
+  });
 }
 
 function showTripPhotosMenu(ctx, groupService) {

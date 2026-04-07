@@ -129,6 +129,11 @@ const FLOW_GEAR_STATUS_KEYBOARD = Markup.keyboard([
   ["🟢 Готово", "🟡 Частково готово"],
   ["🔴 Збираємо", "❌ Скасувати"]
 ]).resize().persistent();
+const FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD = Markup.keyboard([
+  ["🟢 Готово", "🟡 Частково готово"],
+  ["🔴 Збираємо", PROFILE_SKIP_LABEL],
+  ["❌ Скасувати"]
+]).resize().persistent();
 const FINISH_TRIP_CONFIRM_KEYBOARD = Markup.keyboard([
   [FINISH_TRIP_YES_LABEL, FINISH_TRIP_NO_LABEL]
 ]).resize().persistent();
@@ -1736,6 +1741,26 @@ function buildTripMeetingTimePrompt(currentValue = "") {
     "Приклад: `07:30`",
     "",
     "Можна натиснути `⏭ Пропустити`, якщо час ще не визначено."
+  ].filter(Boolean).join("\n");
+}
+
+function buildTripNamePrompt(currentValue = "") {
+  return [
+    "Введи назву походу.",
+    currentValue ? `Поточна назва: ${currentValue}` : null,
+    "Приклад: `Карпати квітень`",
+    "",
+    "Можна натиснути `⏭ Пропустити`, якщо назву не потрібно змінювати."
+  ].filter(Boolean).join("\n");
+}
+
+function buildTripDatePrompt(label, example, currentValue = "") {
+  return [
+    `Введи ${label} у форматі YYYY-MM-DD.`,
+    currentValue ? `Поточне значення: ${currentValue}` : null,
+    `Приклад: \`${example}\``,
+    "",
+    "Можна натиснути `⏭ Пропустити`, якщо дату не потрібно змінювати."
   ].filter(Boolean).join("\n");
 }
 
@@ -3821,10 +3846,20 @@ function handleTripDataAction(ctx, groupService) {
   });
 
   return ctx.reply(
-    `${formatTripCard(trip, snapshot)}\n\n<b>✏️ Оновлення даних походу</b>\nВведи назву походу.\nПоточна назва: ${escapeHtml(trip.name)}`,
+    joinRichLines([
+      formatTripCard(trip, snapshot),
+      "",
+      ...formatCardHeader("✏️ ОНОВЛЕННЯ ДАНИХ ПОХОДУ", trip.name),
+      "",
+      "Введи назву походу.",
+      `Поточна назва: ${trip.name}`,
+      "Приклад: <code>Карпати квітень</code>",
+      "",
+      "• натисни <b>⏭ Пропустити</b>, якщо назву не потрібно змінювати"
+    ]),
     {
       parse_mode: "HTML",
-      ...FLOW_CANCEL_KEYBOARD
+      ...getProfileEditKeyboard()
     }
   );
 }
@@ -5183,9 +5218,9 @@ function startTripCardWizardForTrip(ctx, tripId, initialData = {}) {
     data: { ...initialData }
   });
 
-  return ctx.reply("Введи назву походу.\nПриклад: `Карпати квітень`", {
+  return ctx.reply(buildTripNamePrompt(initialData.name), {
     parse_mode: "Markdown",
-    ...FLOW_CANCEL_KEYBOARD
+    ...getProfileEditKeyboard()
   });
 }
 
@@ -5430,27 +5465,27 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
     if (flow.step === "startDate") {
       flow.step = "name";
       setFlow(String(ctx.from.id), flow);
-      return ctx.reply("Введи назву походу.\nПриклад: `Карпати квітень`", {
+      return ctx.reply(buildTripNamePrompt(flow.data.name), {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...getProfileEditKeyboard()
       });
     }
 
     if (flow.step === "endDate") {
       flow.step = "startDate";
       setFlow(String(ctx.from.id), flow);
-      return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+      return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...getProfileEditKeyboard()
       });
     }
 
     if (flow.step === "gearStatus") {
       flow.step = "endDate";
       setFlow(String(ctx.from.id), flow);
-      return ctx.reply("Введи дату завершення у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
+      return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...getProfileEditKeyboard()
       });
     }
 
@@ -5459,7 +5494,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
         `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
-        FLOW_GEAR_STATUS_KEYBOARD
+        FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD
       );
     }
 
@@ -5483,44 +5518,93 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
   }
 
   if (flow.step === "name") {
-    if (!message) {
-      return ctx.reply("Введи назву походу.\nПриклад: `Карпати квітень`", {
+    if (message === PROFILE_SKIP_LABEL) {
+      if (!flow.data.name) {
+        return ctx.reply("Назву походу потрібно заповнити. Натиснути `Пропустити` можна тільки якщо поточна назва вже є.", {
+          parse_mode: "Markdown",
+          ...getProfileEditKeyboard()
+        });
+      }
+
+      flow.step = "startDate";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...getProfileEditKeyboard()
+      });
+    }
+
+    if (!message) {
+      return ctx.reply(buildTripNamePrompt(flow.data.name), {
+        parse_mode: "Markdown",
+        ...getProfileEditKeyboard()
       });
     }
 
     flow.data.name = message;
     flow.step = "startDate";
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+    return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
       parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
+      ...getProfileEditKeyboard()
     });
   }
 
   if (flow.step === "startDate") {
-    if (!isValidDate(message)) {
-      return ctx.reply("Дата має бути у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+    if (message === PROFILE_SKIP_LABEL) {
+      if (!flow.data.startDate) {
+        return ctx.reply("Дату початку потрібно заповнити. `Пропустити` працює лише коли значення вже задане.", {
+          parse_mode: "Markdown",
+          ...getProfileEditKeyboard()
+        });
+      }
+
+      flow.step = "endDate";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...getProfileEditKeyboard()
+      });
+    }
+
+    if (!isValidDate(message)) {
+      return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
+        parse_mode: "Markdown",
+        ...getProfileEditKeyboard()
       });
     }
 
     flow.data.startDate = message;
     flow.step = "endDate";
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Введи дату завершення у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
+    return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
       parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
+      ...getProfileEditKeyboard()
     });
   }
 
   if (flow.step === "endDate") {
+    if (message === PROFILE_SKIP_LABEL) {
+      if (!flow.data.endDate) {
+        return ctx.reply("Дату завершення потрібно заповнити. `Пропустити` працює лише коли значення вже задане.", {
+          parse_mode: "Markdown",
+          ...getProfileEditKeyboard()
+        });
+      }
+
+      flow.data.nights = calculateNights(flow.data.startDate, flow.data.endDate);
+      flow.step = "gearStatus";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
+        FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD
+      );
+    }
+
     if (!isValidDate(message)) {
-      return ctx.reply("Дата має бути у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
+      return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...getProfileEditKeyboard()
       });
     }
 
@@ -5530,14 +5614,27 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
-      FLOW_GEAR_STATUS_KEYBOARD
+      FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD
     );
   }
 
   if (flow.step === "gearStatus") {
+    if (message === PROFILE_SKIP_LABEL) {
+      if (!flow.data.gearReadinessStatus) {
+        return ctx.reply("Статус готовності потрібно вказати. `Пропустити` працює лише коли значення вже задане.", FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD);
+      }
+
+      flow.step = "meetingPoint";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
+        parse_mode: "Markdown",
+        ...getProfileEditKeyboard()
+      });
+    }
+
     const normalized = normalizeGearStatus(message);
     if (!["готово", "частково готово", "збираємо"].includes(normalized)) {
-      return ctx.reply("Обери один зі статусів кнопками нижче.", FLOW_GEAR_STATUS_KEYBOARD);
+      return ctx.reply("Обери один зі статусів кнопками нижче.", FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD);
     }
 
     flow.data.gearReadinessStatus = normalized;

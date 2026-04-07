@@ -351,6 +351,89 @@ function joinRichLines(lines) {
   return prepared.join("\n");
 }
 
+function splitRichText(text, maxLength = 3500) {
+  const source = String(text || "").trim();
+  if (!source) {
+    return [""];
+  }
+
+  if (source.length <= maxLength) {
+    return [source];
+  }
+
+  const chunks = [];
+  const lines = source.split("\n");
+  let current = "";
+
+  const pushCurrent = () => {
+    const normalized = current.trim();
+    if (normalized) {
+      chunks.push(normalized);
+    }
+    current = "";
+  };
+
+  for (const line of lines) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length <= maxLength) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) {
+      pushCurrent();
+    }
+
+    if (line.length <= maxLength) {
+      current = line;
+      continue;
+    }
+
+    const words = line.split(" ");
+    let lineChunk = "";
+    for (const word of words) {
+      const wordCandidate = lineChunk ? `${lineChunk} ${word}` : word;
+      if (wordCandidate.length <= maxLength) {
+        lineChunk = wordCandidate;
+        continue;
+      }
+
+      if (lineChunk) {
+        chunks.push(lineChunk.trim());
+      }
+      lineChunk = word;
+    }
+
+    if (lineChunk) {
+      current = lineChunk;
+    }
+  }
+
+  if (current) {
+    pushCurrent();
+  }
+
+  return chunks.length ? chunks : [source];
+}
+
+async function replyRichText(ctx, text, extra = {}) {
+  const chunks = splitRichText(text);
+  let lastResult = null;
+  for (const chunk of chunks) {
+    lastResult = await ctx.reply(chunk, extra);
+  }
+  return lastResult;
+}
+
+async function sendRichText(telegram, chatId, text, extra = {}) {
+  const chunks = splitRichText(text);
+  let lastResult = null;
+  for (const chunk of chunks) {
+    lastResult = await telegram.sendMessage(chatId, chunk, extra);
+  }
+  return lastResult;
+}
+
 function getHelpMenuKeyboard() {
   const rows = [];
   for (let index = 0; index < HELP_SECTIONS.length; index += 2) {
@@ -1467,7 +1550,7 @@ async function notifyTripMembers(telegram, trip, text, { excludeMemberId = "" } 
     }
 
     try {
-      await telegram.sendMessage(member.id, text, {
+      await sendRichText(telegram, member.id, text, {
         parse_mode: "HTML",
         ...getTripKeyboard(trip, member.id)
       });
@@ -3063,7 +3146,7 @@ function showTripReminders(ctx, groupService) {
   }
 
   const criticalReport = groupService.getCriticalGearStatus(trip.id);
-  return ctx.reply(formatReminderPlan(trip, criticalReport), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
+  return replyRichText(ctx, formatReminderPlan(trip, criticalReport), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
 }
 
 function showTripCriticalGear(ctx, groupService) {
@@ -3073,7 +3156,7 @@ function showTripCriticalGear(ctx, groupService) {
   }
 
   const criticalReport = groupService.getCriticalGearStatus(trip.id, String(ctx.from.id));
-  return ctx.reply(formatCriticalGearDetailedLines(criticalReport), {
+  return replyRichText(ctx, formatCriticalGearDetailedLines(criticalReport), {
     parse_mode: "HTML",
     ...getTripGearKeyboard(trip, groupService, String(ctx.from.id))
   });
@@ -9546,7 +9629,8 @@ function showTripGear(ctx, groupService) {
     ? snapshot.gearNeeds.map((item) => formatGearNeedListLine(item, { includeMember: true })).join("\n")
     : "• немає";
 
-  return ctx.reply(
+  return replyRichText(
+    ctx,
     joinRichLines([
       ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
       "",
@@ -9587,7 +9671,8 @@ function showMyNeeds(ctx, groupService) {
     );
   }
 
-  return ctx.reply(
+  return replyRichText(
+    ctx,
     joinRichLines([
       ...formatCardHeader("📋 МОЇ ЗАПИТИ", trip.name),
       "",
@@ -9646,7 +9731,8 @@ function showTripFood(ctx, groupService, userService) {
     ? snapshot.byMember.map((item) => `• ${resolveMemberDisplayName(userService, item.memberId, item.memberName)}: ${item.itemCount} позицій | ${formatWeightGrams(item.totalWeight)} | ${formatMoney(item.totalCost)}`).join("\n")
     : "• немає";
 
-  return ctx.reply(
+  return replyRichText(
+    ctx,
     joinRichLines([
       ...formatCardHeader("🍲 ХАРЧУВАННЯ ПОХОДУ", trip.name),
       "",
@@ -9716,7 +9802,7 @@ function showBackpackWeight(ctx, groupService, userService) {
     "• Вільне спільне спорядження і їжа діляться порівну між усіма учасниками."
   ];
 
-  return ctx.reply(joinRichLines(lines), { parse_mode: "HTML", ...getTripKeyboard(trip, viewerId) });
+  return replyRichText(ctx, joinRichLines(lines), { parse_mode: "HTML", ...getTripKeyboard(trip, viewerId) });
 }
 
 function buildBackpackWeightDetailLines(member) {
@@ -9852,7 +9938,8 @@ function showTripExpenses(ctx, groupService, userService) {
   const grandTotal = directExpenses + foodTotal;
   const settlements = calculateSettlements(trip.members || [], combinedByMemberMap, grandTotal);
 
-  return ctx.reply(
+  return replyRichText(
+    ctx,
     joinRichLines([
       ...formatCardHeader("💸 ВИТРАТИ ПОХОДУ", trip.name),
       "",
@@ -10193,7 +10280,7 @@ function startTripReminderLoop(bot, groupService) {
           let delivered = false;
           for (const member of trip.members || []) {
             try {
-              await bot.telegram.sendMessage(member.id, text, getTripKeyboard(trip, member.id));
+              await sendRichText(bot.telegram, member.id, text, getTripKeyboard(trip, member.id));
               delivered = true;
             } catch {
               // Ignore users who haven't opened the bot or blocked it.
@@ -10941,6 +11028,28 @@ export function createBot(store) {
     const flow = getFlow(String(ctx.from.id));
     if (flow?.type === "trip_photo_add") {
       await handleTripPhotoMessage(ctx, flow, groupService, userService, bot.telegram);
+    }
+  });
+
+  bot.catch(async (error, ctx) => {
+    console.error("Unhandled error while processing", ctx?.update, error);
+
+    try {
+      const message = String(error?.message || "");
+      if (message.toLowerCase().includes("message is too long")) {
+        await ctx.reply(
+          "Не вдалося показати все в одному повідомленні. Ми вже розбили довгі екрани безпечніше, спробуй ще раз.",
+          getMainKeyboard(ctx)
+        );
+        return;
+      }
+
+      await ctx.reply(
+        "Сталася помилка під час обробки дії. Спробуй ще раз.",
+        getMainKeyboard(ctx)
+      );
+    } catch {
+      // Ignore secondary reply errors inside catch handler.
     }
   });
 

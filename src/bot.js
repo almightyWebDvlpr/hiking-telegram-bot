@@ -435,14 +435,14 @@ function getTripKeyboard(trip, userId = "") {
 }
 
 function getTripDetailsKeyboard(trip, userId = "") {
-  const rows = [];
-
-  if (canManageTrip(trip, userId)) {
-    rows.push(["✏️ Редагувати дані походу"]);
+  if (!canManageTrip(trip, userId)) {
+    return null;
   }
 
-  rows.push([TRIP_DETAILS_BACK_LABEL]);
-  return buildKeyboard(rows);
+  return buildKeyboard([
+    ["✏️ Редагувати дані походу"],
+    [TRIP_DETAILS_BACK_LABEL]
+  ]);
 }
 
 function formatVpohidSearchResults(query, matches) {
@@ -2709,9 +2709,12 @@ function showTripPassport(ctx, groupService, userService) {
     return null;
   }
 
+  const detailsKeyboard = getTripDetailsKeyboard(trip, String(ctx.from.id));
   return ctx.reply(
     formatTripPassport(trip, groupService, userService, String(ctx.from.id)),
-    { parse_mode: "HTML", ...getTripDetailsKeyboard(trip, String(ctx.from.id)) }
+    detailsKeyboard
+      ? { parse_mode: "HTML", ...detailsKeyboard }
+      : { parse_mode: "HTML" }
   );
 }
 

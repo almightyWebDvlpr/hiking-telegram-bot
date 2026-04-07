@@ -7580,13 +7580,31 @@ async function handleHelpFlow(ctx, flow) {
 
 async function handleProfileEditFlow(ctx, flow, userService) {
   const message = ctx.message.text.trim();
+  const fieldConfig = PROFILE_EDIT_FIELDS.find((item) => item.key === flow.step);
+  const currentIndex = PROFILE_EDIT_FIELDS.findIndex((item) => item.key === flow.step);
 
   if (message === PROFILE_BACK_LABEL || message === "❌ Скасувати") {
-    clearFlow(String(ctx.from.id));
-    return showProfileMenu(ctx, userService);
+    if (currentIndex <= 0) {
+      clearFlow(String(ctx.from.id));
+      return showProfileAbout(ctx, userService);
+    }
+
+    const previousField = PROFILE_EDIT_FIELDS[currentIndex - 1];
+    flow.step = previousField.key;
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("✏️ РЕДАГУВАННЯ ПРОФІЛЮ", "Попереднє поле"),
+        "",
+        previousField.prompt,
+        "",
+        "⚠️ Зверни увагу:",
+        "• `Пропустити` лишає поточне значення без змін"
+      ]),
+      { parse_mode: "HTML", ...getProfileEditKeyboard() }
+    );
   }
 
-  const fieldConfig = PROFILE_EDIT_FIELDS.find((item) => item.key === flow.step);
   if (!fieldConfig) {
     clearFlow(String(ctx.from.id));
     return showProfileMenu(ctx, userService);
@@ -7596,7 +7614,6 @@ async function handleProfileEditFlow(ctx, flow, userService) {
     flow.data[fieldConfig.key] = message;
   }
 
-  const currentIndex = PROFILE_EDIT_FIELDS.findIndex((item) => item.key === fieldConfig.key);
   const nextField = PROFILE_EDIT_FIELDS[currentIndex + 1];
 
   if (!nextField) {
@@ -10067,7 +10084,7 @@ export function createBot(store) {
     }
 
     if (activeFlow?.type === "profile_edit") {
-      return showProfileMenu(ctx, userService);
+      return handleProfileEditFlow(ctx, activeFlow, userService);
     }
 
     if (activeFlow?.type === "my_gear_add" || activeFlow?.type === "my_gear_edit") {

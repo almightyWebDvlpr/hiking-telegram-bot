@@ -1593,7 +1593,20 @@ function formatReminderPlan(trip) {
   }
 
   const reminderState = trip.reminderState || {};
+  const meetingPoint = normalizeLocationLabel(trip.tripCard?.meetingPoint || "");
+  const meetingDateTime = formatTripMeetingDateTime(trip.tripCard || {});
   const lines = [...formatCardHeader("🔔 НАГАДУВАННЯ", trip.name), ""];
+
+  if (meetingPoint || meetingDateTime) {
+    lines.push("🚆 Логістика збору");
+    if (meetingPoint) {
+      lines.push(`• Точка збору: ${meetingPoint}`);
+    }
+    if (meetingDateTime) {
+      lines.push(`• Дата та Час збору: ${meetingDateTime}`);
+    }
+    lines.push("");
+  }
 
   for (const item of plan) {
     const sentAt = reminderState[item.key];
@@ -9871,6 +9884,20 @@ function buildAutoReminderMessage(trip, reminderKey) {
   const readiness = trip.tripCard?.gearReadinessStatus || "не вказано";
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
   const safety = resolveSafetyProfile(trip);
+  const meetingPoint = normalizeLocationLabel(trip.tripCard?.meetingPoint || "");
+  const meetingDateTime = formatTripMeetingDateTime(trip.tripCard || {});
+  const meetingLines = [];
+
+  if (meetingPoint || meetingDateTime) {
+    meetingLines.push("");
+    meetingLines.push("🚆 Точка збору");
+    if (meetingPoint) {
+      meetingLines.push(`• ${meetingPoint}`);
+    }
+    if (meetingDateTime) {
+      meetingLines.push(`• ${meetingDateTime}`);
+    }
+  }
 
   if (reminderKey === "d3") {
     return [
@@ -9879,7 +9906,8 @@ function buildAutoReminderMessage(trip, reminderKey) {
       "Що перевірити зараз:",
       "• актуальну погоду по маршруту",
       `• готовність спорядження: ${readiness}`,
-      `• активні запити на спорядження: ${trip.gearNeeds?.length || 0}`
+      `• активні запити на спорядження: ${trip.gearNeeds?.length || 0}`,
+      ...meetingLines
     ].join("\n");
   }
 
@@ -9891,7 +9919,8 @@ function buildAutoReminderMessage(trip, reminderKey) {
       "• завантажити GPX/KML трек",
       "• відкрити HTML-карту треку і ще раз звірити маршрут",
       `• статус маршруту: ${routeStatus}`,
-      `• перевірити логістику старту: ${trip.routePlan?.from || "не вказано"}`
+      `• перевірити логістику старту: ${trip.routePlan?.from || "не вказано"}`,
+      ...meetingLines
     ].join("\n");
   }
 
@@ -9902,6 +9931,7 @@ function buildAutoReminderMessage(trip, reminderKey) {
     `Готовність спорядження: ${readiness}`,
     `Безпека: ${safety.title}`,
     `Екстрені номери: ${safety.general.flatMap((item) => item.phones).join(" / ")}`,
+    ...meetingLines,
     "Перед виходом ще раз перевір воду, заряд телефону і офлайн-трек."
   ].join("\n");
 }

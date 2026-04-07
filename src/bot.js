@@ -1825,6 +1825,39 @@ function formatParticipantCountLabel(count) {
   return map[count] || `${count} учасників`;
 }
 
+function formatParticipantShortName(name = "") {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) {
+    return "";
+  }
+
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  const surname = [...parts].sort((left, right) => right.length - left.length)[0];
+  const namePart = parts.find((part) => part !== surname) || parts[0];
+  return `${surname} ${namePart.charAt(0)}.`;
+}
+
+function formatHumanList(items = []) {
+  const values = [...new Set((items || []).filter(Boolean))];
+
+  if (values.length <= 1) {
+    return values[0] || "";
+  }
+
+  if (values.length === 2) {
+    return `${values[0]} та ${values[1]}`;
+  }
+
+  return `${values.slice(0, -1).join(", ")} та ${values[values.length - 1]}`;
+}
+
 function formatOriginLabel(cities, region) {
   const normalizedCities = [...new Set((cities || []).filter(Boolean))];
 
@@ -1837,6 +1870,19 @@ function formatOriginLabel(cities, region) {
   }
 
   return `з міст ${normalizedCities.map((item) => `м. ${item}`).join(", ")}${region ? `, ${region}` : ""}`;
+}
+
+function formatParticipantGroupLabel(memberNames, count) {
+  const namesLabel = formatHumanList(memberNames);
+  if (!namesLabel) {
+    return formatParticipantCountLabel(count);
+  }
+
+  if (count === 1) {
+    return `Учасник ${namesLabel}`;
+  }
+
+  return `${formatParticipantCountLabel(count)} ${namesLabel}`;
 }
 
 function extractMeetingPointCity(meetingPoint = "") {
@@ -1993,9 +2039,11 @@ function buildTripMeetingPointLines(trip, userService, safety) {
       hub: departureHub,
       region: departureDetails.region,
       cities: new Set(),
+      members: [],
       count: 0
     };
     bucket.cities.add(city);
+    bucket.members.push(formatParticipantShortName(getMemberDisplayName(userService, member)));
     bucket.count += 1;
     grouped.set(departureHub, bucket);
   }
@@ -2017,7 +2065,7 @@ function buildTripMeetingPointLines(trip, userService, safety) {
   for (const group of groups) {
     const groupCities = [...group.cities];
     const originLabel = formatOriginLabel([...group.cities], group.region);
-    const countLabel = formatParticipantCountLabel(group.count);
+    const participantLabel = formatParticipantGroupLabel(group.members, group.count);
     const groupContainsManualMeetingCity = manualMeetingCity
       ? groupCities.some((city) => normalizeLocationKey(city) === normalizeLocationKey(manualMeetingCity))
       : false;
@@ -2025,25 +2073,25 @@ function buildTripMeetingPointLines(trip, userService, safety) {
 
     if (manualMeetingPoint) {
       if (groupContainsManualMeetingCity) {
-        lines.push(`• ${countLabel} ${originLabel}: збір на вокзалі вашого міста.`);
+        lines.push(`• ${participantLabel} ${originLabel}: збір на вокзалі вашого міста.`);
       } else if (manualMeetingCity && group.region && manualMeetingRegion && group.region === manualMeetingRegion) {
-        lines.push(`• ${countLabel} ${originLabel}: прямуйте до точки збору — ${manualMeetingPoint}.`);
+        lines.push(`• ${participantLabel} ${originLabel}: прямуйте до точки збору — ${manualMeetingPoint}.`);
       } else if (normalizeLocationKey(group.hub) === normalizeLocationKey(arrivalHub)) {
-        lines.push(`• ${countLabel} ${originLabel}: збір у ${group.hub}, далі прямуйте до точки збору — ${manualMeetingPoint}.`);
+        lines.push(`• ${participantLabel} ${originLabel}: збір у ${group.hub}, далі прямуйте до точки збору — ${manualMeetingPoint}.`);
       } else if (group.count > 1) {
-        lines.push(`• ${countLabel} ${originLabel}: збір у ${group.hub}, далі разом до точки збору — ${manualMeetingPoint}.`);
+        lines.push(`• ${participantLabel} ${originLabel}: збір у ${group.hub}, далі разом до точки збору — ${manualMeetingPoint}.`);
       } else {
-        lines.push(`• ${countLabel} ${originLabel}: самостійно прямує до точки збору — ${manualMeetingPoint}.`);
+        lines.push(`• ${participantLabel} ${originLabel}: самостійно прямує до точки збору — ${manualMeetingPoint}.`);
       }
     } else {
       if (groupContainsArrivalCity) {
-        lines.push(`• ${countLabel} ${originLabel}: збір на вокзалі вашого міста, далі разом до старту походу.`);
+        lines.push(`• ${participantLabel} ${originLabel}: збір на вокзалі вашого міста, далі разом до старту походу.`);
       } else if (group.region && arrivalDetails.region && group.region === arrivalDetails.region) {
-        lines.push(`• ${countLabel} ${originLabel}: прямуйте до спільної точки прибуття — ${arrivalDetails.station}.`);
+        lines.push(`• ${participantLabel} ${originLabel}: прямуйте до спільної точки прибуття — ${arrivalDetails.station}.`);
       } else if (group.count > 1) {
-        lines.push(`• ${countLabel} ${originLabel}: збір у ${group.hub}, далі разом до ${arrivalHub}.`);
+        lines.push(`• ${participantLabel} ${originLabel}: збір у ${group.hub}, далі разом до ${arrivalHub}.`);
       } else {
-        lines.push(`• ${countLabel} ${originLabel}: самостійно прибуває до ${arrivalHub}.`);
+        lines.push(`• ${participantLabel} ${originLabel}: самостійно прибуває до ${arrivalHub}.`);
       }
     }
   }

@@ -46,6 +46,7 @@ const PROFILE_SKIP_LABEL = "⏭ Пропустити";
 const TRIP_MEMBERS_BACK_LABEL = "⬅️ До учасників";
 const TRIP_HISTORY_BACK_LABEL = "⬅️ До історії";
 const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
+const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
 const HELP_SECTIONS = [
   "🚀 Як почати і створити похід",
   "📍 Як додати маршрут",
@@ -430,10 +431,17 @@ function getTripKeyboard(trip, userId = "") {
     ["⬅️ Головне меню"]
   ];
 
+  return buildKeyboard(rows);
+}
+
+function getTripDetailsKeyboard(trip, userId = "") {
+  const rows = [];
+
   if (canManageTrip(trip, userId)) {
-    rows.splice(rows.length - 1, 0, ["✏️ Редагувати дані походу", KEYBOARD_PLACEHOLDER, KEYBOARD_PLACEHOLDER]);
+    rows.push(["✏️ Редагувати дані походу"]);
   }
 
+  rows.push([TRIP_DETAILS_BACK_LABEL]);
   return buildKeyboard(rows);
 }
 
@@ -2602,7 +2610,7 @@ function showTripMenu(ctx, groupService) {
   ];
 
   if (canManageTrip(trip, String(ctx.from.id))) {
-    hintLines.push("• Редагувати дані походу — назва, дати, готовність");
+    hintLines.push("• У Деталях походу можна редагувати назву, дати і готовність");
   }
 
   return ctx.reply(
@@ -2695,13 +2703,16 @@ function startTripPhotoAddWizard(ctx, groupService) {
 }
 
 function showTripPassport(ctx, groupService, userService) {
-  setMenuContext(ctx.from?.id, "trip");
+  setMenuContext(ctx.from?.id, "trip_details");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
   }
 
-  return ctx.reply(formatTripPassport(trip, groupService, userService, String(ctx.from.id)), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
+  return ctx.reply(
+    formatTripPassport(trip, groupService, userService, String(ctx.from.id)),
+    { parse_mode: "HTML", ...getTripDetailsKeyboard(trip, String(ctx.from.id)) }
+  );
 }
 
 function showTripMembersMenu(ctx, groupService, userService) {
@@ -3651,20 +3662,19 @@ function handleTripDataAction(ctx, groupService) {
     return null;
   }
 
-  if (!trip.tripCard) {
-    return startTripCardWizardForTrip(ctx, trip.id);
-  }
-
   const snapshot = groupService.getGearSnapshot(trip.id);
   setFlow(String(ctx.from.id), {
     type: "trip_card",
     tripId: trip.id,
-    step: "startDate",
-    data: { ...trip.tripCard }
+    step: "name",
+    data: {
+      name: trip.name,
+      ...(trip.tripCard || {})
+    }
   });
 
   return ctx.reply(
-    `${formatTripCard(trip, snapshot)}\n\n<b>✏️ Оновлення даних походу</b>\nВведи дату початку у форматі YYYY-MM-DD.\nПриклад: 2026-07-14`,
+    `${formatTripCard(trip, snapshot)}\n\n<b>✏️ Оновлення даних походу</b>\nВведи назву походу.\nПоточна назва: ${escapeHtml(trip.name)}`,
     {
       parse_mode: "HTML",
       ...FLOW_CANCEL_KEYBOARD
@@ -5018,15 +5028,15 @@ function startRouteWizard(ctx, groupService, mode) {
   );
 }
 
-function startTripCardWizardForTrip(ctx, tripId) {
+function startTripCardWizardForTrip(ctx, tripId, initialData = {}) {
   setFlow(String(ctx.from.id), {
     type: "trip_card",
     tripId,
-    step: "startDate",
-    data: {}
+    step: "name",
+    data: { ...initialData }
   });
 
-  return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+  return ctx.reply("Введи назву походу.\nПриклад: `Карпати квітень`", {
     parse_mode: "Markdown",
     ...FLOW_CANCEL_KEYBOARD
   });
@@ -5266,7 +5276,24 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Заповнення даних походу скасовано.", getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
+    return showTripPassport(ctx, groupService, userService);
+  }
+
+  if (flow.step === "name") {
+    if (!message) {
+      return ctx.reply("Введи назву походу.\nПриклад: `Карпати квітень`", {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    flow.data.name = message;
+    flow.step = "startDate";
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+      parse_mode: "Markdown",
+      ...FLOW_CANCEL_KEYBOARD
+    });
   }
 
   if (flow.step === "startDate") {
@@ -5317,6 +5344,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
     return ctx.reply(
       [
         "Перевір дані походу:",
+        `• Назва: ${flow.data.name}`,
         `• Дати: ${flow.data.startDate} -> ${flow.data.endDate}`,
         `• Ночівлі: ${flow.data.nights}`,
         `• Готовність спорядження: ${flow.data.gearReadinessStatus}`
@@ -5336,7 +5364,13 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
     const previousTrip = groupService.findGroupByMember(String(ctx.from.id));
     const updatedTrip = groupService.setTripCard({
       groupId: flow.tripId,
-      tripCard: flow.data
+      tripName: flow.data.name,
+      tripCard: {
+        startDate: flow.data.startDate,
+        endDate: flow.data.endDate,
+        nights: flow.data.nights,
+        gearReadinessStatus: flow.data.gearReadinessStatus
+      }
     });
     const snapshot = groupService.getGearSnapshot(updatedTrip.id);
     const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
@@ -5357,7 +5391,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         { excludeMemberId: String(ctx.from.id) }
       );
     }
-    return ctx.reply(formatTripCard(updatedTrip, snapshot), { parse_mode: "HTML", ...getTripKeyboard(updatedTrip, String(ctx.from.id)) });
+    return ctx.reply(formatTripCard(updatedTrip, snapshot), { parse_mode: "HTML", ...getTripDetailsKeyboard(updatedTrip, String(ctx.from.id)) });
   }
 
   return null;
@@ -9904,6 +9938,12 @@ export function createBot(store) {
   bot.hears("👤 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("📋 Список учасників", (ctx) => showTripMembers(ctx, groupService, userService));
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
+  bot.hears(TRIP_DETAILS_BACK_LABEL, (ctx) => {
+    if (getMenuContext(ctx.from?.id) === "trip_details") {
+      return showTripMenu(ctx, groupService);
+    }
+    return null;
+  });
   bot.hears("➕ Створити похід", (ctx) => {
     const activeTrip = groupService.findGroupByMember(String(ctx.from.id));
     if (activeTrip) {

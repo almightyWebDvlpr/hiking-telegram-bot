@@ -5422,8 +5422,64 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
-    clearFlow(String(ctx.from.id));
-    return showTripPassport(ctx, groupService, userService);
+    if (flow.step === "name") {
+      clearFlow(String(ctx.from.id));
+      return showTripPassport(ctx, groupService, userService);
+    }
+
+    if (flow.step === "startDate") {
+      flow.step = "name";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply("Введи назву походу.\nПриклад: `Карпати квітень`", {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    if (flow.step === "endDate") {
+      flow.step = "startDate";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    if (flow.step === "gearStatus") {
+      flow.step = "endDate";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply("Введи дату завершення у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    if (flow.step === "meetingPoint") {
+      flow.step = "gearStatus";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
+        FLOW_GEAR_STATUS_KEYBOARD
+      );
+    }
+
+    if (flow.step === "meetingTime") {
+      flow.step = "meetingPoint";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
+        parse_mode: "Markdown",
+        ...getProfileEditKeyboard()
+      });
+    }
+
+    if (flow.step === "confirm") {
+      flow.step = "meetingTime";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(buildTripMeetingTimePrompt(flow.data.meetingTime), {
+        parse_mode: "Markdown",
+        ...getProfileEditKeyboard()
+      });
+    }
   }
 
   if (flow.step === "name") {
@@ -10310,6 +10366,10 @@ export function createBot(store) {
 
     if (activeFlow?.type === "profile_edit") {
       return handleProfileEditFlow(ctx, activeFlow, userService);
+    }
+
+    if (activeFlow?.type === "trip_card") {
+      return handleTripCardFlow(ctx, activeFlow, groupService, userService, bot.telegram);
     }
 
     if (activeFlow?.type === "my_gear_add" || activeFlow?.type === "my_gear_edit") {

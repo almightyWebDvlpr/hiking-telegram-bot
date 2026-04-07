@@ -748,7 +748,7 @@ export class GroupService {
     return this.setRoutePlan({ groupId, routePlan, region });
   }
 
-  setTripCard({ groupId, tripCard }) {
+  setTripCard({ groupId, tripCard, tripName = "" }) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);
 
@@ -759,6 +759,10 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     Object.assign(group, preparedGroup);
     const previousStartDate = preparedGroup.tripCard?.startDate || null;
+    const normalizedTripName = String(tripName || "").trim();
+    if (normalizedTripName) {
+      group.name = normalizedTripName;
+    }
     group.tripCard = {
       ...preparedGroup.tripCard,
       ...tripCard,

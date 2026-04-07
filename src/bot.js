@@ -4853,7 +4853,7 @@ function showProfileMedicalCard(ctx, userService) {
   setMenuContext(ctx.from?.id, "profile");
   return ctx.reply(
     formatProfileMedicalCard(userService, String(ctx.from.id), getUserLabel(ctx)),
-    { parse_mode: "HTML", ...getProfileKeyboard() }
+    { parse_mode: "HTML", ...getProfileAboutKeyboard() }
   );
 }
 

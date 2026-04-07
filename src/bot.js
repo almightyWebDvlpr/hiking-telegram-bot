@@ -45,6 +45,7 @@ const PROFILE_BACK_LABEL = "⬅️ До профілю";
 const PROFILE_SKIP_LABEL = "⏭ Пропустити";
 const TRIP_MEMBERS_BACK_LABEL = "⬅️ До учасників";
 const TRIP_HISTORY_BACK_LABEL = "⬅️ До історії";
+const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const HELP_SECTIONS = [
   "🚀 Як почати і створити похід",
   "📍 Як додати маршрут",
@@ -416,7 +417,7 @@ function getTripKeyboard(trip, userId = "") {
   }
 
   const rows = [
-    ["🪪 Паспорт походу", "👥 Учасники походу", "🔔 Нагадування"],
+    [TRIP_DETAILS_LABEL, "👥 Учасники походу"],
     ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"],
     ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
     ["🌦 Погода походу", "💸 Витрати походу", isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],
@@ -1585,31 +1586,149 @@ function formatReminderPlan(trip) {
   return joinRichLines(lines);
 }
 
+function normalizeLocationKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/['’`"]/g, "")
+    .replace(/\bм\.\s*/g, "")
+    .replace(/\bмісто\s+/g, "")
+    .replace(/\bобласть\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeLocationLabel(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const DEPARTURE_HUB_RULES = [
+  { hub: "Київ", keywords: ["київ", "біла церква", "бориспіль", "бровари", "ірпінь", "буча", "вишневе", "обухів", "васильків", "фастів"] },
+  { hub: "Львів", keywords: ["львів", "дрогобич", "стрий", "трускавець", "червоноград", "новояворівськ"] },
+  { hub: "Івано-Франківськ", keywords: ["івано-франківськ", "франківськ", "калуш", "долина", "болехів", "надвірна", "стара гута", "манява", "осмолода"] },
+  { hub: "Ворохта", keywords: ["ворохта", "татарів", "яремче", "буковель", "поляниця", "яблуниця", "лазещина", "кваси", "заросляк", "дземброня", "верховина"] },
+  { hub: "Воловець", keywords: ["воловець", "пилипець", "міжгіря", "міжгір'я", "синевир", "боржава", "подобовець"] },
+  { hub: "Мукачево", keywords: ["ужгород", "мукачево", "свалява", "берегове", "чоп"] },
+  { hub: "Ясіня", keywords: ["ясіня", "рахів", "драгобрат", "свидовець"] },
+  { hub: "Сколе", keywords: ["сколе", "славське", "труханів", "орявчик", "парашка", "бескиди"] },
+  { hub: "Чернівці", keywords: ["чернівці", "вижниця", "путиля", "селятин", "буковина"] }
+];
+
+const ARRIVAL_HUB_RULES = [
+  { hub: "Івано-Франківськ", keywords: ["стара гута", "осмолода", "манява", "сивуля", "мала сивуля", "ігровець", "висока", "горган", "кедрова палата", "бистриця", "калуш", "долина"] },
+  { hub: "Ворохта", keywords: ["ворохта", "заросляк", "кукул", "говерла", "петрос", "хомяк", "хом'як", "синяк", "яремче", "татарів", "лазещина", "кваси", "дземброня", "верховина", "чорногора", "чорногора"] },
+  { hub: "Воловець", keywords: ["пилипець", "воловець", "боржава", "подобовець", "міжгіря", "міжгір'я", "синевир"] },
+  { hub: "Ясіня", keywords: ["ясіня", "рахів", "драгобрат", "свидовець", "близниця", "близниця"] },
+  { hub: "Сколе", keywords: ["сколе", "славське", "парашка", "бескиди", "тустань"] },
+  { hub: "Чернівці", keywords: ["путиля", "селятин", "буковина", "чернівці"] }
+];
+
+function resolveDepartureHub(city) {
+  const normalizedCity = normalizeLocationKey(city);
+  if (!normalizedCity) {
+    return "";
+  }
+
+  const matchedRule = DEPARTURE_HUB_RULES.find((rule) => rule.keywords.some((keyword) => normalizedCity.includes(keyword)));
+  return matchedRule?.hub || normalizeLocationLabel(city);
+}
+
+function resolveArrivalHub(trip, safety) {
+  const haystack = normalizeLocationKey([
+    trip.region,
+    trip.routePlan?.sourceTitle,
+    trip.routePlan?.from,
+    trip.routePlan?.to,
+    ...(trip.routePlan?.stops || [])
+  ].filter(Boolean).join(" "));
+
+  const matchedRule = ARRIVAL_HUB_RULES.find((rule) => rule.keywords.some((keyword) => haystack.includes(keyword)));
+  if (matchedRule) {
+    return matchedRule.hub;
+  }
+
+  const fallbackTitle = normalizeLocationLabel(safety?.title || "");
+  if (fallbackTitle.includes("Івано-Франків")) {
+    return "Івано-Франківськ";
+  }
+  if (fallbackTitle.includes("Закарпат")) {
+    return "Мукачево";
+  }
+  if (fallbackTitle.includes("Львів")) {
+    return "Сколе";
+  }
+  if (fallbackTitle.includes("Чернів")) {
+    return "Чернівці";
+  }
+
+  return normalizeLocationLabel(trip.region) || "найближчий вокзал регіону";
+}
+
+function buildTripMeetingPointLines(trip, userService, safety) {
+  const arrivalHub = resolveArrivalHub(trip, safety);
+  const grouped = new Map();
+  let unknownCount = 0;
+
+  for (const member of trip.members || []) {
+    const profile = userService.getProfile(String(member.id), member.name || "").profile;
+    const city = normalizeLocationLabel(profile.city);
+    if (!city) {
+      unknownCount += 1;
+      continue;
+    }
+
+    const departureHub = resolveDepartureHub(city);
+    const bucket = grouped.get(departureHub) || {
+      hub: departureHub,
+      cities: new Set(),
+      count: 0
+    };
+    bucket.cities.add(city);
+    bucket.count += 1;
+    grouped.set(departureHub, bucket);
+  }
+
+  const lines = [
+    formatSectionHeader("🚆", "Точка збору"),
+    `Спільна точка прибуття: ${arrivalHub} — залізничний вокзал / автостанція`
+  ];
+
+  const groups = [...grouped.values()].sort((left, right) => right.count - left.count || left.hub.localeCompare(right.hub, "uk"));
+  for (const group of groups) {
+    const citiesLabel = [...group.cities].join(", ");
+    if (group.count > 1) {
+      lines.push(`• ${citiesLabel} (${group.count}): збір — ${group.hub} → далі разом до ${arrivalHub}`);
+    } else {
+      lines.push(`• ${citiesLabel}: самостійно до ${arrivalHub}`);
+    }
+  }
+
+  if (unknownCount > 0) {
+    lines.push(`• Без міста в профілі: ${unknownCount} учасн. — логістику уточнити вручну`);
+  }
+
+  return lines;
+}
+
 function formatTripPassport(trip, groupService, userService, userId = "") {
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
-  const foodSnapshot = groupService.getFoodSnapshot(trip.id);
-  const expenseSnapshot = groupService.getExpenseSnapshot(trip.id);
   const safety = resolveSafetyProfile(trip);
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
-  const reminderPlan = buildReminderPlan(trip);
-  const reminderState = trip.reminderState || {};
-  const reminderLines = reminderPlan.length
-    ? reminderPlan.map((item) => `• ${item.title}: ${reminderState[item.key] ? "надіслано" : "очікує"}`)
-    : ["• дати походу ще не заповнені"];
   const members = trip.members.map((member) => {
     const name = getMemberDisplayName(userService, member);
     return `• ${name} — ${member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник"}`;
   });
-  const totalTripExpenses = (expenseSnapshot.totalCost || 0) + (foodSnapshot.totalCost || 0);
   const endpoints = getRouteEndpoints(trip.routePlan);
   const routeLine = trip.routePlan
     ? (trip.routePlan.source === "vpohid" && trip.routePlan.sourceTitle
       ? trip.routePlan.sourceTitle
       : `${endpoints.from || "Старт"} -> ${endpoints.to || "Фініш"}`)
     : "не задано";
+  const safetyPhones = [...new Set((safety.general || []).flatMap((item) => item.phones || []))];
 
   return joinRichLines([
-    ...formatCardHeader("🪪 ПАСПОРТ ПОХОДУ", trip.name),
+    ...formatCardHeader("🪪 ДЕТАЛІ ПОХОДУ", trip.name),
     "",
     `Код походу: ${trip.inviteCode}`,
     `Твоя роль: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
@@ -1625,22 +1744,14 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
       ? `Готовність спорядження: ${trip.tripCard.gearReadinessStatus}`
       : `Готовність спорядження: ${gearSnapshot.readiness}`,
     "",
-    formatSectionHeader("👥", "Учасники"),
+    formatSectionHeader("👥", `Учасники (${trip.members.length})`),
     ...members,
     "",
-    formatSectionHeader("📦", "Поточний Стан"),
-    `Учасники всього: ${trip.members.length}`,
-    `Спорядження: ${gearSnapshot.sharedGear.length + gearSnapshot.personalGear.length + gearSnapshot.spareGear.length} позицій`,
-    `Запити на спорядження: ${gearSnapshot.gearNeeds.length}`,
-    `Харчування: ${foodSnapshot.items.length} позицій | ${formatMoney(foodSnapshot.totalCost)}`,
-    `Витрати: ${formatMoney(totalTripExpenses)}`,
-    "",
-    formatSectionHeader("🔔", "Нагадування"),
-    ...reminderLines,
+    ...buildTripMeetingPointLines(trip, userService, safety),
     "",
     formatSectionHeader("🆘", "Безпека"),
     `• Регіон рятувальників: ${safety.title}`,
-    `• Екстрені номери: ${safety.general.flatMap((item) => item.phones).join(" / ")}`
+    `• Екстрені номери: ${safetyPhones.join(" / ")}`
   ]);
 }
 
@@ -2477,7 +2588,7 @@ function showTripMenu(ctx, groupService) {
     : snapshot.readiness;
   const hintLines = [
     "Що де шукати:",
-    "• Паспорт походу — головна зведена картка",
+    "• Деталі походу — головна зведена картка",
     "• Маршрут походу — трек, GPX/KML і перегляд карти",
     "• Учасники походу — список, запрошення і права доступу",
     "• Спорядження / Харчування / Витрати — робочі списки походу",
@@ -9795,8 +9906,8 @@ export function createBot(store) {
   bot.hears(TRIP_PHOTOS_LABEL, (ctx) => showTripPhotosMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_ADD_LABEL, (ctx) => startTripPhotoAddWizard(ctx, groupService));
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
+  bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService));
-  bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
   bot.hears("🌦 Погода походу", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null));

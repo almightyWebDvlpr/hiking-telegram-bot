@@ -1624,18 +1624,49 @@ function formatCriticalGearFoundItems(item) {
   ];
 }
 
+function formatPersonalCriticalGearFoundItems(item) {
+  if (!item.foundItems?.length) {
+    return [];
+  }
+
+  return [
+    `• У тебе: ${item.foundItems
+      .slice(0, 5)
+      .map((found) => found.note
+        ? `${found.name} (${found.quantity}) — ${found.note}`
+        : `${found.name} (${found.quantity})`)
+      .join(", ")}`
+  ];
+}
+
 function formatCriticalGearDetailedLines(report) {
   const lines = [...formatCardHeader("📦", "КРИТИЧНЕ СПОРЯДЖЕННЯ"), ""];
   lines.push(`Учасників у поході: ${report.participantCount}`);
   lines.push("");
 
   const sections = [
-    { title: "Базово перед стартом", items: report.coreItems },
-    { title: "Додатково корисно", items: report.extendedItems }
+    {
+      icon: "🫕",
+      title: "Групове / спільне",
+      items: report.groupItems || [],
+      foundItemsFormatter: formatCriticalGearFoundItems,
+      requiredLabel: (item) => item.rule === "per_group"
+        ? `щонайменше ${item.neededQuantity} на групу`
+        : `${item.neededQuantity} на всіх учасників`,
+      coverageLabel: (item) => `• Є в поході: ${item.coveredQuantity}`
+    },
+    {
+      icon: "🎒",
+      title: "Особисте для тебе",
+      items: report.personalItems || [],
+      foundItemsFormatter: formatPersonalCriticalGearFoundItems,
+      requiredLabel: () => "1 для тебе",
+      coverageLabel: (item) => `• У тебе закрито: ${item.coveredQuantity} з ${item.neededQuantity}`
+    }
   ];
 
   for (const section of sections) {
-    lines.push(formatSectionHeader("🧭", section.title));
+    lines.push(formatSectionHeader(section.icon, section.title));
     if (!section.items.length) {
       lines.push("• немає");
       lines.push("");
@@ -1643,17 +1674,14 @@ function formatCriticalGearDetailedLines(report) {
     }
 
     section.items.forEach((item, index) => {
-      const requiredLabel = item.rule === "per_group"
-        ? `щонайменше ${item.neededQuantity} на групу`
-        : `${item.neededQuantity} (по ${Math.max(1, Number(item.required) || 1)} на кожного учасника)`;
       lines.push(`${index + 1}. ${getCriticalGearStatusIcon(item)} ${item.displayLabel} — ${getCriticalGearStatusLabel(item)}`);
-      lines.push(`• Потрібно: ${requiredLabel}`);
-      lines.push(`• Є в поході: ${item.coveredQuantity}`);
+      lines.push(`• Потрібно: ${section.requiredLabel(item)}`);
+      lines.push(section.coverageLabel(item));
       if (item.activeNeedsQuantity > 0) {
         lines.push(`• Відкриті запити: ${item.activeNeedsQuantity}`);
       }
       lines.push(`• Як рахуємо: ${item.description}`);
-      lines.push(...formatCriticalGearFoundItems(item));
+      lines.push(...section.foundItemsFormatter(item));
       lines.push("");
     });
   }
@@ -3042,7 +3070,7 @@ function showTripCriticalGear(ctx, groupService) {
     return null;
   }
 
-  const criticalReport = groupService.getCriticalGearStatus(trip.id);
+  const criticalReport = groupService.getCriticalGearStatus(trip.id, String(ctx.from.id));
   return ctx.reply(formatCriticalGearDetailedLines(criticalReport), {
     parse_mode: "HTML",
     ...getTripGearKeyboard(trip, groupService, String(ctx.from.id))

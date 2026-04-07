@@ -179,7 +179,15 @@ function getCriticalCoverageValue(rule, item = {}) {
   return quantity;
 }
 
-function aggregateCriticalFoundItems(rule, gearItems = []) {
+function getCriticalCoveragePerUnit(rule, item = {}) {
+  const quantity = Math.max(0, Number(item.quantity) || 0);
+  if (!quantity) {
+    return 0;
+  }
+  return getCriticalCoverageValue(rule, item) / quantity;
+}
+
+function aggregateCriticalFoundItems(rule, gearItems = [], sourceItems = []) {
   const found = new Map();
 
   for (const item of gearItems) {
@@ -192,6 +200,86 @@ function aggregateCriticalFoundItems(rule, gearItems = []) {
     current.quantity += Math.max(0, Number(item.quantity) || 0);
     current.coverage += getCriticalCoverageValue(rule, item);
     found.set(key, current);
+  }
+
+  for (const item of sourceItems) {
+    const key = item.name || rule.label || "позиція";
+    const current = found.get(key) || { name: key, quantity: 0, coverage: 0 };
+    const quantity = Math.max(1, Number(item.quantity) || 1);
+    current.quantity += quantity;
+    current.coverage += quantity;
+    found.set(key, current);
+  }
+
+  return [...found.values()].sort((left, right) => right.coverage - left.coverage || left.name.localeCompare(right.name, "uk"));
+}
+
+function getCriticalCoverageForMember(rule, item = {}, memberId = "") {
+  if (!memberId || !matchesCriticalGearRule(rule, item)) {
+    return 0;
+  }
+
+  const perUnitCoverage = getCriticalCoveragePerUnit(rule, item);
+  if (!perUnitCoverage) {
+    return 0;
+  }
+
+  let total = 0;
+  if (String(item.memberId) === String(memberId) && item.scope !== "shared") {
+    total += perUnitCoverage * Math.max(0, Number(item.availableQuantity ?? item.quantity) || 0);
+  }
+
+  const borrowedQuantity = Array.isArray(item.loans)
+    ? item.loans
+      .filter((loan) => String(loan.borrowerMemberId) === String(memberId))
+      .reduce((sum, loan) => sum + Math.max(0, Number(loan.quantity) || 0), 0)
+    : 0;
+
+  total += perUnitCoverage * borrowedQuantity;
+  return total;
+}
+
+function aggregateCriticalMemberFoundItems(rule, gearItems = [], memberId = "") {
+  const found = new Map();
+
+  for (const item of gearItems) {
+    if (!matchesCriticalGearRule(rule, item)) {
+      continue;
+    }
+
+    if (String(item.memberId) === String(memberId) && item.scope !== "shared") {
+      const quantity = Math.max(0, Number(item.availableQuantity ?? item.quantity) || 0);
+      if (quantity > 0) {
+        const key = `${item.name}|own`;
+        const current = found.get(key) || { name: item.name, quantity: 0, coverage: 0, note: "" };
+        current.quantity += quantity;
+        current.coverage += getCriticalCoveragePerUnit(rule, item) * quantity;
+        found.set(key, current);
+      }
+    }
+
+    const loans = Array.isArray(item.loans) ? item.loans : [];
+    for (const loan of loans) {
+      if (String(loan.borrowerMemberId) !== String(memberId)) {
+        continue;
+      }
+
+      const quantity = Math.max(0, Number(loan.quantity) || 0);
+      if (!quantity) {
+        continue;
+      }
+
+      const key = `${item.name}|borrowed|${item.memberId}`;
+      const current = found.get(key) || {
+        name: item.name,
+        quantity: 0,
+        coverage: 0,
+        note: item.memberName ? `позичено у ${item.memberName}` : "позичено"
+      };
+      current.quantity += quantity;
+      current.coverage += getCriticalCoveragePerUnit(rule, item) * quantity;
+      found.set(key, current);
+    }
   }
 
   return [...found.values()].sort((left, right) => right.coverage - left.coverage || left.name.localeCompare(right.name, "uk"));
@@ -1277,7 +1365,7 @@ export class GroupService {
     };
   }
 
-  getCriticalGearStatus(groupId) {
+  getCriticalGearStatus(groupId, memberId = "") {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);
 
@@ -1288,6 +1376,11 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     const participantCount = Math.max(1, preparedGroup.members.length || 0);
     const gearItems = preparedGroup.gear.map((item) => enrichTripGearItem(item));
+    const foodItems = preparedGroup.food.map((item) => ({
+      ...item,
+      name: canonicalizeGearName(item.name || ""),
+      quantity: Math.max(1, Number(item.quantity) || 1)
+    }));
     const activeNeeds = preparedGroup.gearNeeds
       .map((item) => normalizeGearNeed(item))
       .filter((item) => isActiveGearNeedStatus(item.status));
@@ -1297,7 +1390,9 @@ export class GroupService {
         ? participantCount * Math.max(1, Number(rule.required) || 1)
         : Math.max(1, Number(rule.required) || 1);
       const matchingGear = gearItems.filter((item) => matchesCriticalGearRule(rule, item));
-      const coveredQuantity = matchingGear.reduce((sum, item) => sum + getCriticalCoverageValue(rule, item), 0);
+      const matchingFood = rule.dataSource === "food" ? foodItems : [];
+      const coveredQuantity = matchingGear.reduce((sum, item) => sum + getCriticalCoverageValue(rule, item), 0)
+        + matchingFood.reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0);
       const matchingNeeds = activeNeeds.filter((item) => matchesCriticalGearRule(rule, item));
       const activeNeedsQuantity = matchingNeeds.reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0);
       const missingQuantity = Math.max(0, neededQuantity - coveredQuantity);
@@ -1317,23 +1412,61 @@ export class GroupService {
         missingQuantity,
         statusKey,
         matchingGearCount: matchingGear.length,
+        matchingFoodCount: matchingFood.length,
         activeNeedsQuantity,
         activeNeedsCount: matchingNeeds.length,
         matchingNeeds,
-        foundItems: aggregateCriticalFoundItems(rule, matchingGear)
+        foundItems: aggregateCriticalFoundItems(rule, matchingGear, matchingFood)
       };
     });
 
     const coreItems = items.filter((item) => item.tier === "core");
     const extendedItems = items.filter((item) => item.tier !== "core");
+    const groupItems = items.filter((item) => item.section === "group");
+    const personalTemplateItems = items.filter((item) => item.section === "personal");
     const unresolvedCoreItems = coreItems.filter((item) => item.statusKey !== "ready");
     const unresolvedItems = items.filter((item) => item.statusKey !== "ready");
+    const personalItems = memberId
+      ? personalTemplateItems.map((item) => {
+        const matchingNeeds = activeNeeds.filter(
+          (need) => String(need.memberId) === String(memberId) && matchesCriticalGearRule(item, need)
+        );
+        const activeNeedsQuantity = matchingNeeds.reduce((sum, need) => sum + Math.max(1, Number(need.quantity) || 1), 0);
+        const neededQuantity = Math.max(1, Number(item.required) || 1);
+        const coveredQuantity = gearItems.reduce(
+          (sum, gearItem) => sum + getCriticalCoverageForMember(item, gearItem, memberId),
+          0
+        );
+        const statusKey = coveredQuantity >= neededQuantity
+          ? "ready"
+          : coveredQuantity > 0
+            ? "partial"
+            : activeNeedsQuantity > 0
+              ? "requested"
+              : "missing";
+
+        return {
+          ...item,
+          participantCount: 1,
+          neededQuantity,
+          coveredQuantity,
+          missingQuantity: Math.max(0, neededQuantity - coveredQuantity),
+          statusKey,
+          activeNeedsQuantity,
+          activeNeedsCount: matchingNeeds.length,
+          matchingNeeds,
+          foundItems: aggregateCriticalMemberFoundItems(item, gearItems, memberId)
+        };
+      })
+      : [];
 
     return {
       participantCount,
       items,
       coreItems,
       extendedItems,
+      groupItems,
+      personalItems,
       unresolvedCoreItems,
       unresolvedItems,
       summary: {

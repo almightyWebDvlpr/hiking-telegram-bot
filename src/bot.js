@@ -1598,7 +1598,7 @@ function formatReminderPlan(trip) {
   const lines = [...formatCardHeader("🔔 НАГАДУВАННЯ", trip.name), ""];
 
   if (meetingPoint || meetingDateTime) {
-    lines.push("🚆 Логістика збору");
+    lines.push("🚆 Що бот також нагадає учасникам про збір");
     if (meetingPoint) {
       lines.push(`• Точка збору: ${meetingPoint}`);
     }
@@ -1618,6 +1618,9 @@ function formatReminderPlan(trip) {
   }
 
   lines.push("⚠️ Нагадування бот надсилає учасникам автоматично.");
+  if (meetingPoint || meetingDateTime) {
+    lines.push("• якщо точку збору вже задано, бот також додасть її в автоматичні повідомлення");
+  }
   return joinRichLines(lines);
 }
 

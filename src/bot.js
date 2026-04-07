@@ -358,9 +358,15 @@ function getHelpSectionKeyboard() {
 function getProfileKeyboard() {
   return buildKeyboard([
     [PROFILE_DASHBOARD_LABEL, PROFILE_AWARDS_LABEL],
-    [PROFILE_ABOUT_LABEL, PROFILE_MEDICAL_LABEL],
-    [PROFILE_EDIT_LABEL, "🎒 Моє спорядження"],
+    [PROFILE_ABOUT_LABEL, "🎒 Моє спорядження"],
     ["⬅️ Головне меню"]
+  ]);
+}
+
+function getProfileAboutKeyboard() {
+  return buildKeyboard([
+    [PROFILE_EDIT_LABEL, PROFILE_MEDICAL_LABEL],
+    [PROFILE_BACK_LABEL, "⬅️ Головне меню"]
   ]);
 }
 
@@ -4839,7 +4845,7 @@ function showProfileAbout(ctx, userService) {
   setMenuContext(ctx.from?.id, "profile");
   return ctx.reply(
     formatProfileAbout(userService, String(ctx.from.id), getUserLabel(ctx)),
-    { parse_mode: "HTML", ...getProfileKeyboard() }
+    { parse_mode: "HTML", ...getProfileAboutKeyboard() }
   );
 }
 

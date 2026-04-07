@@ -1544,6 +1544,7 @@ function formatTripCard(trip, gearSnapshot) {
   const readiness = tripCard.gearReadinessStatus || gearSnapshot.readiness;
   const missingCount = gearSnapshot.gearNeeds.length;
   const totalGear = gearSnapshot.sharedGear.length + gearSnapshot.personalGear.length;
+  const meetingDateTime = formatTripMeetingDateTime(tripCard);
   return joinRichLines([
       ...formatCardHeader("🗂 ДАНІ ПОХОДУ", trip.name),
     "",
@@ -1551,7 +1552,7 @@ function formatTripCard(trip, gearSnapshot) {
     `Ночівлі: ${tripCard.nights}`,
     `Статус готовності спорядження: ${readiness}`,
     tripCard.meetingPoint ? `Точка збору: ${tripCard.meetingPoint}` : null,
-    tripCard.meetingTime ? `Час збору: ${tripCard.meetingTime}` : null,
+    meetingDateTime ? `Дата та Час збору: ${meetingDateTime}` : null,
     `Додано спорядження: ${totalGear}`,
     `Активних запитів: ${missingCount}`
   ].filter(Boolean));
@@ -1744,6 +1745,17 @@ function buildTripMeetingTimePrompt(currentValue = "") {
   ].filter(Boolean).join("\n");
 }
 
+function formatTripMeetingDateTime(tripCard = {}) {
+  const startDate = String(tripCard?.startDate || "").trim();
+  const meetingTime = String(tripCard?.meetingTime || "").trim();
+
+  if (startDate && meetingTime) {
+    return `${startDate} ${meetingTime}`;
+  }
+
+  return meetingTime || "";
+}
+
 function buildTripNamePrompt(currentValue = "") {
   return [
     "Введи назву походу.",
@@ -1811,6 +1823,7 @@ function buildTripMeetingPointLines(trip, userService, safety) {
   const arrivalDetails = getHubDetails(arrivalHub);
   const manualMeetingPoint = normalizeLocationLabel(tripCard.meetingPoint || "");
   const manualMeetingTime = normalizeLocationLabel(tripCard.meetingTime || "");
+  const manualMeetingDateTime = formatTripMeetingDateTime(tripCard);
   const manualMeetingCity = extractMeetingPointCity(manualMeetingPoint);
   const manualMeetingRegion = manualMeetingCity
     ? getHubDetails(resolveDepartureHub(manualMeetingCity)).region
@@ -1845,8 +1858,8 @@ function buildTripMeetingPointLines(trip, userService, safety) {
 
   if (manualMeetingPoint) {
     lines.push(`Точка збору: ${manualMeetingPoint}`);
-    if (manualMeetingTime) {
-      lines.push(`Час збору: ${manualMeetingTime}`);
+    if (manualMeetingDateTime) {
+      lines.push(`Дата та Час збору: ${manualMeetingDateTime}`);
     }
   } else {
     lines.push(`Спільна точка прибуття: ${arrivalDetails.station}`);
@@ -5684,7 +5697,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         `• Ночівлі: ${flow.data.nights}`,
         `• Готовність спорядження: ${flow.data.gearReadinessStatus}`,
         `• Точка збору: ${flow.data.meetingPoint || "автоматично за логікою бота"}`,
-        `• Час збору: ${flow.data.meetingTime || "ще не задано"}`
+        `• Дата та Час збору: ${formatTripMeetingDateTime({ startDate: flow.data.startDate, meetingTime: flow.data.meetingTime }) || "ще не задано"}`
       ].join("\n"),
       FLOW_CONFIRM_CARD_KEYBOARD
     );

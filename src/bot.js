@@ -1545,9 +1545,11 @@ function formatTripCard(trip, gearSnapshot) {
     `Дати: ${tripCard.startDate} -> ${tripCard.endDate}`,
     `Ночівлі: ${tripCard.nights}`,
     `Статус готовності спорядження: ${readiness}`,
+    tripCard.meetingPoint ? `Точка збору: ${tripCard.meetingPoint}` : null,
+    tripCard.meetingTime ? `Час збору: ${tripCard.meetingTime}` : null,
     `Додано спорядження: ${totalGear}`,
     `Активних запитів: ${missingCount}`
-  ]);
+  ].filter(Boolean));
 }
 
 function buildReminderPlan(trip) {
@@ -1638,6 +1640,105 @@ const ARRIVAL_HUB_RULES = [
   { hub: "Чернівці", keywords: ["путиля", "селятин", "буковина", "чернівці"] }
 ];
 
+const HUB_DETAILS = {
+  "Київ": {
+    region: "Київської області",
+    station: "Київ — Центральний залізничний вокзал / автостанція"
+  },
+  "Львів": {
+    region: "Львівської області",
+    station: "Львів — головний залізничний вокзал / автостанція"
+  },
+  "Івано-Франківськ": {
+    region: "Івано-Франківської області",
+    station: "Івано-Франківськ — залізничний вокзал / автостанція"
+  },
+  "Ворохта": {
+    region: "Івано-Франківської області",
+    station: "Ворохта — залізнична станція / автостанція"
+  },
+  "Воловець": {
+    region: "Закарпатської області",
+    station: "Воловець — залізнична станція / автостанція"
+  },
+  "Мукачево": {
+    region: "Закарпатської області",
+    station: "Мукачево — залізничний вокзал / автостанція"
+  },
+  "Ясіня": {
+    region: "Закарпатської області",
+    station: "Ясіня — залізнична станція / автостанція"
+  },
+  "Сколе": {
+    region: "Львівської області",
+    station: "Сколе — залізнична станція / автостанція"
+  },
+  "Чернівці": {
+    region: "Чернівецької області",
+    station: "Чернівці — залізничний вокзал / автостанція"
+  }
+};
+
+function getHubDetails(hub) {
+  return HUB_DETAILS[hub] || {
+    region: "",
+    station: `${hub} — залізничний вокзал / автостанція`
+  };
+}
+
+function formatParticipantCountLabel(count) {
+  const map = {
+    1: "Один учасник",
+    2: "Два учасники",
+    3: "Три учасники",
+    4: "Чотири учасники"
+  };
+
+  return map[count] || `${count} учасників`;
+}
+
+function formatOriginLabel(cities, region) {
+  const normalizedCities = [...new Set((cities || []).filter(Boolean))];
+
+  if (!normalizedCities.length) {
+    return "без вказаного міста";
+  }
+
+  if (normalizedCities.length === 1) {
+    return `з м. ${normalizedCities[0]}${region ? `, ${region}` : ""}`;
+  }
+
+  return `з міст ${normalizedCities.map((item) => `м. ${item}`).join(", ")}${region ? `, ${region}` : ""}`;
+}
+
+function extractMeetingPointCity(meetingPoint = "") {
+  return normalizeLocationLabel(String(meetingPoint || "").split(/[,—–-]/)[0] || "");
+}
+
+function isValidMeetingTime(value = "") {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(value || "").trim());
+}
+
+function buildTripMeetingPointPrompt(currentValue = "") {
+  return [
+    "Введи точку збору.",
+    currentValue ? `Поточне значення: ${currentValue}` : null,
+    "Приклад: `Івано-Франківськ, залізничний вокзал`",
+    "",
+    "Можна натиснути `⏭ Пропустити`, тоді бот використає автоматичну логіку."
+  ].filter(Boolean).join("\n");
+}
+
+function buildTripMeetingTimePrompt(currentValue = "") {
+  return [
+    "Введи час збору у форматі HH:MM.",
+    currentValue ? `Поточне значення: ${currentValue}` : null,
+    "Приклад: `07:30`",
+    "",
+    "Можна натиснути `⏭ Пропустити`, якщо час ще не визначено."
+  ].filter(Boolean).join("\n");
+}
+
 function resolveDepartureHub(city) {
   const normalizedCity = normalizeLocationKey(city);
   if (!normalizedCity) {
@@ -1680,7 +1781,15 @@ function resolveArrivalHub(trip, safety) {
 }
 
 function buildTripMeetingPointLines(trip, userService, safety) {
+  const tripCard = trip.tripCard || {};
   const arrivalHub = resolveArrivalHub(trip, safety);
+  const arrivalDetails = getHubDetails(arrivalHub);
+  const manualMeetingPoint = normalizeLocationLabel(tripCard.meetingPoint || "");
+  const manualMeetingTime = normalizeLocationLabel(tripCard.meetingTime || "");
+  const manualMeetingCity = extractMeetingPointCity(manualMeetingPoint);
+  const manualMeetingRegion = manualMeetingCity
+    ? getHubDetails(resolveDepartureHub(manualMeetingCity)).region
+    : "";
   const grouped = new Map();
   let unknownCount = 0;
 
@@ -1693,8 +1802,10 @@ function buildTripMeetingPointLines(trip, userService, safety) {
     }
 
     const departureHub = resolveDepartureHub(city);
+    const departureDetails = getHubDetails(departureHub);
     const bucket = grouped.get(departureHub) || {
       hub: departureHub,
+      region: departureDetails.region,
       cities: new Set(),
       count: 0
     };
@@ -1704,22 +1815,55 @@ function buildTripMeetingPointLines(trip, userService, safety) {
   }
 
   const lines = [
-    formatSectionHeader("🚆", "Точка збору"),
-    `Спільна точка прибуття: ${arrivalHub} — залізничний вокзал / автостанція`
+    formatSectionHeader("🚆", "Точка збору")
   ];
+
+  if (manualMeetingPoint) {
+    lines.push(`Точка збору: ${manualMeetingPoint}`);
+    if (manualMeetingTime) {
+      lines.push(`Час збору: ${manualMeetingTime}`);
+    }
+  } else {
+    lines.push(`Спільна точка прибуття: ${arrivalDetails.station}`);
+  }
 
   const groups = [...grouped.values()].sort((left, right) => right.count - left.count || left.hub.localeCompare(right.hub, "uk"));
   for (const group of groups) {
-    const citiesLabel = [...group.cities].join(", ");
-    if (group.count > 1) {
-      lines.push(`• ${citiesLabel} (${group.count}): збір — ${group.hub} → далі разом до ${arrivalHub}`);
+    const groupCities = [...group.cities];
+    const originLabel = formatOriginLabel([...group.cities], group.region);
+    const countLabel = formatParticipantCountLabel(group.count);
+    const groupContainsManualMeetingCity = manualMeetingCity
+      ? groupCities.some((city) => normalizeLocationKey(city) === normalizeLocationKey(manualMeetingCity))
+      : false;
+    const groupContainsArrivalCity = groupCities.some((city) => normalizeLocationKey(city) === normalizeLocationKey(arrivalHub));
+
+    if (manualMeetingPoint) {
+      if (groupContainsManualMeetingCity) {
+        lines.push(`• ${countLabel} ${originLabel}: збір на вокзалі вашого міста.`);
+      } else if (manualMeetingCity && group.region && manualMeetingRegion && group.region === manualMeetingRegion) {
+        lines.push(`• ${countLabel} ${originLabel}: прямуйте до точки збору — ${manualMeetingPoint}.`);
+      } else if (normalizeLocationKey(group.hub) === normalizeLocationKey(arrivalHub)) {
+        lines.push(`• ${countLabel} ${originLabel}: збір у ${group.hub}, далі прямуйте до точки збору — ${manualMeetingPoint}.`);
+      } else if (group.count > 1) {
+        lines.push(`• ${countLabel} ${originLabel}: збір у ${group.hub}, далі разом до точки збору — ${manualMeetingPoint}.`);
+      } else {
+        lines.push(`• ${countLabel} ${originLabel}: самостійно прямує до точки збору — ${manualMeetingPoint}.`);
+      }
     } else {
-      lines.push(`• ${citiesLabel}: самостійно до ${arrivalHub}`);
+      if (groupContainsArrivalCity) {
+        lines.push(`• ${countLabel} ${originLabel}: збір на вокзалі вашого міста, далі разом до старту походу.`);
+      } else if (group.region && arrivalDetails.region && group.region === arrivalDetails.region) {
+        lines.push(`• ${countLabel} ${originLabel}: прямуйте до спільної точки прибуття — ${arrivalDetails.station}.`);
+      } else if (group.count > 1) {
+        lines.push(`• ${countLabel} ${originLabel}: збір у ${group.hub}, далі разом до ${arrivalHub}.`);
+      } else {
+        lines.push(`• ${countLabel} ${originLabel}: самостійно прибуває до ${arrivalHub}.`);
+      }
     }
   }
 
   if (unknownCount > 0) {
-    lines.push(`• Без міста в профілі: ${unknownCount} учасн. — логістику уточнити вручну`);
+    lines.push(`• ${unknownCount} учасн. без міста в профілі — логістику потрібно уточнити вручну.`);
   }
 
   return lines;
@@ -5341,6 +5485,40 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
     }
 
     flow.data.gearReadinessStatus = normalized;
+    flow.step = "meetingPoint";
+    setFlow(String(ctx.from.id), flow);
+
+    return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "meetingPoint") {
+    if (message !== PROFILE_SKIP_LABEL) {
+      flow.data.meetingPoint = message;
+    }
+
+    flow.step = "meetingTime";
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(buildTripMeetingTimePrompt(flow.data.meetingTime), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "meetingTime") {
+    if (message !== PROFILE_SKIP_LABEL) {
+      if (!isValidMeetingTime(message)) {
+        return ctx.reply("Введи час у форматі HH:MM.\nПриклад: `07:30`", {
+          parse_mode: "Markdown",
+          ...getProfileEditKeyboard()
+        });
+      }
+
+      flow.data.meetingTime = message;
+    }
+
     flow.step = "confirm";
     setFlow(String(ctx.from.id), flow);
 
@@ -5350,7 +5528,9 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         `• Назва: ${flow.data.name}`,
         `• Дати: ${flow.data.startDate} -> ${flow.data.endDate}`,
         `• Ночівлі: ${flow.data.nights}`,
-        `• Готовність спорядження: ${flow.data.gearReadinessStatus}`
+        `• Готовність спорядження: ${flow.data.gearReadinessStatus}`,
+        `• Точка збору: ${flow.data.meetingPoint || "автоматично за логікою бота"}`,
+        `• Час збору: ${flow.data.meetingTime || "ще не задано"}`
       ].join("\n"),
       FLOW_CONFIRM_CARD_KEYBOARD
     );
@@ -5372,7 +5552,9 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         startDate: flow.data.startDate,
         endDate: flow.data.endDate,
         nights: flow.data.nights,
-        gearReadinessStatus: flow.data.gearReadinessStatus
+        gearReadinessStatus: flow.data.gearReadinessStatus,
+        meetingPoint: flow.data.meetingPoint || "",
+        meetingTime: flow.data.meetingTime || ""
       }
     });
     const snapshot = groupService.getGearSnapshot(updatedTrip.id);

@@ -8432,7 +8432,7 @@ async function handleTripMemberListFlow(ctx, flow, groupService, userService) {
     return null;
   }
 
-  if (message === TRIP_MEMBERS_BACK_LABEL) {
+  if (message === TRIP_MEMBERS_BACK_LABEL || message === TRIP_DETAILS_BACK_LABEL) {
     clearFlow(String(ctx.from.id));
     return showTripMembersMenu(ctx, groupService, userService);
   }
@@ -10277,6 +10277,11 @@ export function createBot(store) {
   bot.hears("📋 Список учасників", (ctx) => showTripMembers(ctx, groupService, userService));
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
   bot.hears(TRIP_DETAILS_BACK_LABEL, (ctx) => {
+    const activeFlow = getFlow(String(ctx.from?.id));
+    if (activeFlow?.type === "trip_member_list") {
+      clearFlow(String(ctx.from.id));
+      return showTripMembersMenu(ctx, groupService, userService);
+    }
     if (getMenuContext(ctx.from?.id) === "trip_details") {
       return showTripMenu(ctx, groupService);
     }

@@ -1643,8 +1643,11 @@ function formatCriticalGearDetailedLines(report) {
     }
 
     section.items.forEach((item, index) => {
+      const requiredLabel = item.rule === "per_group"
+        ? `щонайменше ${item.neededQuantity} на групу`
+        : `${item.neededQuantity} (по ${Math.max(1, Number(item.required) || 1)} на кожного учасника)`;
       lines.push(`${index + 1}. ${getCriticalGearStatusIcon(item)} ${item.displayLabel} — ${getCriticalGearStatusLabel(item)}`);
-      lines.push(`• Потрібно: ${item.neededQuantity}${item.rule === "per_group" ? " на групу" : " на всіх учасників"}`);
+      lines.push(`• Потрібно: ${requiredLabel}`);
       lines.push(`• Є в поході: ${item.coveredQuantity}`);
       if (item.activeNeedsQuantity > 0) {
         lines.push(`• Відкриті запити: ${item.activeNeedsQuantity}`);

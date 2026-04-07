@@ -43,7 +43,7 @@ const PROFILE_MEDICAL_LABEL = "🩺 Медична картка";
 const PROFILE_EDIT_LABEL = "✏️ Редагувати профіль";
 const PROFILE_BACK_LABEL = "⬅️ До профілю";
 const PROFILE_SKIP_LABEL = "⏭ Пропустити";
-const TRIP_MEMBERS_BACK_LABEL = "⬅️ До учасників";
+const TRIP_MEMBERS_BACK_LABEL = "⬅️ Назад";
 const TRIP_HISTORY_BACK_LABEL = "⬅️ До історії";
 const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
@@ -5621,12 +5621,12 @@ async function handleJoinTripFlow(ctx, flow, groupService, userService, telegram
   return ctx.reply(`✅ Ти приєднався до походу "${result.group.name}".`, getTripKeyboard(result.group, String(ctx.from.id)));
 }
 
-async function handleGrantAccessFlow(ctx, flow, groupService) {
+async function handleGrantAccessFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Надання прав скасовано.", getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
+    return showTripMembersMenu(ctx, groupService, userService);
   }
 
   const index = Number(message);
@@ -8531,7 +8531,7 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "grant_access") {
-    await handleGrantAccessFlow(ctx, flow, groupService);
+    await handleGrantAccessFlow(ctx, flow, groupService, userService);
     return true;
   }
 

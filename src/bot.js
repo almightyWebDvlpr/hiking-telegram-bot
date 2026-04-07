@@ -1745,15 +1745,28 @@ function buildTripMeetingTimePrompt(currentValue = "") {
   ].filter(Boolean).join("\n");
 }
 
+function buildTripMeetingDatePrompt(currentValue = "") {
+  return [
+    "Введи дату збору у форматі YYYY-MM-DD.",
+    currentValue ? `Поточне значення: ${currentValue}` : null,
+    "Приклад: `2026-07-14`",
+    "",
+    "Можна натиснути `⏭ Пропустити`, якщо дату ще не визначено."
+  ].filter(Boolean).join("\n");
+}
+
 function formatTripMeetingDateTime(tripCard = {}) {
+  const meetingDate = String(tripCard?.meetingDate || "").trim();
   const startDate = String(tripCard?.startDate || "").trim();
   const meetingTime = String(tripCard?.meetingTime || "").trim();
+  const hasExplicitMeetingDate = Object.prototype.hasOwnProperty.call(tripCard || {}, "meetingDate");
+  const effectiveDate = hasExplicitMeetingDate ? meetingDate : (meetingDate || startDate);
 
-  if (startDate && meetingTime) {
-    return `${startDate} ${meetingTime}`;
+  if (effectiveDate && meetingTime) {
+    return `${effectiveDate} ${meetingTime}`;
   }
 
-  return meetingTime || "";
+  return effectiveDate || meetingTime || "";
 }
 
 function buildTripNamePrompt(currentValue = "") {
@@ -1822,7 +1835,6 @@ function buildTripMeetingPointLines(trip, userService, safety) {
   const arrivalHub = resolveArrivalHub(trip, safety);
   const arrivalDetails = getHubDetails(arrivalHub);
   const manualMeetingPoint = normalizeLocationLabel(tripCard.meetingPoint || "");
-  const manualMeetingTime = normalizeLocationLabel(tripCard.meetingTime || "");
   const manualMeetingDateTime = formatTripMeetingDateTime(tripCard);
   const manualMeetingCity = extractMeetingPointCity(manualMeetingPoint);
   const manualMeetingRegion = manualMeetingCity
@@ -3855,6 +3867,7 @@ function handleTripDataAction(ctx, groupService) {
     step: "name",
     data: {
       name: trip.name,
+      meetingDate: trip.tripCard?.meetingDate || trip.tripCard?.startDate || "",
       ...(trip.tripCard || {})
     }
   });
@@ -5229,7 +5242,10 @@ function startTripCardWizardForTrip(ctx, tripId, initialData = {}) {
     type: "trip_card",
     tripId,
     step: "name",
-    data: { ...initialData }
+    data: {
+      meetingDate: initialData.meetingDate || initialData.startDate || "",
+      ...initialData
+    }
   });
 
   return ctx.reply(buildTripNamePrompt(initialData.name), {
@@ -5512,10 +5528,19 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
       );
     }
 
-    if (flow.step === "meetingTime") {
+    if (flow.step === "meetingDate") {
       flow.step = "meetingPoint";
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
+        parse_mode: "Markdown",
+        ...getProfileEditKeyboard()
+      });
+    }
+
+    if (flow.step === "meetingTime") {
+      flow.step = "meetingDate";
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(buildTripMeetingDatePrompt(flow.data.meetingDate), {
         parse_mode: "Markdown",
         ...getProfileEditKeyboard()
       });
@@ -5666,6 +5691,26 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
       flow.data.meetingPoint = message;
     }
 
+    flow.step = "meetingDate";
+    setFlow(String(ctx.from.id), flow);
+    return ctx.reply(buildTripMeetingDatePrompt(flow.data.meetingDate), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "meetingDate") {
+    if (message !== PROFILE_SKIP_LABEL) {
+      if (!isValidDate(message)) {
+        return ctx.reply(buildTripMeetingDatePrompt(flow.data.meetingDate), {
+          parse_mode: "Markdown",
+          ...getProfileEditKeyboard()
+        });
+      }
+
+      flow.data.meetingDate = message;
+    }
+
     flow.step = "meetingTime";
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(buildTripMeetingTimePrompt(flow.data.meetingTime), {
@@ -5697,7 +5742,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         `• Ночівлі: ${flow.data.nights}`,
         `• Готовність спорядження: ${flow.data.gearReadinessStatus}`,
         `• Точка збору: ${flow.data.meetingPoint || "автоматично за логікою бота"}`,
-        `• Дата та Час збору: ${formatTripMeetingDateTime({ startDate: flow.data.startDate, meetingTime: flow.data.meetingTime }) || "ще не задано"}`
+        `• Дата та Час збору: ${formatTripMeetingDateTime({ meetingDate: flow.data.meetingDate, meetingTime: flow.data.meetingTime }) || "ще не задано"}`
       ].join("\n"),
       FLOW_CONFIRM_CARD_KEYBOARD
     );
@@ -5721,6 +5766,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         nights: flow.data.nights,
         gearReadinessStatus: flow.data.gearReadinessStatus,
         meetingPoint: flow.data.meetingPoint || "",
+        meetingDate: flow.data.meetingDate || "",
         meetingTime: flow.data.meetingTime || ""
       }
     });

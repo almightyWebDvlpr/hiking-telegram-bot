@@ -1,6 +1,7 @@
 export const CRITICAL_GEAR_CATALOG = [
   {
     key: "tent",
+    section: "group",
     tier: "core",
     label: "Намет",
     displayLabel: "Намети",
@@ -13,6 +14,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "sleeping_bag",
+    section: "personal",
     tier: "core",
     label: "Спальний мішок",
     displayLabel: "Спальні мішки",
@@ -25,6 +27,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "stove",
+    section: "group",
     tier: "core",
     label: "Пальник",
     displayLabel: "Пальник",
@@ -38,6 +41,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "first_aid",
+    section: "group",
     tier: "core",
     label: "Аптечка",
     displayLabel: "Аптечка",
@@ -51,6 +55,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "rain_protection",
+    section: "personal",
     tier: "core",
     label: "Дощовик",
     displayLabel: "Дощовики",
@@ -63,6 +68,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "sleeping_pad",
+    section: "personal",
     tier: "extended",
     label: "Спальний килимок",
     displayLabel: "Спальні килимки",
@@ -75,6 +81,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "headlamp",
+    section: "personal",
     tier: "extended",
     label: "Налобний ліхтар",
     displayLabel: "Налобні ліхтарі",
@@ -87,6 +94,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "powerbank",
+    section: "personal",
     tier: "extended",
     label: "Павербанк",
     displayLabel: "Павербанки",
@@ -99,6 +107,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "water_filter",
+    section: "group",
     tier: "extended",
     label: "Фільтр для води",
     displayLabel: "Фільтр для води",
@@ -112,6 +121,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "navigation",
+    section: "group",
     tier: "extended",
     label: "Навігація",
     displayLabel: "Навігація",
@@ -125,6 +135,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "water_container",
+    section: "personal",
     tier: "extended",
     label: "Ємність для води",
     displayLabel: "Ємності для води",
@@ -137,6 +148,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "backpack",
+    section: "personal",
     tier: "extended",
     label: "Рюкзак",
     displayLabel: "Рюкзаки",
@@ -149,6 +161,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "dry_storage",
+    section: "personal",
     tier: "extended",
     label: "Гермозахист",
     displayLabel: "Гермозахист",
@@ -161,6 +174,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "footwear",
+    section: "personal",
     tier: "extended",
     label: "Ходове взуття",
     displayLabel: "Ходове взуття",
@@ -173,6 +187,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "warm_layer",
+    section: "personal",
     tier: "extended",
     label: "Теплий шар",
     displayLabel: "Теплий шар",
@@ -185,6 +200,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "trekking_poles",
+    section: "personal",
     tier: "extended",
     label: "Трекінгові палиці",
     displayLabel: "Трекінгові палиці",
@@ -197,6 +213,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "knife_tool",
+    section: "group",
     tier: "extended",
     label: "Ніж / мультитул",
     displayLabel: "Ніж / мультитул",
@@ -210,6 +227,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "fire_starter",
+    section: "group",
     tier: "extended",
     label: "Розпалювання",
     displayLabel: "Розпалювання",
@@ -223,6 +241,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "stove_fuel",
+    section: "group",
     tier: "extended",
     label: "Пальне / газ",
     displayLabel: "Пальне / газ",
@@ -236,6 +255,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "cookware",
+    section: "group",
     tier: "extended",
     label: "Казанок / посуд",
     displayLabel: "Казанок / посуд",
@@ -249,6 +269,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "communication",
+    section: "group",
     tier: "extended",
     label: "Зв'язок / маяк",
     displayLabel: "Зв'язок / маяк",
@@ -262,6 +283,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "repair_kit",
+    section: "group",
     tier: "extended",
     label: "Ремнабір",
     displayLabel: "Ремнабір",
@@ -275,6 +297,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "sun_protection",
+    section: "personal",
     tier: "extended",
     label: "Сонцезахист",
     displayLabel: "Сонцезахист",
@@ -287,6 +310,7 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "spare_socks",
+    section: "personal",
     tier: "extended",
     label: "Запасні шкарпетки",
     displayLabel: "Запасні шкарпетки",
@@ -299,19 +323,20 @@ export const CRITICAL_GEAR_CATALOG = [
   },
   {
     key: "repellent",
+    section: "personal",
     tier: "extended",
     label: "Репелент",
     displayLabel: "Репелент",
     missingLabel: "відсутній",
-    rule: "per_group",
-    required: 1,
+    rule: "per_person",
     coverageMode: "quantity",
-    description: "хоча б один засіб від комах або кліщів на групу",
+    description: "по одному засобу від комах або кліщів на кожного учасника",
     canonicalNames: ["Репелент"],
     profileKeys: []
   },
   {
     key: "emergency_kit",
+    section: "group",
     tier: "extended",
     label: "Аварійний комплект",
     displayLabel: "Аварійний комплект",
@@ -322,5 +347,48 @@ export const CRITICAL_GEAR_CATALOG = [
     description: "хоча б один аварійний комплект: термоковдра, аварійний біві або survival kit",
     canonicalNames: ["Аварійне покривало"],
     profileKeys: ["emergency_kit"]
+  },
+  {
+    key: "food",
+    section: "group",
+    tier: "core",
+    label: "Харчування",
+    displayLabel: "Харчування",
+    missingLabel: "відсутнє",
+    rule: "per_group",
+    required: 1,
+    coverageMode: "food_items",
+    description: "у поході має бути хоча б базовий набір продуктів або вже розподілене харчування",
+    canonicalNames: [],
+    profileKeys: [],
+    dataSource: "food"
+  },
+  {
+    key: "camp_tools",
+    section: "group",
+    tier: "extended",
+    label: "Табірні інструменти",
+    displayLabel: "Табірні інструменти",
+    missingLabel: "відсутні",
+    rule: "per_group",
+    required: 1,
+    coverageMode: "quantity",
+    description: "на групу бажано мати хоча б один табірний інструмент: пилку, сокиру або робочий мультитул",
+    canonicalNames: ["Пилка", "Сокира", "Ніж", "Мультитул"],
+    profileKeys: ["knife", "saw", "axe"]
+  },
+  {
+    key: "personal_hygiene",
+    section: "personal",
+    tier: "extended",
+    label: "Особиста гігієна",
+    displayLabel: "Особиста гігієна",
+    missingLabel: "відсутня",
+    rule: "per_person",
+    coverageMode: "quantity",
+    description: "у кожного має бути базовий особистий набір гігієни",
+    canonicalNames: ["Зубна щітка", "Зубна паста", "Мило", "Вологі серветки", "Туалетний папір", "Антисептик для рук"],
+    profileKeys: ["hygiene"],
+    categoryKeys: ["hygiene"]
   }
 ];

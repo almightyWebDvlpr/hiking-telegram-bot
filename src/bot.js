@@ -2929,11 +2929,12 @@ function showTripMembers(ctx, groupService, userService) {
 
   for (const member of trip.members) {
     const baseLabel = getMemberDisplayName(userService, member);
+    const roleSuffix = member.role === "owner" ? " (Організатор)" : "";
     const count = (labelCounts.get(baseLabel) || 0) + 1;
     labelCounts.set(baseLabel, count);
     items.push({
       id: member.id,
-      label: count > 1 ? `${baseLabel} (${count})` : baseLabel
+      label: count > 1 ? `${baseLabel}${roleSuffix} (${count})` : `${baseLabel}${roleSuffix}`
     });
   }
 

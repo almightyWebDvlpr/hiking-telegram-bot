@@ -10320,6 +10320,10 @@ export function createBot(store) {
       return showTripMembersMenu(ctx, groupService, userService);
     }
 
+    if (activeFlow?.type === "grant_access") {
+      return showTripMembersMenu(ctx, groupService, userService);
+    }
+
     if (activeFlow?.type === "vpohid_search") {
       const mode = getVpohidFlowMode(activeFlow);
       if (mode === "trip") {

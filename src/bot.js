@@ -1761,9 +1761,23 @@ function formatTripMeetingDateTime(tripCard = {}) {
   const meetingTime = String(tripCard?.meetingTime || "").trim();
   const hasExplicitMeetingDate = Object.prototype.hasOwnProperty.call(tripCard || {}, "meetingDate");
   const effectiveDate = hasExplicitMeetingDate ? meetingDate : (meetingDate || startDate);
+  const timeMatch = meetingTime.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+
+  if (effectiveDate && timeMatch) {
+    const hour = Number(timeMatch[1]);
+    const dayPeriod = hour >= 5 && hour < 12
+      ? "ранку"
+      : hour >= 12 && hour < 17
+        ? "дня"
+        : hour >= 17 && hour < 23
+          ? "вечора"
+          : "ночі";
+
+    return `${effectiveDate} о ${meetingTime} ${dayPeriod}`;
+  }
 
   if (effectiveDate && meetingTime) {
-    return `${effectiveDate} ${meetingTime}`;
+    return `${effectiveDate} о ${meetingTime}`;
   }
 
   return effectiveDate || meetingTime || "";

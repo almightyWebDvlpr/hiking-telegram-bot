@@ -9423,12 +9423,7 @@ function showBackpackWeight(ctx, groupService, userService) {
       id: member.memberId,
       name: member.memberName
     })),
-    member.personalGearWeight > 0 ? `• Особисте спорядження: ${formatWeightGrams(member.personalGearWeight)}` : null,
-    member.borrowedGearWeight > 0 ? `• Позичені речі в користуванні: ${formatWeightGrams(member.borrowedGearWeight)}` : null,
-    member.sharedGearShare > 0 ? `• Частка спільного спорядження: ${formatWeightGrams(member.sharedGearShare)}` : null,
-    member.foodShare > 0 ? `• Частка їжі: ${formatWeightGrams(member.foodShare)}` : null,
-    member.totalWeight > 0 ? `• Попередня вага рюкзака: ${formatWeightGrams(member.totalWeight)}` : null,
-    member.missingWeights > 0 ? `• Незаповнених ваг у розрахунку: ${member.missingWeights}` : null,
+    ...buildBackpackWeightDetailLines(member),
     "",
     "⚠️ Зверни увагу",
     member.totalWeight <= 0 && member.missingWeights <= 0 ? "• Для тебе поки немає доданого спорядження чи їжі з вагою." : null,
@@ -9438,6 +9433,50 @@ function showBackpackWeight(ctx, groupService, userService) {
   ];
 
   return ctx.reply(joinRichLines(lines), { parse_mode: "HTML", ...getTripKeyboard(trip, viewerId) });
+}
+
+function buildBackpackWeightDetailLines(member) {
+  const lines = [];
+
+  if (member.personalGearWeight > 0) {
+    lines.push(`• Особисте спорядження: ${formatWeightGrams(member.personalGearWeight)}`);
+    for (const item of member.personalGearDetails || []) {
+      lines.push(`  ◦ ${item.name} — ${item.quantity} шт. | ${formatWeightGrams(item.totalWeight)}`);
+    }
+  }
+
+  if (member.borrowedGearWeight > 0) {
+    lines.push(`• Позичені речі в користуванні: ${formatWeightGrams(member.borrowedGearWeight)}`);
+    for (const item of member.borrowedGearDetails || []) {
+      const ownerLabel = item.ownerMemberName ? ` | від ${item.ownerMemberName}` : "";
+      lines.push(`  ◦ ${item.name} — ${item.quantity} шт. | ${formatWeightGrams(item.totalWeight)}${ownerLabel}`);
+    }
+  }
+
+  if (member.sharedGearShare > 0) {
+    lines.push(`• Частка спільного спорядження: ${formatWeightGrams(member.sharedGearShare)}`);
+    for (const item of member.sharedGearDetails || []) {
+      lines.push(`  ◦ ${item.name} — ${item.quantity} шт. | усього ${formatWeightGrams(item.totalWeight)} | твоя частка ${formatWeightGrams(item.shareWeight)}`);
+    }
+  }
+
+  if (member.foodShare > 0) {
+    lines.push(`• Частка їжі: ${formatWeightGrams(member.foodShare)}`);
+    for (const item of member.foodShareDetails || []) {
+      const quantityLabel = item.quantity > 0 ? ` — ${item.quantity} шт.` : "";
+      lines.push(`  ◦ ${item.name}${quantityLabel} | усього ${formatWeightGrams(item.totalWeight)} | твоя частка ${formatWeightGrams(item.shareWeight)}`);
+    }
+  }
+
+  if (member.totalWeight > 0) {
+    lines.push(`• Попередня вага рюкзака: ${formatWeightGrams(member.totalWeight)}`);
+  }
+
+  if (member.missingWeights > 0) {
+    lines.push(`• Незаповнених ваг у розрахунку: ${member.missingWeights}`);
+  }
+
+  return lines;
 }
 
 function showTripExpensesMenu(ctx, groupService) {

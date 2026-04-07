@@ -1610,14 +1610,73 @@ export class GroupService {
       const borrowedGearWeight = borrowedWeightByMember.get(String(member.id)) || 0;
       const sharedGearShare = sharedGearWeight / memberCount;
       const foodShare = totalFoodWeight / memberCount;
+      const personalGearDetails = personalGearItems
+        .map((item) => {
+          const quantity = Math.max(0, Number(item.availableQuantity ?? item.quantity) || 0);
+          const weightPerUnit = Number(item.weightGrams) || 0;
+          return {
+            id: item.id,
+            name: item.name,
+            quantity,
+            weightPerUnit,
+            totalWeight: weightPerUnit * quantity
+          };
+        })
+        .filter((item) => item.quantity > 0);
+      const borrowedGearDetails = loanTrackedItems.flatMap((item) => {
+        const weightPerUnit = Number(item.weightGrams) || 0;
+        return (Array.isArray(item.loans) ? item.loans : [])
+          .filter((loan) => String(loan.borrowerMemberId || "") === String(member.id))
+          .map((loan) => {
+            const quantity = Math.max(0, Number(loan.quantity) || 0);
+            return {
+              id: item.id,
+              name: item.name,
+              ownerMemberId: item.memberId || "",
+              ownerMemberName: item.memberName || "",
+              quantity,
+              weightPerUnit,
+              totalWeight: weightPerUnit * quantity
+            };
+          });
+      }).filter((item) => item.quantity > 0);
+      const sharedGearDetails = sharedGearItems
+        .map((item) => {
+          const availableQuantity = Math.max(0, Number(item.availableQuantity ?? item.quantity) || 0);
+          const weightPerUnit = Number(item.weightGrams) || 0;
+          const totalWeight = weightPerUnit * availableQuantity;
+          return {
+            id: item.id,
+            name: item.name,
+            quantity: availableQuantity,
+            weightPerUnit,
+            totalWeight,
+            shareWeight: totalWeight / memberCount
+          };
+        })
+        .filter((item) => item.quantity > 0);
+      const foodShareDetails = foodItems.map((item) => {
+        const totalWeight = Number(item.weightGrams) || 0;
+        return {
+          id: item.id,
+          name: item.name,
+          quantity: Math.max(0, Number(item.quantity) || 0),
+          totalWeight,
+          shareWeight: totalWeight / memberCount
+        };
+      }).filter((item) => item.totalWeight > 0);
 
       return {
         memberId: member.id,
         memberName: member.name,
         personalGearWeight,
+        personalGearDetails,
         borrowedGearWeight,
+        borrowedGearDetails,
         sharedGearShare,
+        sharedGearDetails,
         foodShare,
+        foodShareDetails,
         totalWeight: personalGearWeight + borrowedGearWeight + sharedGearShare + foodShare,
         missingWeights: personalGearMissing + sharedGearMissing + foodMissing
       };

@@ -423,7 +423,7 @@ function getTripKeyboard(trip, userId = "") {
   }
 
   const rows = [
-    [TRIP_DETAILS_LABEL, "👥 Учасники походу"],
+    [TRIP_DETAILS_LABEL, "👥 Учасники походу", "🔔 Нагадування"],
     ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"],
     ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
     ["🌦 Погода походу", "💸 Витрати походу", isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],
@@ -9914,6 +9914,7 @@ export function createBot(store) {
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
   bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService));
+  bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
   bot.hears("🌦 Погода походу", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null));

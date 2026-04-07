@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { canonicalizeGearName, categorizeGearName, enrichGearItem, resolveGearProfile } from "../data/gearCatalog.js";
+import { CRITICAL_GEAR_CATALOG } from "../data/criticalGearCatalog.js";
 
 function createInviteCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -128,6 +129,72 @@ function gearNamesMatch(left = "", right = "") {
   }
 
   return false;
+}
+
+function matchesCriticalGearRule(rule, item = {}) {
+  const canonicalName = canonicalizeGearName(item.name || "");
+  const profileKey = item.profileKey || resolveGearProfile(item.name || "").key;
+  const categoryKey = item.categoryKey || categorizeGearName(item.name || "").key;
+
+  if ((rule.canonicalNames || []).includes(canonicalName)) {
+    return true;
+  }
+
+  if ((rule.profileKeys || []).includes(profileKey)) {
+    return true;
+  }
+
+  if ((rule.categoryKeys || []).includes(categoryKey)) {
+    return true;
+  }
+
+  return false;
+}
+
+function parseNumericHints(value = "") {
+  const numbers = String(value || "").match(/\d+/g) || [];
+  return numbers.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0);
+}
+
+function getCriticalCoverageValue(rule, item = {}) {
+  if (!matchesCriticalGearRule(rule, item)) {
+    return 0;
+  }
+
+  const quantity = Math.max(0, Number(item.quantity) || 0);
+  if (!quantity) {
+    return 0;
+  }
+
+  if (rule.coverageMode === "tent_capacity") {
+    const numbers = [
+      ...parseNumericHints(item.attributes?.capacity),
+      ...parseNumericHints(item.attributes?.peopleCapacity),
+      ...parseNumericHints(item.details)
+    ];
+    const capacityPerUnit = numbers.length ? Math.max(...numbers) : 1;
+    return Math.max(quantity, quantity * capacityPerUnit);
+  }
+
+  return quantity;
+}
+
+function aggregateCriticalFoundItems(rule, gearItems = []) {
+  const found = new Map();
+
+  for (const item of gearItems) {
+    if (!matchesCriticalGearRule(rule, item)) {
+      continue;
+    }
+
+    const key = item.name || "спорядження";
+    const current = found.get(key) || { name: key, quantity: 0, coverage: 0 };
+    current.quantity += Math.max(0, Number(item.quantity) || 0);
+    current.coverage += getCriticalCoverageValue(rule, item);
+    found.set(key, current);
+  }
+
+  return [...found.values()].sort((left, right) => right.coverage - left.coverage || left.name.localeCompare(right.name, "uk"));
 }
 
 function calculateReadiness(group) {
@@ -1207,6 +1274,74 @@ export class GroupService {
           : shareableGear.length > 0 || sharedGear.length > 0 || personalGear.length > 0
             ? "частково готово"
             : "збираємо"
+    };
+  }
+
+  getCriticalGearStatus(groupId) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return null;
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    const participantCount = Math.max(1, preparedGroup.members.length || 0);
+    const gearItems = preparedGroup.gear.map((item) => enrichTripGearItem(item));
+    const activeNeeds = preparedGroup.gearNeeds
+      .map((item) => normalizeGearNeed(item))
+      .filter((item) => isActiveGearNeedStatus(item.status));
+
+    const items = CRITICAL_GEAR_CATALOG.map((rule) => {
+      const neededQuantity = rule.rule === "per_person"
+        ? participantCount * Math.max(1, Number(rule.required) || 1)
+        : Math.max(1, Number(rule.required) || 1);
+      const matchingGear = gearItems.filter((item) => matchesCriticalGearRule(rule, item));
+      const coveredQuantity = matchingGear.reduce((sum, item) => sum + getCriticalCoverageValue(rule, item), 0);
+      const matchingNeeds = activeNeeds.filter((item) => matchesCriticalGearRule(rule, item));
+      const activeNeedsQuantity = matchingNeeds.reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0);
+      const missingQuantity = Math.max(0, neededQuantity - coveredQuantity);
+      const statusKey = coveredQuantity >= neededQuantity
+        ? "ready"
+        : coveredQuantity > 0
+          ? "partial"
+          : activeNeedsQuantity > 0
+            ? "requested"
+            : "missing";
+
+      return {
+        ...rule,
+        participantCount,
+        neededQuantity,
+        coveredQuantity,
+        missingQuantity,
+        statusKey,
+        matchingGearCount: matchingGear.length,
+        activeNeedsQuantity,
+        activeNeedsCount: matchingNeeds.length,
+        matchingNeeds,
+        foundItems: aggregateCriticalFoundItems(rule, matchingGear)
+      };
+    });
+
+    const coreItems = items.filter((item) => item.tier === "core");
+    const extendedItems = items.filter((item) => item.tier !== "core");
+    const unresolvedCoreItems = coreItems.filter((item) => item.statusKey !== "ready");
+    const unresolvedItems = items.filter((item) => item.statusKey !== "ready");
+
+    return {
+      participantCount,
+      items,
+      coreItems,
+      extendedItems,
+      unresolvedCoreItems,
+      unresolvedItems,
+      summary: {
+        coreReadyCount: coreItems.filter((item) => item.statusKey === "ready").length,
+        coreTotalCount: coreItems.length,
+        unresolvedCoreCount: unresolvedCoreItems.length,
+        unresolvedTotalCount: unresolvedItems.length
+      }
     };
   }
 

@@ -10279,6 +10279,12 @@ export function createBot(store) {
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
   bot.hears(TRIP_DETAILS_BACK_LABEL, (ctx) => {
     const activeFlow = getFlow(String(ctx.from?.id));
+    if (activeFlow?.type === "gear_edit") {
+      return handleGearEditFlow(ctx, activeFlow, groupService, userService, bot.telegram);
+    }
+    if (activeFlow?.type === "my_gear_edit") {
+      return handleMyGearEditFlow(ctx, activeFlow, userService);
+    }
     if (activeFlow?.type === "trip_member_list") {
       clearFlow(String(ctx.from.id));
       return showTripMembersMenu(ctx, groupService, userService);

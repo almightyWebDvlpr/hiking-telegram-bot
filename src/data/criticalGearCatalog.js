@@ -272,5 +272,55 @@ export const CRITICAL_GEAR_CATALOG = [
     description: "хоча б один ремнабір на групу",
     canonicalNames: ["Ремнабір"],
     profileKeys: ["repair_kit"]
+  },
+  {
+    key: "sun_protection",
+    tier: "extended",
+    label: "Сонцезахист",
+    displayLabel: "Сонцезахист",
+    missingLabel: "відсутній",
+    rule: "per_person",
+    coverageMode: "quantity",
+    description: "по одному рішенню від сонця на кожного учасника",
+    canonicalNames: ["Окуляри", "Панама", "Сонцезахисний крем"],
+    profileKeys: ["clothing"]
+  },
+  {
+    key: "spare_socks",
+    tier: "extended",
+    label: "Запасні шкарпетки",
+    displayLabel: "Запасні шкарпетки",
+    missingLabel: "відсутні",
+    rule: "per_person",
+    coverageMode: "quantity",
+    description: "по одній сухій запасній парі шкарпеток на кожного учасника",
+    canonicalNames: ["Шкарпетки"],
+    profileKeys: ["clothing"]
+  },
+  {
+    key: "repellent",
+    tier: "extended",
+    label: "Репелент",
+    displayLabel: "Репелент",
+    missingLabel: "відсутній",
+    rule: "per_group",
+    required: 1,
+    coverageMode: "quantity",
+    description: "хоча б один засіб від комах або кліщів на групу",
+    canonicalNames: ["Репелент"],
+    profileKeys: []
+  },
+  {
+    key: "emergency_kit",
+    tier: "extended",
+    label: "Аварійний комплект",
+    displayLabel: "Аварійний комплект",
+    missingLabel: "відсутній",
+    rule: "per_group",
+    required: 1,
+    coverageMode: "quantity",
+    description: "хоча б один аварійний комплект: термоковдра, аварійний біві або survival kit",
+    canonicalNames: ["Аварійне покривало"],
+    profileKeys: ["emergency_kit"]
   }
 ];

@@ -41,6 +41,13 @@ import {
   validatePositiveMoney,
   validateTripName
 } from "./services/validationService.js";
+import {
+  getGearAddNextStep
+} from "./state/gearAddMachine.js";
+import {
+  getProfileEditNextStep,
+  getProfileEditPreviousStep
+} from "./state/profileEditMachine.js";
 import { getTripCardNextStep, getTripCardPreviousStep } from "./state/tripCardMachine.js";
 
 
@@ -5093,6 +5100,25 @@ const PROFILE_EDIT_FIELDS = [
   }
 ];
 
+function buildProfileEditPrompt(fieldConfig, notice = "• можна пропустити будь-яке поле і повернутися до нього пізніше") {
+  return joinRichLines([
+    ...formatCardHeader("✏️ РЕДАГУВАННЯ ПРОФІЛЮ", "Анкета користувача"),
+    "",
+    fieldConfig.prompt,
+    "",
+    "⚠️ Зверни увагу:",
+    notice
+  ]);
+}
+
+function replyProfileEditStepPrompt(ctx, flow, notice) {
+  const fieldConfig = PROFILE_EDIT_FIELDS.find((item) => item.key === flow.step) || PROFILE_EDIT_FIELDS[0];
+  return ctx.reply(
+    buildProfileEditPrompt(fieldConfig, notice),
+    { parse_mode: "HTML", ...getProfileEditKeyboard() }
+  );
+}
+
 function formatProfileDashboard(userService, groupService, userId, userName) {
   const dashboard = userService.getDashboard(userId, userName);
   const latestAwards = dashboard.latestAwards.length
@@ -5292,17 +5318,11 @@ function startProfileEditWizard(ctx, userService) {
     data: { ...current }
   });
 
-  return ctx.reply(
-    joinRichLines([
-      ...formatCardHeader("✏️ РЕДАГУВАННЯ ПРОФІЛЮ", "Анкета користувача"),
-      "",
-      PROFILE_EDIT_FIELDS[0].prompt,
-      "",
-      "⚠️ Зверни увагу:",
-      "• можна пропустити будь-яке поле і повернутися до нього пізніше"
-    ]),
-    { parse_mode: "HTML", ...getProfileEditKeyboard() }
-  );
+  return replyProfileEditStepPrompt(ctx, {
+    type: "profile_edit",
+    step: PROFILE_EDIT_FIELDS[0].key,
+    data: { ...current }
+  });
 }
 
 function getFaqKeyboard({ questions = [], mode = "browse", canPrev = false, canNext = false }) {
@@ -6299,7 +6319,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
     flow.data.name = canonicalizeGearName(message);
     flow.data.attributes = {};
     flow.data.fieldIndex = 0;
-    flow.step = "quantity";
+    flow.step = getGearAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
@@ -6327,11 +6347,11 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
     }
 
     flow.data.quantity = validation.value;
-    flow.step = "field";
+    flow.step = getGearAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     const { field } = getGearFlowField(flow);
     if (!field) {
-      flow.step = "save";
+      flow.step = getGearAddNextStep(flow.step);
     } else {
       return ctx.reply(
         buildGearFieldPromptMessage("➕ ДОДАТИ СПОРЯДЖЕННЯ", flow.data.name, field, flow.data.attributes),
@@ -6344,7 +6364,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
     if (flow.step === "field") {
       const { profile, field, fieldIndex } = getGearFlowField(flow);
       if (!field) {
-        flow.step = "save";
+        flow.step = getGearAddNextStep(flow.step);
         setFlow(String(ctx.from.id), flow);
       } else {
         const parsed = parseGearFieldInput(field, message);
@@ -6374,7 +6394,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
           );
         }
 
-        flow.step = "save";
+        flow.step = getGearAddNextStep(flow.step);
       }
     }
 
@@ -8287,25 +8307,15 @@ async function handleProfileEditFlow(ctx, flow, userService) {
   const currentIndex = PROFILE_EDIT_FIELDS.findIndex((item) => item.key === flow.step);
 
   if (message === PROFILE_BACK_LABEL || message === "❌ Скасувати") {
-    if (currentIndex <= 0) {
+    const previousStep = getProfileEditPreviousStep(flow.step);
+    if (previousStep === flow.step || currentIndex <= 0) {
       clearFlow(String(ctx.from.id));
       return showProfileAbout(ctx, userService);
     }
 
-    const previousField = PROFILE_EDIT_FIELDS[currentIndex - 1];
-    flow.step = previousField.key;
+    flow.step = previousStep;
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply(
-      joinRichLines([
-        ...formatCardHeader("✏️ РЕДАГУВАННЯ ПРОФІЛЮ", "Попереднє поле"),
-        "",
-        previousField.prompt,
-        "",
-        "⚠️ Зверни увагу:",
-        "• `Пропустити` лишає поточне значення без змін"
-      ]),
-      { parse_mode: "HTML", ...getProfileEditKeyboard() }
-    );
+    return replyProfileEditStepPrompt(ctx, flow, "• `Пропустити` лишає поточне значення без змін");
   }
 
   if (!fieldConfig) {
@@ -8317,9 +8327,9 @@ async function handleProfileEditFlow(ctx, flow, userService) {
     flow.data[fieldConfig.key] = message;
   }
 
-  const nextField = PROFILE_EDIT_FIELDS[currentIndex + 1];
+  const nextStep = getProfileEditNextStep(flow.step);
 
-  if (!nextField) {
+  if (nextStep === flow.step || !PROFILE_EDIT_FIELDS[currentIndex + 1]) {
     userService.updateProfile({
       userId: String(ctx.from.id),
       userName: getUserLabel(ctx),
@@ -8337,19 +8347,9 @@ async function handleProfileEditFlow(ctx, flow, userService) {
     return showProfileAbout(ctx, userService);
   }
 
-  flow.step = nextField.key;
+  flow.step = nextStep;
   setFlow(String(ctx.from.id), flow);
-  return ctx.reply(
-    joinRichLines([
-      ...formatCardHeader("✏️ РЕДАГУВАННЯ ПРОФІЛЮ", "Наступне поле"),
-      "",
-      nextField.prompt,
-      "",
-      "⚠️ Зверни увагу:",
-      "• можна пропустити поле, якщо заповниш його пізніше"
-    ]),
-    { parse_mode: "HTML", ...getProfileEditKeyboard() }
-  );
+  return replyProfileEditStepPrompt(ctx, flow, "• можна пропустити поле, якщо заповниш його пізніше");
 }
 
 async function handleMyGearAddFlow(ctx, flow, userService) {
@@ -8361,14 +8361,16 @@ async function handleMyGearAddFlow(ctx, flow, userService) {
   }
 
   if (flow.step === "name") {
-    flow.data.name = message;
+    flow.data.name = canonicalizeGearName(message);
     flow.data.attributes = {};
     flow.data.fieldIndex = 0;
-    flow.step = "quantity";
+    flow.step = getGearAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("➕ ДОДАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.name),
+        "",
+        ...buildGearRecognitionSummaryLines(flow.data.name),
         "",
         "Вкажи кількість.",
         "",
@@ -8379,20 +8381,20 @@ async function handleMyGearAddFlow(ctx, flow, userService) {
   }
 
   if (flow.step === "quantity") {
-    const quantity = Number(message.replace(",", "."));
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return ctx.reply("Вкажи нормальну кількість числом. Приклад: `1`", {
+    const validation = validatePositiveInteger(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`1\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
 
-    flow.data.quantity = quantity;
-    flow.step = "field";
+    flow.data.quantity = validation.value;
+    flow.step = getGearAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     const { field } = getGearFlowField(flow);
     if (!field) {
-      flow.step = "save";
+      flow.step = getGearAddNextStep(flow.step);
     } else {
       return ctx.reply(
         buildGearFieldPromptMessage("➕ ДОДАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.name, field, flow.data.attributes),
@@ -8405,7 +8407,7 @@ async function handleMyGearAddFlow(ctx, flow, userService) {
     if (flow.step === "field") {
       const { profile, field, fieldIndex } = getGearFlowField(flow);
       if (!field) {
-        flow.step = "save";
+        flow.step = getGearAddNextStep(flow.step);
         setFlow(String(ctx.from.id), flow);
       } else {
         const parsed = parseGearFieldInput(field, message);
@@ -8435,7 +8437,7 @@ async function handleMyGearAddFlow(ctx, flow, userService) {
           );
         }
 
-        flow.step = "save";
+        flow.step = getGearAddNextStep(flow.step);
       }
     }
 

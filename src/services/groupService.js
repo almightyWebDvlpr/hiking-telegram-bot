@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { canonicalizeGearName, categorizeGearName, enrichGearItem, resolveGearProfile } from "../data/gearCatalog.js";
+import { canonicalizeGearName, categorizeGearName, enrichGearItem, resolveGearProfile, resolveGearSynonymGroup } from "../data/gearCatalog.js";
 import { canonicalizeFoodName, categorizeFoodName } from "../data/foodCatalog.js";
 import { canonicalizeExpenseTitle, categorizeExpenseTitle } from "../data/expenseCatalog.js";
 
@@ -78,13 +78,16 @@ function extractSearchTokens(value = "") {
 }
 
 function buildGearIdentity(name = "") {
-  const category = categorizeGearName(name);
-  const profile = resolveGearProfile(name);
+  const canonicalName = canonicalizeGearName(name);
+  const category = categorizeGearName(canonicalName);
+  const profile = resolveGearProfile(canonicalName);
   return {
-    normalized: normalizeGearSearchValue(name),
+    normalized: normalizeGearSearchValue(canonicalName),
+    canonicalName,
     categoryKey: category.key,
     profileKey: profile.key,
-    tokens: extractSearchTokens(name)
+    synonymGroup: resolveGearSynonymGroup(canonicalName),
+    tokens: extractSearchTokens(canonicalName)
   };
 }
 
@@ -99,6 +102,14 @@ function gearNamesMatch(left = "", right = "") {
   }
 
   if (leftValue === rightValue) {
+    return true;
+  }
+
+  if (
+    leftIdentity.synonymGroup &&
+    rightIdentity.synonymGroup &&
+    leftIdentity.synonymGroup === rightIdentity.synonymGroup
+  ) {
     return true;
   }
 

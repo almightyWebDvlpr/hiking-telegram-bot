@@ -1,3 +1,4 @@
+import Fuse from "fuse.js";
 import { CURATED_ROUTES } from "../data/curatedRoutes.js";
 import { CARPATHIAN_PLACE_ALIASES, CARPATHIAN_WAYPOINT_SUGGESTIONS } from "../data/carpathianCatalog.js";
 import { VpohidLiveService } from "./vpohidLiveService.js";
@@ -142,6 +143,57 @@ function splitLookupTokens(value) {
   return normalizeLookupValue(value)
     .split(" ")
     .filter((token) => token.length > 2);
+}
+
+const ROUTE_LOOKUP_RECORDS = [
+  ...Object.keys(LOCAL_PLACE_ALIASES).map((key) => ({
+    type: "place_alias",
+    lookup: normalizeLookupValue(key),
+    value: key
+  })),
+  ...CURATED_ROUTES.flatMap((route) => ([
+    route.from.label,
+    route.to.label,
+    ...(route.from.aliases || []),
+    ...(route.to.aliases || []),
+    ...(route.requestAliases || []).flatMap((item) => [...item.from, ...item.to])
+  ].map((value) => ({
+    type: "curated",
+    lookup: normalizeLookupValue(value),
+    value
+  })))),
+  ...LOCAL_WAYPOINT_SUGGESTIONS.flatMap((item) => ([item.label, ...(item.aliases || []), ...(item.keywords || [])].map((value) => ({
+    type: "waypoint",
+    lookup: normalizeLookupValue(value),
+    value,
+    label: item.label
+  }))))
+].filter((item) => item.lookup);
+
+const ROUTE_LOOKUP_FUSE = new Fuse(ROUTE_LOOKUP_RECORDS, {
+  includeScore: true,
+  threshold: 0.32,
+  ignoreLocation: true,
+  minMatchCharLength: 3,
+  keys: [{ name: "lookup", weight: 1 }]
+});
+
+function findFuzzyRouteLookup(query, allowedTypes = null) {
+  const normalized = normalizeLookupValue(query);
+  if (!normalized || normalized.length < 3) {
+    return null;
+  }
+
+  const normalizedAllowedTypes = Array.isArray(allowedTypes) && allowedTypes.length
+    ? new Set(allowedTypes)
+    : null;
+  const matches = ROUTE_LOOKUP_FUSE.search(normalized, { limit: 5 });
+  const match = matches.find((item) => !normalizedAllowedTypes || normalizedAllowedTypes.has(item.item.type));
+  if (!match?.item || (match.score ?? 1) > 0.32) {
+    return null;
+  }
+
+  return match.item;
 }
 
 function normalizeWaypointKey(value) {
@@ -472,7 +524,16 @@ function classifyOsmRoutePoi(tags = {}) {
 
 function getLocalPlaceAlias(place) {
   const key = normalizeLookupValue(place);
-  return LOCAL_PLACE_ALIASES[key] || null;
+  if (LOCAL_PLACE_ALIASES[key]) {
+    return LOCAL_PLACE_ALIASES[key];
+  }
+
+  const fuzzy = findFuzzyRouteLookup(place, ["place_alias"]);
+  if (fuzzy?.type === "place_alias") {
+    return LOCAL_PLACE_ALIASES[fuzzy.value] || null;
+  }
+
+  return null;
 }
 
 function detectPlaceKindHint(query) {
@@ -528,6 +589,10 @@ function isCarpathianCoordinate(place) {
 
 function looksLikeCarpathianQuery(query) {
   const normalized = normalizeLookupValue(query);
+
+  if (findFuzzyRouteLookup(query, ["place_alias", "curated", "waypoint"])) {
+    return true;
+  }
 
   if (Object.keys(LOCAL_PLACE_ALIASES).some((key) => normalized.includes(key) || key.includes(normalized))) {
     return true;
@@ -588,6 +653,14 @@ function getCanonicalCarpathianQuery(query) {
     return best.label;
   }
 
+  const fuzzy = findFuzzyRouteLookup(query, ["waypoint", "curated", "place_alias"]);
+  if (fuzzy?.type === "waypoint" && fuzzy.label) {
+    return formatWaypointSuggestionLabel(fuzzy.label);
+  }
+  if (fuzzy?.type === "curated" || fuzzy?.type === "place_alias") {
+    return humanizePlaceLabel(fuzzy.value);
+  }
+
   for (const route of CURATED_ROUTES) {
     for (const endpoint of [route.from, route.to]) {
       const variants = [endpoint.label, ...(endpoint.aliases || [])];
@@ -601,6 +674,15 @@ function getCanonicalCarpathianQuery(query) {
   }
 
   return null;
+}
+
+function humanizePlaceLabel(value) {
+  return String(value || "")
+    .trim()
+    .replaceAll(/\s+/g, " ")
+    .split(" ")
+    .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1) : "")
+    .join(" ");
 }
 
 function getCuratedPlaceAlias(place) {
@@ -1695,12 +1777,14 @@ function makeExportMeta({ from, to, provider, coordinates, fromPlace, toPlace })
 function findCuratedRoute(from, to) {
   const fromKey = normalizeLookupValue(from);
   const toKey = normalizeLookupValue(to);
+  const fuzzyFrom = normalizeLookupValue(getCanonicalCarpathianQuery(from) || from);
+  const fuzzyTo = normalizeLookupValue(getCanonicalCarpathianQuery(to) || to);
 
   for (const route of CURATED_ROUTES) {
     const fromAliases = route.from.aliases.map(normalizeLookupValue);
     const toAliases = route.to.aliases.map(normalizeLookupValue);
 
-    if (fromAliases.includes(fromKey) && toAliases.includes(toKey)) {
+    if ((fromAliases.includes(fromKey) || fromAliases.includes(fuzzyFrom)) && (toAliases.includes(toKey) || toAliases.includes(fuzzyTo))) {
       return {
         route,
         requestedAliasNote: null
@@ -1710,7 +1794,7 @@ function findCuratedRoute(from, to) {
     for (const alias of route.requestAliases || []) {
       const aliasFrom = alias.from.map(normalizeLookupValue);
       const aliasTo = alias.to.map(normalizeLookupValue);
-      if (aliasFrom.includes(fromKey) && aliasTo.includes(toKey)) {
+      if ((aliasFrom.includes(fromKey) || aliasFrom.includes(fuzzyFrom)) && (aliasTo.includes(toKey) || aliasTo.includes(fuzzyTo))) {
         return {
           route,
           requestedAliasNote: alias.note || null
@@ -1718,7 +1802,7 @@ function findCuratedRoute(from, to) {
       }
     }
 
-    if (toAliases.includes(fromKey) && fromAliases.includes(toKey)) {
+    if ((toAliases.includes(fromKey) || toAliases.includes(fuzzyFrom)) && (fromAliases.includes(toKey) || fromAliases.includes(fuzzyTo))) {
       return {
         route: {
           ...route,

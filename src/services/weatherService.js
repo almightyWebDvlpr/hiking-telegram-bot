@@ -1,3 +1,4 @@
+import Fuse from "fuse.js";
 import { CARPATHIAN_PLACE_ALIASES } from "../data/carpathianCatalog.js";
 
 const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
@@ -185,15 +186,56 @@ function normalizeLocation(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/’/g, "'")
+    .replace(/[']/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const WEATHER_LOOKUP_RECORDS = [...WEATHER_LOCATION_ALIASES.entries()].flatMap(([key, place]) => ([
+  key,
+  place?.name,
+  place?.display_name,
+  [place?.name, place?.admin1].filter(Boolean).join(", "),
+  [place?.name, place?.country].filter(Boolean).join(", ")
+].filter(Boolean).map((value) => ({
+  lookup: normalizeLocation(value),
+  key
+}))));
+
+const WEATHER_LOOKUP_FUSE = new Fuse(WEATHER_LOOKUP_RECORDS, {
+  includeScore: true,
+  threshold: 0.32,
+  ignoreLocation: true,
+  minMatchCharLength: 3,
+  keys: [{ name: "lookup", weight: 1 }]
+});
+
+function findWeatherAlias(query) {
+  const normalized = normalizeLocation(query);
+  if (!normalized) {
+    return null;
+  }
+
+  if (WEATHER_LOCATION_ALIASES.has(normalized)) {
+    return WEATHER_LOCATION_ALIASES.get(normalized);
+  }
+
+  if (normalized.length < 3) {
+    return null;
+  }
+
+  const [match] = WEATHER_LOOKUP_FUSE.search(normalized, { limit: 1 });
+  if (!match?.item || (match.score ?? 1) > 0.32) {
+    return null;
+  }
+
+  return WEATHER_LOCATION_ALIASES.get(match.item.key) || null;
 }
 
 export class WeatherService {
   async getWeatherSummary(location) {
     try {
-      const normalizedLocation = normalizeLocation(location);
-      const alias = WEATHER_LOCATION_ALIASES.get(normalizedLocation);
+      const alias = findWeatherAlias(location);
       const baseLocation = String(location || "").trim();
       let place = alias && Number.isFinite(alias.latitude) && Number.isFinite(alias.longitude)
         ? { ...alias }

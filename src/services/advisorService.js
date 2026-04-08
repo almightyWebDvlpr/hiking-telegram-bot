@@ -1,5 +1,14 @@
 import { FAQ_ITEMS } from "../data/faqCatalog.js";
 
+function normalizeFaqSearchValue(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9а-яіїєґ\s-]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export class AdvisorService {
   getPreparationAdvice({ season, days, difficulty }) {
     const normalizedDifficulty = difficulty.toLowerCase();
@@ -78,6 +87,53 @@ export class AdvisorService {
       "",
       ...item.answer.map((line) => `• ${line}`)
     ].join("\n");
+  }
+
+  searchFaqQuestions(query, { limit = 10 } = {}) {
+    const normalizedQuery = normalizeFaqSearchValue(query);
+    if (!normalizedQuery || normalizedQuery.length < 2) {
+      return [];
+    }
+
+    const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+    const ranked = FAQ_ITEMS.map((item) => {
+      const question = normalizeFaqSearchValue(item.question);
+      const category = normalizeFaqSearchValue(item.category);
+      const answer = normalizeFaqSearchValue(item.answer.join(" "));
+      const haystack = `${question} ${category} ${answer}`;
+      let score = 0;
+
+      if (question.includes(normalizedQuery)) {
+        score += 8;
+      }
+      if (category.includes(normalizedQuery)) {
+        score += 4;
+      }
+      if (answer.includes(normalizedQuery)) {
+        score += 2;
+      }
+
+      for (const token of queryTokens) {
+        if (question.includes(token)) {
+          score += 3;
+        } else if (haystack.includes(token)) {
+          score += 1;
+        }
+      }
+
+      return score > 0
+        ? {
+            id: item.id,
+            category: item.category,
+            question: item.question,
+            score
+          }
+        : null;
+    })
+      .filter(Boolean)
+      .sort((left, right) => right.score - left.score || left.question.localeCompare(right.question, "uk"));
+
+    return ranked.slice(0, limit).map(({ id, category, question }) => ({ id, category, question }));
   }
 
   #shuffle(items) {

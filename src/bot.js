@@ -34,6 +34,7 @@ const vpohidSelections = new Map();
 const menuContexts = new Map();
 const vpohidCatalogLoads = new Set();
 const FAQ_LABEL = "❓ Часті питання";
+const FAQ_SEARCH_LABEL = "🔎 Пошук по FAQ";
 const FAQ_REFRESH_LABEL = "🔄 Інші питання";
 const HELP_BACK_LABEL = "⬅️ До допомоги";
 const PROFILE_LABEL = "🙍 Мій профіль";
@@ -72,7 +73,6 @@ const ROUTES_EXISTING_LABEL = "📚 Знайти в каталозі маршр�
 const ROUTES_DETAILS_LABEL = "📋 Деталі маршруту";
 const TRIP_WEATHER_BACK_LABEL = "⬅️ До походу";
 const TRIP_PHOTOS_LABEL = "📸 Фото походу";
-const TRIP_CRITICAL_GEAR_LABEL = "🚨 Критичне спорядження";
 const TRIP_PHOTOS_ADD_LABEL = "📷 Поділитися фото";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
 const GEAR_EDIT_ACTION_LABEL = "✏️ Редагувати";
@@ -1108,10 +1108,7 @@ function hasEditableTripGear(trip, groupService, userId = "") {
 }
 
 function getTripGearKeyboard(trip = null, groupService = null, userId = "") {
-  const rows = [
-    [TRIP_GEAR_ADD_LABEL, TRIP_GEAR_VIEW_ALL_LABEL],
-    [TRIP_CRITICAL_GEAR_LABEL]
-  ];
+  const rows = [[TRIP_GEAR_ADD_LABEL, TRIP_GEAR_VIEW_ALL_LABEL]];
 
   if (hasEditableTripGear(trip, groupService, userId)) {
     rows.push(["✏️ Редагувати спорядження", TRIP_GEAR_ACCOUNTING_LABEL]);
@@ -1646,137 +1643,6 @@ function formatTripCard(trip, gearSnapshot) {
   ].filter(Boolean));
 }
 
-function getCriticalGearStatusLabel(item) {
-  if (item.statusKey === "ready") {
-    if (item.rule === "per_group" && item.neededQuantity <= 1) {
-      return "готово";
-    }
-    return `готово (${item.coveredQuantity} з ${item.neededQuantity})`;
-  }
-
-  if (item.statusKey === "partial") {
-    return item.activeNeedsQuantity > 0
-      ? `частково закрито (${item.coveredQuantity} з ${item.neededQuantity}), є запит`
-      : `частково закрито (${item.coveredQuantity} з ${item.neededQuantity})`;
-  }
-
-  if (item.statusKey === "requested") {
-    return `не закрито, є запит (${item.activeNeedsQuantity})`;
-  }
-
-  return item.missingLabel || "відсутнє";
-}
-
-function getCriticalGearStatusIcon(item) {
-  if (item.statusKey === "ready") {
-    return "🟢";
-  }
-  if (item.statusKey === "partial") {
-    return "🟡";
-  }
-  if (item.statusKey === "requested") {
-    return "🟠";
-  }
-  return "🔴";
-}
-
-function formatCriticalGearSummaryLines(report, { items = null } = {}) {
-  const source = items || report?.coreItems || [];
-  return source.map((item) => `• ${item.displayLabel}: ${getCriticalGearStatusLabel(item)}`);
-}
-
-function formatCriticalGearReminderLines(report) {
-  const unresolved = report?.unresolvedCoreItems || [];
-  if (!unresolved.length) {
-    return ["• базове критичне спорядження закрито"];
-  }
-
-  return formatCriticalGearSummaryLines(report, { items: unresolved });
-}
-
-function formatCriticalGearFoundItems(item) {
-  if (!item.foundItems?.length) {
-    return [];
-  }
-
-  return [
-    `• Уже в поході: ${item.foundItems
-      .slice(0, 4)
-      .map((found) => found.coverage > found.quantity
-        ? `${found.name} (${found.coverage})`
-        : `${found.name} (${found.quantity})`)
-      .join(", ")}`
-  ];
-}
-
-function formatPersonalCriticalGearFoundItems(item) {
-  if (!item.foundItems?.length) {
-    return [];
-  }
-
-  return [
-    `• У тебе: ${item.foundItems
-      .slice(0, 5)
-      .map((found) => found.note
-        ? `${found.name} (${found.quantity}) — ${found.note}`
-        : `${found.name} (${found.quantity})`)
-      .join(", ")}`
-  ];
-}
-
-function formatCriticalGearDetailedLines(report) {
-  const lines = [...formatCardHeader("🚨", "КРИТИЧНЕ СПОРЯДЖЕННЯ"), ""];
-  lines.push(`Учасників у поході: ${report.participantCount}`);
-  lines.push("");
-
-  const sections = [
-    {
-      icon: "🫕",
-      title: "Групове / спільне",
-      items: report.groupItems || [],
-      foundItemsFormatter: formatCriticalGearFoundItems,
-      requiredLabel: (item) => item.rule === "per_group"
-        ? `щонайменше ${item.neededQuantity} на групу`
-        : `${item.neededQuantity} на всіх учасників`,
-      coverageLabel: (item) => `• Є в поході: ${item.coveredQuantity}`
-    },
-    {
-      icon: "🎒",
-      title: "Особисте для тебе",
-      items: report.personalItems || [],
-      foundItemsFormatter: formatPersonalCriticalGearFoundItems,
-      requiredLabel: () => "1 для тебе",
-      coverageLabel: (item) => `• У тебе закрито: ${item.coveredQuantity} з ${item.neededQuantity}`
-    }
-  ];
-
-  for (const section of sections) {
-    lines.push(formatSectionHeader(section.icon, section.title));
-    if (!section.items.length) {
-      lines.push("• немає");
-      lines.push("");
-      continue;
-    }
-
-    section.items.forEach((item, index) => {
-      lines.push(`${index + 1}. ${getCriticalGearStatusIcon(item)} ${item.displayLabel} — ${getCriticalGearStatusLabel(item)}`);
-      lines.push(`• Потрібно: ${section.requiredLabel(item)}`);
-      lines.push(section.coverageLabel(item));
-      if (item.activeNeedsQuantity > 0) {
-        lines.push(`• Відкриті запити: ${item.activeNeedsQuantity}`);
-      }
-      lines.push(`• Як рахуємо: ${item.description}`);
-      lines.push(...section.foundItemsFormatter(item));
-      lines.push("");
-    });
-  }
-
-  lines.push("⚠️ Зверни увагу:");
-  lines.push("• цей блок показує, що вже реально закрито на рівні походу");
-  lines.push("• відкриті запити на критичні речі теж враховуються окремо");
-  return joinRichLines(lines);
-}
-
 function buildReminderPlan(trip) {
   const tripCard = trip?.tripCard;
   if (!tripCard?.startDate) {
@@ -1805,7 +1671,7 @@ function buildReminderPlan(trip) {
   ];
 }
 
-function formatReminderPlan(trip, criticalReport = null) {
+function formatReminderPlan(trip) {
   const plan = buildReminderPlan(trip);
   if (!plan.length) {
     return "Для автоповідомлень спочатку заповни дати походу.";
@@ -1826,10 +1692,6 @@ function formatReminderPlan(trip, criticalReport = null) {
     }
     lines.push("");
   }
-
-  lines.push(formatSectionHeader("📦", "Критичне спорядження"));
-  lines.push(...formatCriticalGearReminderLines(criticalReport));
-  lines.push("");
 
   for (const item of plan) {
     const sentAt = reminderState[item.key];
@@ -2222,7 +2084,6 @@ function buildTripMeetingPointLines(trip, userService, safety) {
 
 function formatTripPassport(trip, groupService, userService, userId = "") {
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
-  const criticalReport = groupService.getCriticalGearStatus(trip.id);
   const safety = resolveSafetyProfile(trip);
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
   const members = trip.members.map((member) => {
@@ -2253,9 +2114,6 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     trip.tripCard
       ? `Готовність спорядження: ${trip.tripCard.gearReadinessStatus}`
       : `Готовність спорядження: ${gearSnapshot.readiness}`,
-    "",
-    formatSectionHeader("📦", "Критичне спорядження"),
-    ...formatCriticalGearSummaryLines(criticalReport),
     "",
     formatSectionHeader("👥", `Учасники (${trip.members.length})`),
     ...members,
@@ -3145,21 +3003,7 @@ function showTripReminders(ctx, groupService) {
     return null;
   }
 
-  const criticalReport = groupService.getCriticalGearStatus(trip.id);
-  return replyRichText(ctx, formatReminderPlan(trip, criticalReport), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
-}
-
-function showTripCriticalGear(ctx, groupService) {
-  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
-  if (!trip) {
-    return null;
-  }
-
-  const criticalReport = groupService.getCriticalGearStatus(trip.id, String(ctx.from.id));
-  return replyRichText(ctx, formatCriticalGearDetailedLines(criticalReport), {
-    parse_mode: "HTML",
-    ...getTripGearKeyboard(trip, groupService, String(ctx.from.id))
-  });
+  return replyRichText(ctx, formatReminderPlan(trip), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
 }
 
 function showTripPhotosMenu(ctx, groupService) {
@@ -5433,7 +5277,7 @@ function getFaqKeyboard(questions) {
     rows.push(pair);
   }
 
-  rows.push([FAQ_REFRESH_LABEL], ["⬅️ Головне меню"]);
+  rows.push([FAQ_SEARCH_LABEL, FAQ_REFRESH_LABEL], ["⬅️ Головне меню"]);
   return buildKeyboard(rows);
 }
 
@@ -5445,9 +5289,34 @@ function formatFaqMenuMessage(questions) {
     "",
     "⚠️ Зверни увагу:",
     "• теми змішуються випадково",
+    "• можна натиснути `🔎 Пошук по FAQ` і ввести частину питання або ключове слово",
     "• питання охоплюють маршрут, одяг, спорядження, воду, безпеку, табір і навігацію",
     `Зараз у меню: ${questions.length} питань`
   ].join("\n");
+}
+
+function formatFaqSearchPrompt() {
+  return joinRichLines([
+    ...formatCardHeader("🔎 ПОШУК ПО FAQ", "Швидкі відповіді"),
+    "",
+    "Введи частину питання або ключове слово.",
+    "",
+    "Приклади:",
+    "• дощовик",
+    "• вода",
+    "• весна",
+    "• спальник"
+  ]);
+}
+
+function formatFaqSearchResultsMessage(query, questions) {
+  return joinRichLines([
+    ...formatCardHeader("🔎 РЕЗУЛЬТАТИ ПОШУКУ", query),
+    "",
+    questions.length
+      ? `Знайшов ${questions.length} питань. Обери потрібне кнопкою нижче.`
+      : "Нічого не знайшов. Спробуй інше ключове слово або натисни `🔄 Інші питання`."
+  ]);
 }
 
 function showFaqMenu(ctx, advisorService, previousIds = []) {
@@ -8281,20 +8150,43 @@ async function handleFaqFlow(ctx, flow, advisorService) {
     return showFaqMenu(ctx, advisorService, flow.data?.previousIds || []);
   }
 
+  if (message === FAQ_SEARCH_LABEL) {
+    return ctx.reply(formatFaqSearchPrompt(), {
+      parse_mode: "HTML",
+      ...getFaqKeyboard(questions)
+    });
+  }
+
   if (message === "⬅️ Головне меню") {
     clearFlow(String(ctx.from.id));
     return sendHome(ctx);
   }
 
   const selectedQuestion = questions.find((item) => item.question === message);
-  if (!selectedQuestion) {
-    return ctx.reply("Обери питання кнопкою нижче або натисни `🔄 Інші питання`.", {
-      parse_mode: "Markdown",
-      ...getFaqKeyboard(questions)
+  if (selectedQuestion) {
+    return ctx.reply(advisorService.getFaqAnswer(selectedQuestion.id), getFaqKeyboard(questions));
+  }
+
+  const matches = advisorService.searchFaqQuestions(message, { limit: 10 });
+  if (matches.length) {
+    const updatedFlow = {
+      ...flow,
+      data: {
+        ...(flow.data || {}),
+        questions: matches
+      }
+    };
+    setFlow(String(ctx.from.id), updatedFlow);
+    return ctx.reply(formatFaqSearchResultsMessage(message, matches), {
+      parse_mode: "HTML",
+      ...getFaqKeyboard(matches)
     });
   }
 
-  return ctx.reply(advisorService.getFaqAnswer(selectedQuestion.id), getFaqKeyboard(questions));
+  return ctx.reply(formatFaqSearchResultsMessage(message, []), {
+    parse_mode: "HTML",
+    ...getFaqKeyboard(questions)
+  });
 }
 
 async function handleHelpFlow(ctx, flow) {
@@ -9449,7 +9341,6 @@ function showTripGearMenu(ctx, groupService) {
       formatSectionHeader("🧭", "Що Тут Можна Зробити"),
       "• `➕ Додати спорядження` — спочатку обрати тип, а далі додати річ у похід",
       `• \`${TRIP_GEAR_VIEW_ALL_LABEL}\` — побачити всю картину по спорядженню походу`,
-      `• \`${TRIP_CRITICAL_GEAR_LABEL}\` — швидко перевірити, що критично закрито, а чого ще бракує`,
       "• `✏️ Редагувати спорядження` — змінити свої позиції, а з правами редагування — будь-які",
       `• \`${TRIP_GEAR_ACCOUNTING_LABEL}\` — запити, речі в користуванні та хто користується спорядженням`,
       "",
@@ -10178,18 +10069,13 @@ function calculateDaysUntil(dateString) {
   return Math.round((target.getTime() - todayUtc) / (24 * 60 * 60 * 1000));
 }
 
-function buildAutoReminderMessage(trip, reminderKey, criticalReport = null) {
+function buildAutoReminderMessage(trip, reminderKey) {
   const readiness = trip.tripCard?.gearReadinessStatus || "не вказано";
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
   const safety = resolveSafetyProfile(trip);
   const meetingPoint = normalizeLocationLabel(trip.tripCard?.meetingPoint || "");
   const meetingDateTime = formatTripMeetingDateTime(trip.tripCard || {});
   const meetingLines = [];
-  const criticalLines = [
-    "",
-    TRIP_CRITICAL_GEAR_LABEL,
-    ...formatCriticalGearReminderLines(criticalReport)
-  ];
 
   if (meetingPoint || meetingDateTime) {
     meetingLines.push("");
@@ -10210,7 +10096,6 @@ function buildAutoReminderMessage(trip, reminderKey, criticalReport = null) {
       "• актуальну погоду по маршруту",
       `• готовність спорядження: ${readiness}`,
       `• активні запити на спорядження: ${trip.gearNeeds?.length || 0}`,
-      ...criticalLines,
       ...meetingLines
     ].join("\n");
   }
@@ -10224,7 +10109,6 @@ function buildAutoReminderMessage(trip, reminderKey, criticalReport = null) {
       "• відкрити HTML-карту треку і ще раз звірити маршрут",
       `• статус маршруту: ${routeStatus}`,
       `• перевірити логістику старту: ${trip.routePlan?.from || "не вказано"}`,
-      ...criticalLines,
       ...meetingLines
     ].join("\n");
   }
@@ -10236,7 +10120,6 @@ function buildAutoReminderMessage(trip, reminderKey, criticalReport = null) {
     `Готовність спорядження: ${readiness}`,
     `Безпека: ${safety.title}`,
     `Екстрені номери: ${safety.general.flatMap((item) => item.phones).join(" / ")}`,
-    ...criticalLines,
     ...meetingLines,
     "Перед виходом ще раз перевір воду, заряд телефону і офлайн-трек."
   ].join("\n");
@@ -10274,8 +10157,7 @@ function startTripReminderLoop(bot, groupService) {
       if (daysUntil !== null) {
         const reminderKey = daysUntil === 3 ? "d3" : daysUntil === 1 ? "d1" : daysUntil === 0 ? "d0" : null;
         if (reminderKey && !trip.reminderState?.[reminderKey]) {
-          const criticalReport = groupService.getCriticalGearStatus(trip.id);
-          const text = buildAutoReminderMessage(trip, reminderKey, criticalReport);
+          const text = buildAutoReminderMessage(trip, reminderKey);
 
           let delivered = false;
           for (const member of trip.members || []) {
@@ -10768,8 +10650,6 @@ export function createBot(store) {
   bot.hears(TRIP_PHOTOS_LABEL, (ctx) => showTripPhotosMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_ADD_LABEL, (ctx) => startTripPhotoAddWizard(ctx, groupService));
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
-  bot.hears(TRIP_CRITICAL_GEAR_LABEL, (ctx) => showTripCriticalGear(ctx, groupService));
-  bot.hears("📦 Критичне спорядження", (ctx) => showTripCriticalGear(ctx, groupService));
   bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService));
   bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));

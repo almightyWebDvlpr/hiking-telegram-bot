@@ -76,6 +76,29 @@ export class AdvisorService {
     }));
   }
 
+  getFaqQuestionsPage({ page = 0, pageSize = 10 } = {}) {
+    const normalizedPageSize = Math.max(1, Number(pageSize) || 10);
+    const ordered = FAQ_ITEMS.slice().sort(
+      (left, right) => left.category.localeCompare(right.category, "uk") || left.question.localeCompare(right.question, "uk")
+    );
+    const totalCount = ordered.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / normalizedPageSize));
+    const safePage = Math.min(Math.max(0, Number(page) || 0), totalPages - 1);
+    const start = safePage * normalizedPageSize;
+
+    return {
+      items: ordered.slice(start, start + normalizedPageSize).map((item) => ({
+        id: item.id,
+        category: item.category,
+        question: item.question
+      })),
+      page: safePage,
+      pageSize: normalizedPageSize,
+      totalCount,
+      totalPages
+    };
+  }
+
   getFaqAnswer(questionId) {
     const item = FAQ_ITEMS.find((entry) => entry.id === questionId);
     if (!item) {
@@ -89,10 +112,16 @@ export class AdvisorService {
     ].join("\n");
   }
 
-  searchFaqQuestions(query, { limit = 10 } = {}) {
+  searchFaqQuestions(query, { page = 0, pageSize = 10 } = {}) {
     const normalizedQuery = normalizeFaqSearchValue(query);
     if (!normalizedQuery || normalizedQuery.length < 2) {
-      return [];
+      return {
+        items: [],
+        page: 0,
+        pageSize: Math.max(1, Number(pageSize) || 10),
+        totalCount: 0,
+        totalPages: 1
+      };
     }
 
     const queryTokens = normalizedQuery.split(" ").filter(Boolean);
@@ -133,7 +162,19 @@ export class AdvisorService {
       .filter(Boolean)
       .sort((left, right) => right.score - left.score || left.question.localeCompare(right.question, "uk"));
 
-    return ranked.slice(0, limit).map(({ id, category, question }) => ({ id, category, question }));
+    const normalizedPageSize = Math.max(1, Number(pageSize) || 10);
+    const totalCount = ranked.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / normalizedPageSize));
+    const safePage = Math.min(Math.max(0, Number(page) || 0), totalPages - 1);
+    const start = safePage * normalizedPageSize;
+
+    return {
+      items: ranked.slice(start, start + normalizedPageSize).map(({ id, category, question }) => ({ id, category, question })),
+      page: safePage,
+      pageSize: normalizedPageSize,
+      totalCount,
+      totalPages
+    };
   }
 
   #shuffle(items) {

@@ -22,6 +22,7 @@ import {
 } from "./data/awardsCatalog.js";
 import {
   categorizeGearName,
+  canonicalizeGearName,
   formatGearAttribute,
   resolveGearProfile,
   summarizeGearAttributes
@@ -31,6 +32,16 @@ import {
   inferFoodMeasureKind as inferFoodMeasureKindFromCatalog
 } from "./data/foodCatalog.js";
 import { canonicalizeExpenseTitle } from "./data/expenseCatalog.js";
+import {
+  validateGearStatus,
+  validateIsoDate,
+  validateMeetingPoint,
+  validateMeetingTime,
+  validatePositiveInteger,
+  validatePositiveMoney,
+  validateTripName
+} from "./services/validationService.js";
+import { getTripCardNextStep, getTripCardPreviousStep } from "./state/tripCardMachine.js";
 
 
 
@@ -1911,7 +1922,7 @@ function extractMeetingPointCity(meetingPoint = "") {
 }
 
 function isValidMeetingTime(value = "") {
-  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(value || "").trim());
+  return validateMeetingTime(value).ok;
 }
 
 function buildTripMeetingPointPrompt(currentValue = "") {
@@ -1990,6 +2001,70 @@ function buildTripDatePrompt(label, example, currentValue = "") {
     "",
     "Можна натиснути `⏭ Пропустити`, якщо дату не потрібно змінювати."
   ].filter(Boolean).join("\n");
+}
+
+function replyTripCardStepPrompt(ctx, flow) {
+  if (flow.step === "name") {
+    return ctx.reply(buildTripNamePrompt(flow.data.name), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "startDate") {
+    return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "endDate") {
+    return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "gearStatus") {
+    return ctx.reply(
+      `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
+      FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD
+    );
+  }
+
+  if (flow.step === "meetingPoint") {
+    return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "meetingDate") {
+    return ctx.reply(buildTripMeetingDatePrompt(flow.data.meetingDate), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  if (flow.step === "meetingTime") {
+    return ctx.reply(buildTripMeetingTimePrompt(flow.data.meetingTime), {
+      parse_mode: "Markdown",
+      ...getProfileEditKeyboard()
+    });
+  }
+
+  return ctx.reply(
+    [
+      "Перевір дані походу:",
+      `• Назва: ${flow.data.name}`,
+      `• Дати: ${flow.data.startDate} -> ${flow.data.endDate}`,
+      `• Ночівлі: ${flow.data.nights}`,
+      `• Готовність спорядження: ${flow.data.gearReadinessStatus}`,
+      `• Точка збору: ${flow.data.meetingPoint || "автоматично за логікою бота"}`,
+      `• Дата та Час збору: ${formatTripMeetingDateTime({ meetingDate: flow.data.meetingDate, meetingTime: flow.data.meetingTime }) || "ще не задано"}`
+    ].join("\n"),
+    FLOW_CONFIRM_CARD_KEYBOARD
+  );
 }
 
 function resolveDepartureHub(city) {
@@ -5510,7 +5585,7 @@ function startCreateTripWizard(ctx, tripName = "") {
 }
 
 function isValidDate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+  return validateIsoDate(value).ok;
 }
 
 function normalizeGearStatus(value) {
@@ -5727,69 +5802,9 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
       clearFlow(String(ctx.from.id));
       return showTripPassport(ctx, groupService, userService, telegram?.advisorService || null);
     }
-
-    if (flow.step === "startDate") {
-      flow.step = "name";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripNamePrompt(flow.data.name), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
-    }
-
-    if (flow.step === "endDate") {
-      flow.step = "startDate";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
-    }
-
-    if (flow.step === "gearStatus") {
-      flow.step = "endDate";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
-    }
-
-    if (flow.step === "meetingPoint") {
-      flow.step = "gearStatus";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(
-        `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
-        FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD
-      );
-    }
-
-    if (flow.step === "meetingDate") {
-      flow.step = "meetingPoint";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
-    }
-
-    if (flow.step === "meetingTime") {
-      flow.step = "meetingDate";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripMeetingDatePrompt(flow.data.meetingDate), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
-    }
-
-    if (flow.step === "confirm") {
-      flow.step = "meetingTime";
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripMeetingTimePrompt(flow.data.meetingTime), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
-    }
+    flow.step = getTripCardPreviousStep(flow.step);
+    setFlow(String(ctx.from.id), flow);
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "name") {
@@ -5809,20 +5824,18 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
       });
     }
 
-    if (!message) {
-      return ctx.reply(buildTripNamePrompt(flow.data.name), {
+    const validation = validateTripName(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\n\n${buildTripNamePrompt(flow.data.name)}`, {
         parse_mode: "Markdown",
         ...getProfileEditKeyboard()
       });
     }
 
-    flow.data.name = message;
-    flow.step = "startDate";
+    flow.data.name = validation.value;
+    flow.step = getTripCardNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
-      parse_mode: "Markdown",
-      ...getProfileEditKeyboard()
-    });
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "startDate") {
@@ -5834,28 +5847,23 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         });
       }
 
-      flow.step = "endDate";
+      flow.step = getTripCardNextStep(flow.step);
       setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
+      return replyTripCardStepPrompt(ctx, flow);
+    }
+
+    const validation = validateIsoDate(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\n\n${buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate)}`, {
         parse_mode: "Markdown",
         ...getProfileEditKeyboard()
       });
     }
 
-    if (!isValidDate(message)) {
-      return ctx.reply(buildTripDatePrompt("дату початку", "2026-07-14", flow.data.startDate), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
-    }
-
-    flow.data.startDate = message;
-    flow.step = "endDate";
+    flow.data.startDate = validation.value;
+    flow.step = getTripCardNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
-      parse_mode: "Markdown",
-      ...getProfileEditKeyboard()
-    });
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "endDate") {
@@ -5868,29 +5876,24 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
       }
 
       flow.data.nights = calculateNights(flow.data.startDate, flow.data.endDate);
-      flow.step = "gearStatus";
+      flow.step = getTripCardNextStep(flow.step);
       setFlow(String(ctx.from.id), flow);
-      return ctx.reply(
-        `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
-        FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD
-      );
+      return replyTripCardStepPrompt(ctx, flow);
     }
 
-    if (!isValidDate(message)) {
-      return ctx.reply(buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate), {
+    const validation = validateIsoDate(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\n\n${buildTripDatePrompt("дату завершення", "2026-07-16", flow.data.endDate)}`, {
         parse_mode: "Markdown",
         ...getProfileEditKeyboard()
       });
     }
 
-    flow.data.endDate = message;
+    flow.data.endDate = validation.value;
     flow.data.nights = calculateNights(flow.data.startDate, flow.data.endDate);
-    flow.step = "gearStatus";
+    flow.step = getTripCardNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply(
-      `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
-      FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD
-    );
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "gearStatus") {
@@ -5899,89 +5902,74 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         return ctx.reply("Статус готовності потрібно вказати. `Пропустити` працює лише коли значення вже задане.", FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD);
       }
 
-      flow.step = "meetingPoint";
+      flow.step = getTripCardNextStep(flow.step);
       setFlow(String(ctx.from.id), flow);
-      return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
-        parse_mode: "Markdown",
-        ...getProfileEditKeyboard()
-      });
+      return replyTripCardStepPrompt(ctx, flow);
     }
 
     const normalized = normalizeGearStatus(message);
-    if (!["готово", "частково готово", "збираємо"].includes(normalized)) {
-      return ctx.reply("Обери один зі статусів кнопками нижче.", FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD);
+    const validation = validateGearStatus(normalized);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD);
     }
 
-    flow.data.gearReadinessStatus = normalized;
-    flow.step = "meetingPoint";
+    flow.data.gearReadinessStatus = validation.value;
+    flow.step = getTripCardNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-
-    return ctx.reply(buildTripMeetingPointPrompt(flow.data.meetingPoint), {
-      parse_mode: "Markdown",
-      ...getProfileEditKeyboard()
-    });
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "meetingPoint") {
     if (message !== PROFILE_SKIP_LABEL) {
-      flow.data.meetingPoint = message;
+      const validation = validateMeetingPoint(message);
+      if (!validation.ok) {
+        return ctx.reply(`${validation.error}\n\n${buildTripMeetingPointPrompt(flow.data.meetingPoint)}`, {
+          parse_mode: "Markdown",
+          ...getProfileEditKeyboard()
+        });
+      }
+      flow.data.meetingPoint = validation.value;
     }
 
-    flow.step = "meetingDate";
+    flow.step = getTripCardNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply(buildTripMeetingDatePrompt(flow.data.meetingDate), {
-      parse_mode: "Markdown",
-      ...getProfileEditKeyboard()
-    });
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "meetingDate") {
     if (message !== PROFILE_SKIP_LABEL) {
-      if (!isValidDate(message)) {
-        return ctx.reply(buildTripMeetingDatePrompt(flow.data.meetingDate), {
+      const validation = validateIsoDate(message);
+      if (!validation.ok) {
+        return ctx.reply(`${validation.error}\n\n${buildTripMeetingDatePrompt(flow.data.meetingDate)}`, {
           parse_mode: "Markdown",
           ...getProfileEditKeyboard()
         });
       }
 
-      flow.data.meetingDate = message;
+      flow.data.meetingDate = validation.value;
     }
 
-    flow.step = "meetingTime";
+    flow.step = getTripCardNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply(buildTripMeetingTimePrompt(flow.data.meetingTime), {
-      parse_mode: "Markdown",
-      ...getProfileEditKeyboard()
-    });
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "meetingTime") {
     if (message !== PROFILE_SKIP_LABEL) {
-      if (!isValidMeetingTime(message)) {
-        return ctx.reply("Введи час у форматі HH:MM.\nПриклад: `07:30`", {
+      const validation = validateMeetingTime(message);
+      if (!validation.ok) {
+        return ctx.reply(`${validation.error}\n\n${buildTripMeetingTimePrompt(flow.data.meetingTime)}`, {
           parse_mode: "Markdown",
           ...getProfileEditKeyboard()
         });
       }
 
-      flow.data.meetingTime = message;
+      flow.data.meetingTime = validation.value;
     }
 
-    flow.step = "confirm";
+    flow.step = getTripCardNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-
-    return ctx.reply(
-      [
-        "Перевір дані походу:",
-        `• Назва: ${flow.data.name}`,
-        `• Дати: ${flow.data.startDate} -> ${flow.data.endDate}`,
-        `• Ночівлі: ${flow.data.nights}`,
-        `• Готовність спорядження: ${flow.data.gearReadinessStatus}`,
-        `• Точка збору: ${flow.data.meetingPoint || "автоматично за логікою бота"}`,
-        `• Дата та Час збору: ${formatTripMeetingDateTime({ meetingDate: flow.data.meetingDate, meetingTime: flow.data.meetingTime }) || "ще не задано"}`
-      ].join("\n"),
-      FLOW_CONFIRM_CARD_KEYBOARD
-    );
+    return replyTripCardStepPrompt(ctx, flow);
   }
 
   if (flow.step === "confirm") {
@@ -6040,7 +6028,15 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "name") {
-    flow.data.name = message;
+    const validation = validateTripName(message);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    flow.data.name = validation.value;
     flow.step = "startDate";
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
@@ -6050,14 +6046,15 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "startDate") {
-    if (!isValidDate(message)) {
-      return ctx.reply("Дата має бути у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+    const validation = validateIsoDate(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`2026-07-14\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
 
-    flow.data.startDate = message;
+    flow.data.startDate = validation.value;
     flow.step = "endDate";
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи дату завершення у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
@@ -6067,14 +6064,15 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "endDate") {
-    if (!isValidDate(message)) {
-      return ctx.reply("Дата має бути у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
+    const validation = validateIsoDate(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`2026-07-16\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
 
-    flow.data.endDate = message;
+    flow.data.endDate = validation.value;
     flow.data.nights = calculateNights(flow.data.startDate, flow.data.endDate);
     flow.step = "gearStatus";
     setFlow(String(ctx.from.id), flow);
@@ -6086,11 +6084,12 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
 
   if (flow.step === "gearStatus") {
     const normalized = normalizeGearStatus(message);
-    if (!["готово", "частково готово", "збираємо"].includes(normalized)) {
-      return ctx.reply("Обери один зі статусів кнопками нижче.", FLOW_GEAR_STATUS_KEYBOARD);
+    const validation = validateGearStatus(normalized);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, FLOW_GEAR_STATUS_KEYBOARD);
     }
 
-    flow.data.gearReadinessStatus = normalized;
+    flow.data.gearReadinessStatus = validation.value;
     flow.step = "confirm";
     setFlow(String(ctx.from.id), flow);
 
@@ -6297,7 +6296,7 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
   }
 
   if (flow.step === "name") {
-    flow.data.name = message;
+    flow.data.name = canonicalizeGearName(message);
     flow.data.attributes = {};
     flow.data.fieldIndex = 0;
     flow.step = "quantity";
@@ -6319,15 +6318,15 @@ async function handleGearAddFlow(ctx, flow, groupService, userService, telegram 
   }
 
   if (flow.step === "quantity") {
-    const quantity = Number(message);
-    if (!message || Number.isNaN(quantity) || quantity <= 0) {
-      return ctx.reply("Введи коректну кількість числом.\nПриклад: `1`", {
+    const validation = validatePositiveInteger(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`1\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
 
-    flow.data.quantity = quantity;
+    flow.data.quantity = validation.value;
     flow.step = "field";
     setFlow(String(ctx.from.id), flow);
     const { field } = getGearFlowField(flow);
@@ -7985,14 +7984,14 @@ async function handleFoodAddFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "cost") {
-    const cost = Number(String(message).replace(",", "."));
-
-    if (!message || Number.isNaN(cost) || cost < 0) {
-      return ctx.reply("Введи коректну вартість числом.\nПриклад: `180`", {
+    const costValidation = validatePositiveMoney(String(message).replace(",", "."));
+    if (!costValidation.ok) {
+      return ctx.reply(`${costValidation.error}\nПриклад: \`180\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
+    const cost = costValidation.value;
 
     groupService.addFood({
       groupId: flow.tripId,
@@ -8091,16 +8090,15 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "quantity") {
-    const quantity = Number(String(message).replace(",", "."));
-
-    if (!message || Number.isNaN(quantity) || quantity <= 0) {
-      return ctx.reply("Введи коректну кількість числом.\nПриклад: `2`", {
+    const quantityValidation = validatePositiveMoney(String(message).replace(",", "."));
+    if (!quantityValidation.ok) {
+      return ctx.reply(`${quantityValidation.error}\nПриклад: \`2\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
 
-    flow.data.quantity = quantity;
+    flow.data.quantity = quantityValidation.value;
     flow.step = "price";
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи ціну за одиницю у гривнях.\nПриклад: `450`", {
@@ -8110,14 +8108,14 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "price") {
-    const price = Number(String(message).replace(",", "."));
-
-    if (!message || Number.isNaN(price) || price < 0) {
-      return ctx.reply("Введи коректну ціну числом.\nПриклад: `450`", {
+    const priceValidation = validatePositiveMoney(String(message).replace(",", "."));
+    if (!priceValidation.ok) {
+      return ctx.reply(`${priceValidation.error}\nПриклад: \`450\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
+    const price = priceValidation.value;
 
     const amount = flow.data.quantity * price;
 

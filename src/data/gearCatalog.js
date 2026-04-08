@@ -139,6 +139,29 @@ const GEAR_NAME_ALIASES = [
   { canonical: "Сидушка", keywords: ["сидушка", "сидушка-пінка", "сітпад", "sit pad"] }
 ];
 
+const GEAR_SYNONYM_GROUPS = [
+  {
+    key: "cutting_tools",
+    names: ["Ніж", "Мультитул"]
+  },
+  {
+    key: "navigation_maps",
+    names: ["Карта", "Карта в телефоні", "GPS-навігатор", "GPS-годинник"]
+  },
+  {
+    key: "fire_starters",
+    names: ["Запальничка", "Кресало", "Сірники"]
+  },
+  {
+    key: "water_bottles",
+    names: ["Фляга", "Пляшка для води", "Гідратор"]
+  },
+  {
+    key: "sleep_systems",
+    names: ["Спальний мішок", "Квілт"]
+  }
+];
+
 export const GEAR_CATEGORIES = [
   {
     key: "bivouac",
@@ -1066,6 +1089,12 @@ export function canonicalizeGearName(name) {
   }
 
   return humanizeGearName(name);
+}
+
+export function resolveGearSynonymGroup(name) {
+  const canonicalName = canonicalizeGearName(name);
+  const match = GEAR_SYNONYM_GROUPS.find((group) => group.names.includes(canonicalName));
+  return match?.key || "";
 }
 
 export function categorizeGearName(name) {

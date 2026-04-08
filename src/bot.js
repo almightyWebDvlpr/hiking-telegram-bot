@@ -60,9 +60,29 @@ import {
   getFoodAddPreviousStep
 } from "./state/foodAddMachine.js";
 import {
+  getBorrowedGearNextStep,
+  getBorrowedGearPreviousStep
+} from "./state/borrowedGearMachine.js";
+import {
+  getGearEditNextStep,
+  getGearEditPreviousStep
+} from "./state/gearEditMachine.js";
+import {
   getGearNeedNextStep,
   getGearNeedPreviousStep
 } from "./state/gearNeedMachine.js";
+import {
+  getGearNeedManageNextStep,
+  getGearNeedManagePreviousStep
+} from "./state/gearNeedManageMachine.js";
+import {
+  getLoanedGearNextStep,
+  getLoanedGearPreviousStep
+} from "./state/loanedGearMachine.js";
+import {
+  getMyGearEditNextStep,
+  getMyGearEditPreviousStep
+} from "./state/myGearEditMachine.js";
 import {
   getProfileEditNextStep,
   getProfileEditPreviousStep
@@ -6709,7 +6729,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
   const message = ctx.message.text.trim();
 
   if (flow.step === "delete_confirm" && message === "❌ Скасувати") {
-    flow.step = "action";
+    flow.step = getGearEditPreviousStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
@@ -6726,7 +6746,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
   }
 
   if (flow.step === "quantity" && message === "❌ Скасувати") {
-    flow.step = "action";
+    flow.step = getGearEditPreviousStep(flow.step);
     delete flow.data.quantity;
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
@@ -6747,7 +6767,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
   }
 
   if (flow.step === "scope" && message === "❌ Скасувати") {
-    flow.step = "quantity";
+    flow.step = getGearEditPreviousStep(flow.step);
     delete flow.data.scope;
     delete flow.data.shareable;
     setFlow(String(ctx.from.id), flow);
@@ -6808,7 +6828,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       );
     }
 
-    flow.step = "scope";
+    flow.step = getGearEditPreviousStep(flow.step);
     delete flow.data.fieldIndex;
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
@@ -6855,7 +6875,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       return ctx.reply("Обери спорядження кнопкою нижче.", getTripGearEditItemsKeyboard(items, page));
     }
 
-    flow.step = "action";
+    flow.step = getGearEditNextStep(flow.step);
     flow.data.item = item;
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
@@ -6877,7 +6897,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
 
   if (flow.step === "action") {
     if (message === GEAR_EDIT_BACK_LABEL) {
-      flow.step = "pick";
+      flow.step = getGearEditPreviousStep(flow.step);
       delete flow.data.item;
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
@@ -6897,7 +6917,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
           { parse_mode: "HTML", ...getTripGearEditActionKeyboard() }
         );
       }
-      flow.step = "delete_confirm";
+      flow.step = getGearEditNextStep(flow.step, "DELETE");
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
         joinRichLines([
@@ -6917,7 +6937,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       return ctx.reply("Обери дію кнопкою нижче.", getTripGearEditActionKeyboard());
     }
 
-    flow.step = "quantity";
+    flow.step = getGearEditNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
@@ -6989,7 +7009,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       flow.data.shareable = flow.data.item.shareable;
       flow.data.attributes = { ...(flow.data.item.attributes || {}) };
       flow.data.fieldIndex = 0;
-      flow.step = "field";
+      flow.step = getGearEditNextStep(flow.step, "NEXT");
       setFlow(String(ctx.from.id), flow);
       const { field } = getGearFlowField({
         ...flow,
@@ -7001,7 +7021,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
         }
       });
       if (!field) {
-        flow.step = "save";
+        flow.step = getGearEditNextStep(flow.step);
         setFlow(String(ctx.from.id), flow);
       } else {
         return ctx.reply(
@@ -7015,7 +7035,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       }
     }
 
-    flow.step = "scope";
+    flow.step = getGearEditNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
@@ -7042,7 +7062,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
     flow.data.shareable = parsedScope.shareable;
     flow.data.attributes = { ...(flow.data.item.attributes || {}) };
     flow.data.fieldIndex = 0;
-    flow.step = "field";
+    flow.step = getGearEditNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     const { field } = getGearFlowField({
       ...flow,
@@ -7054,7 +7074,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       }
     });
     if (!field) {
-      flow.step = "save";
+      flow.step = getGearEditNextStep(flow.step);
     } else {
       return ctx.reply(
         buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
@@ -7070,7 +7090,7 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
       const field = profile.fields[fieldIndex];
 
       if (!field) {
-        flow.step = "save";
+        flow.step = getGearEditNextStep(flow.step);
         setFlow(String(ctx.from.id), flow);
       } else {
         const parsed = parseGearFieldInput(field, message);
@@ -7358,7 +7378,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
   }
 
   if (flow.step === "cancel_confirm" && message === "❌ Скасувати") {
-    flow.step = "action";
+    flow.step = getGearNeedManagePreviousStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     const matchState = getGearNeedMatchState(groupService, flow.tripId, flow.data.need, String(ctx.from.id));
     return ctx.reply(
@@ -7392,7 +7412,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
       return ctx.reply("Обери запит кнопкою нижче.", getMyGearNeedItemsKeyboard(items));
     }
 
-    flow.step = "action";
+    flow.step = getGearNeedManageNextStep(flow.step);
     flow.data.need = need;
     setFlow(String(ctx.from.id), flow);
     const matchState = getGearNeedMatchState(groupService, flow.tripId, need, String(ctx.from.id));
@@ -7412,7 +7432,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
 
   if (flow.step === "action") {
     if (message === GEAR_EDIT_BACK_LABEL) {
-      flow.step = "pick";
+      flow.step = getGearNeedManagePreviousStep(flow.step);
       delete flow.data.need;
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
@@ -7483,7 +7503,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
           ...item,
           actionLabel: `${index + 1}. ${truncateButtonLabel(item.memberName || item.name, 18)}`
         }));
-        flow.step = "match_pick";
+        flow.step = getGearNeedManageNextStep(flow.step, "MATCH");
         flow.data.matches = preparedMatches;
         flow.data.matchPurpose = "borrow_request";
         setFlow(String(ctx.from.id), flow);
@@ -7547,7 +7567,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
     }
 
     if (message === GEAR_NEED_CANCEL_LABEL) {
-      flow.step = "cancel_confirm";
+      flow.step = getGearNeedManageNextStep(flow.step, "CANCEL");
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
         joinRichLines([
@@ -7572,7 +7592,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
 
   if (flow.step === "match_pick") {
     if (message === GEAR_EDIT_BACK_LABEL) {
-      flow.step = "action";
+      flow.step = getGearNeedManagePreviousStep(flow.step);
       delete flow.data.matches;
       delete flow.data.matchPurpose;
       setFlow(String(ctx.from.id), flow);
@@ -7618,7 +7638,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
       gearId: picked.id
     });
     if (!requestedNeed) {
-      flow.step = "action";
+      flow.step = getGearNeedManagePreviousStep(flow.step);
       delete flow.data.matches;
       delete flow.data.matchPurpose;
       setFlow(String(ctx.from.id), flow);
@@ -7632,7 +7652,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
     flow.data.need = requestedNeed;
     delete flow.data.matches;
     delete flow.data.matchPurpose;
-    flow.step = "action";
+    flow.step = getGearNeedManagePreviousStep(flow.step);
     setFlow(String(ctx.from.id), flow);
 
     if (!delivered) {
@@ -7804,7 +7824,7 @@ async function handleBorrowedGearManageFlow(ctx, flow, groupService, userService
       return ctx.reply("Обери річ кнопкою нижче.", getBorrowedGearItemsKeyboard(items));
     }
 
-    flow.step = "action";
+    flow.step = getBorrowedGearNextStep(flow.step);
     flow.data = { item };
     setFlow(String(ctx.from.id), flow);
 
@@ -7829,7 +7849,7 @@ async function handleBorrowedGearManageFlow(ctx, flow, groupService, userService
 
   if (flow.step === "action") {
     if (message === "❌ Скасувати") {
-      flow.step = "pick";
+      flow.step = getBorrowedGearPreviousStep(flow.step);
       delete flow.data.item;
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
@@ -7986,7 +8006,7 @@ async function handleLoanedGearManageFlow(ctx, flow, groupService, userService, 
       return ctx.reply("Обери річ кнопкою нижче.", getLoanedGearItemsKeyboard(items));
     }
 
-    flow.step = "action";
+    flow.step = getLoanedGearNextStep(flow.step);
     flow.data = { item };
     setFlow(String(ctx.from.id), flow);
 
@@ -8012,7 +8032,7 @@ async function handleLoanedGearManageFlow(ctx, flow, groupService, userService, 
         return showLoanedOutGear(ctx, groupService);
       }
 
-      flow.step = "pick";
+      flow.step = getLoanedGearPreviousStep(flow.step);
       delete flow.data.item;
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
@@ -8625,7 +8645,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
   const message = ctx.message.text.trim();
 
   if (flow.step === "delete_confirm" && message === "❌ Скасувати") {
-    flow.step = "action";
+    flow.step = getMyGearEditPreviousStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
@@ -8640,7 +8660,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
   }
 
   if (flow.step === "quantity" && message === "❌ Скасувати") {
-    flow.step = "action";
+    flow.step = getMyGearEditPreviousStep(flow.step);
     delete flow.data.quantity;
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
@@ -8676,7 +8696,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
       );
     }
 
-    flow.step = "quantity";
+    flow.step = getMyGearEditPreviousStep(flow.step);
     delete flow.data.fieldIndex;
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
@@ -8720,7 +8740,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
       return ctx.reply("Обери річ кнопкою нижче.", getTripGearEditItemsKeyboard(items, page));
     }
 
-    flow.step = "action";
+    flow.step = getMyGearEditNextStep(flow.step);
     flow.data.item = item;
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
@@ -8737,7 +8757,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
 
   if (flow.step === "action") {
     if (message === GEAR_EDIT_BACK_LABEL) {
-      flow.step = "pick";
+      flow.step = getMyGearEditPreviousStep(flow.step);
       delete flow.data.item;
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
@@ -8751,7 +8771,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
     }
 
     if (message === GEAR_EDIT_DELETE_LABEL) {
-      flow.step = "delete_confirm";
+      flow.step = getMyGearEditNextStep(flow.step, "DELETE");
       setFlow(String(ctx.from.id), flow);
       return ctx.reply(
         joinRichLines([
@@ -8769,7 +8789,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
       return ctx.reply("Обери дію кнопкою нижче.", getTripGearEditActionKeyboard());
     }
 
-    flow.step = "quantity";
+    flow.step = getMyGearEditNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       joinRichLines([
@@ -8818,7 +8838,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
     flow.data.quantity = quantity;
     flow.data.attributes = { ...(flow.data.item.attributes || {}) };
     flow.data.fieldIndex = 0;
-    flow.step = "field";
+    flow.step = getMyGearEditNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     const { field } = getGearFlowField({
       ...flow,
@@ -8830,7 +8850,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
       }
     });
     if (!field) {
-      flow.step = "save";
+      flow.step = getMyGearEditNextStep(flow.step);
     } else {
       return ctx.reply(
         buildGearFieldPromptMessage("✏️ РЕДАГУВАТИ МОЄ СПОРЯДЖЕННЯ", flow.data.item.name, field, flow.data.attributes),
@@ -8846,7 +8866,7 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
       const field = profile.fields[fieldIndex];
 
       if (!field) {
-        flow.step = "save";
+        flow.step = getMyGearEditNextStep(flow.step);
         setFlow(String(ctx.from.id), flow);
       } else {
         const parsed = parseGearFieldInput(field, message);

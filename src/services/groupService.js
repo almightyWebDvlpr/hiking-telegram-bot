@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import { canonicalizeGearName, categorizeGearName, enrichGearItem, resolveGearProfile } from "../data/gearCatalog.js";
+import { canonicalizeFoodName, categorizeFoodName } from "../data/foodCatalog.js";
+import { canonicalizeExpenseTitle, categorizeExpenseTitle } from "../data/expenseCatalog.js";
 
 function createInviteCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -646,11 +648,15 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     Object.assign(group, preparedGroup);
 
+    const canonicalName = canonicalizeFoodName(food.name);
+    const category = categorizeFoodName(canonicalName);
     group.food.push({
       id: crypto.randomUUID(),
       memberId,
       memberName,
-      name: food.name,
+      name: canonicalName,
+      categoryKey: category.key,
+      categoryLabel: category.label,
       amountLabel: food.amountLabel || "",
       weightGrams: Number(food.weightGrams) || 0,
       quantity: food.quantity,
@@ -693,11 +699,15 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     Object.assign(group, preparedGroup);
 
+    const canonicalTitle = canonicalizeExpenseTitle(expense.title);
+    const category = categorizeExpenseTitle(canonicalTitle);
     group.expenses.push({
       id: crypto.randomUUID(),
       memberId,
       memberName,
-      title: expense.title,
+      title: canonicalTitle,
+      categoryKey: category.key,
+      categoryLabel: category.label,
       quantity: expense.quantity,
       price: Number(expense.price) || 0,
       amount: Number(expense.amount) || 0,

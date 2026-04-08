@@ -26,6 +26,52 @@ function getSeasonFaqIdByDate(dateString = "") {
   }
   return "packing-autumn";
 }
+function getRegionFaqIds(context = {}) {
+  const trip = context.trip || {};
+  const tripCard = trip.tripCard || {};
+  const routeMeta = context.routeMeta || trip.routePlan?.meta || {};
+  const candidates = [
+    tripCard.region,
+    trip.region,
+    routeMeta.region,
+    routeMeta.routeRegion,
+    routeMeta.startRegion,
+    context.location,
+    context.region
+  ]
+    .map((value) => normalizeFaqSearchValue(value))
+    .filter(Boolean);
+
+  const ids = [];
+  for (const value of candidates) {
+    if (value.includes("чорногор")) {
+      ids.push("region-chornohora");
+    }
+    if (value.includes("горган")) {
+      ids.push("region-gorgany");
+    }
+    if (value.includes("свидов")) {
+      ids.push("region-svidovets");
+    }
+    if (value.includes("боржав")) {
+      ids.push("region-borzhava");
+    }
+    if (value.includes("мармар")) {
+      ids.push("region-marmarosy");
+    }
+    if (value.includes("сколів") || value.includes("бескид")) {
+      ids.push("region-skolivski");
+    }
+    if (value.includes("руна")) {
+      ids.push("region-runa");
+    }
+    if (value.includes("синевир") || value.includes("негров")) {
+      ids.push("region-synevyr");
+    }
+  }
+
+  return [...new Set(ids)];
+}
 export class AdvisorService {
   getPreparationAdvice({ season, days, difficulty }) {
     const normalizedDifficulty = difficulty.toLowerCase();
@@ -214,11 +260,13 @@ export class AdvisorService {
     const weatherSummary = normalizeFaqSearchValue(context.weatherSummary || "");
     const routeMeta = context.routeMeta || trip.routePlan?.meta || {};
     const ids = [];
+    const regionFaqIds = getRegionFaqIds(context);
 
     if (screen === "trip_details") {
       if (seasonFaqId) {
         ids.push(seasonFaqId);
       }
+      ids.push(...regionFaqIds);
       ids.push("gear-must-have", "packing-first-hike");
       if (Number(tripCard.nights) > 0) {
         ids.push("clothes-night");
@@ -232,6 +280,7 @@ export class AdvisorService {
       if (seasonFaqId) {
         ids.push(seasonFaqId);
       }
+      ids.push(...regionFaqIds);
       ids.push("gear-must-have", "packing-first-hike");
       if (Number(tripCard.nights) > 0) {
         ids.push("camp-shared", "clothes-night");
@@ -239,6 +288,7 @@ export class AdvisorService {
     }
 
     if (screen === "route") {
+      ids.push(...regionFaqIds);
       ids.push("route-fit", "route-start-time", "nav-offline");
       if (Number(tripCard.nights) > 0) {
         ids.push("water-none");
@@ -254,6 +304,7 @@ export class AdvisorService {
       if (seasonFaqId) {
         ids.push(seasonFaqId);
       }
+      ids.push(...regionFaqIds);
       if (weatherSummary.includes("дощ") || weatherSummary.includes("опад")) {
         ids.push("clothes-rain");
       }
@@ -267,6 +318,13 @@ export class AdvisorService {
         ids.unshift("packing-winter");
       }
       ids.push("water-day", "route-cancel");
+    }
+
+    if (!ids.length) {
+      if (seasonFaqId) {
+        ids.push(seasonFaqId);
+      }
+      ids.push(...regionFaqIds);
     }
 
     const uniqueIds = [...new Set(ids)].slice(0, Math.max(1, Number(limit) || 3));

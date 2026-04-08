@@ -1,3 +1,5 @@
+import Fuse from "fuse.js";
+
 function normalizeSearch(value) {
   return String(value || "")
     .toLowerCase()
@@ -161,6 +163,21 @@ const GEAR_SYNONYM_GROUPS = [
     names: ["Спальний мішок", "Квілт"]
   }
 ];
+
+const GEAR_ALIAS_RECORDS = GEAR_NAME_ALIASES.flatMap((item) =>
+  item.keywords.map((keyword) => ({
+    canonical: item.canonical,
+    keyword,
+    normalizedKeyword: normalizeSearch(keyword)
+  }))
+);
+
+const GEAR_ALIAS_FUSE = new Fuse(GEAR_ALIAS_RECORDS, {
+  includeScore: true,
+  threshold: 0.28,
+  ignoreLocation: true,
+  keys: [{ name: "normalizedKeyword", weight: 1 }]
+});
 
 export const GEAR_CATEGORIES = [
   {
@@ -1086,6 +1103,11 @@ export function canonicalizeGearName(name) {
   const alias = GEAR_NAME_ALIASES.find((item) => item.keywords.some((keyword) => matchesKeyword(normalized, buildSearchTokens(name), keyword)));
   if (alias) {
     return alias.canonical;
+  }
+
+  const fuzzyMatch = GEAR_ALIAS_FUSE.search(normalized, { limit: 1 })[0];
+  if (fuzzyMatch && (fuzzyMatch.score ?? 1) <= 0.28) {
+    return fuzzyMatch.item.canonical;
   }
 
   return humanizeGearName(name);

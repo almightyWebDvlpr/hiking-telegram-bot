@@ -1,3 +1,4 @@
+import Fuse from "fuse.js";
 import { FAQ_ITEMS } from "../data/faqCatalog.js";
 
 function normalizeFaqSearchValue(value) {
@@ -72,6 +73,24 @@ function getRegionFaqIds(context = {}) {
 
   return [...new Set(ids)];
 }
+const FAQ_FUSE = new Fuse(
+  FAQ_ITEMS.map((item) => ({
+    ...item,
+    searchQuestion: normalizeFaqSearchValue(item.question),
+    searchCategory: normalizeFaqSearchValue(item.category),
+    searchAnswer: normalizeFaqSearchValue(item.answer.join(" "))
+  })),
+  {
+    includeScore: true,
+    threshold: 0.34,
+    ignoreLocation: true,
+    keys: [
+      { name: "searchQuestion", weight: 0.55 },
+      { name: "searchCategory", weight: 0.15 },
+      { name: "searchAnswer", weight: 0.3 }
+    ]
+  }
+);
 export class AdvisorService {
   getPreparationAdvice({ season, days, difficulty }) {
     const normalizedDifficulty = difficulty.toLowerCase();
@@ -199,43 +218,14 @@ export class AdvisorService {
       };
     }
 
-    const queryTokens = normalizedQuery.split(" ").filter(Boolean);
-    const ranked = FAQ_ITEMS.map((item) => {
-      const question = normalizeFaqSearchValue(item.question);
-      const category = normalizeFaqSearchValue(item.category);
-      const answer = normalizeFaqSearchValue(item.answer.join(" "));
-      const haystack = `${question} ${category} ${answer}`;
-      let score = 0;
-
-      if (question.includes(normalizedQuery)) {
-        score += 8;
-      }
-      if (category.includes(normalizedQuery)) {
-        score += 4;
-      }
-      if (answer.includes(normalizedQuery)) {
-        score += 2;
-      }
-
-      for (const token of queryTokens) {
-        if (question.includes(token)) {
-          score += 3;
-        } else if (haystack.includes(token)) {
-          score += 1;
-        }
-      }
-
-      return score > 0
-        ? {
-            id: item.id,
-            category: item.category,
-            question: item.question,
-            score
-          }
-        : null;
-    })
-      .filter(Boolean)
-      .sort((left, right) => right.score - left.score || left.question.localeCompare(right.question, "uk"));
+    const ranked = FAQ_FUSE.search(normalizedQuery)
+      .map((result) => ({
+        id: result.item.id,
+        category: result.item.category,
+        question: result.item.question,
+        score: result.score ?? 1
+      }))
+      .sort((left, right) => left.score - right.score || left.question.localeCompare(right.question, "uk"));
 
     const normalizedPageSize = Math.max(1, Number(pageSize) || 10);
     const totalCount = ranked.length;

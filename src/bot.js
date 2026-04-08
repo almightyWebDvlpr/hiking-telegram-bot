@@ -35,6 +35,7 @@ import { canonicalizeExpenseTitle } from "./data/expenseCatalog.js";
 import {
   validateBloodType,
   validateCity,
+  validateInviteCode,
   validateGearItemName,
   validateGearStatus,
   validateIsoDate,
@@ -45,6 +46,8 @@ import {
   validatePositiveInteger,
   validatePositiveMoney,
   validateProfileName,
+  validateRoutePlace,
+  validateSearchQuery,
   validateShortProfileText,
   validateTripName
 } from "./services/validationService.js";
@@ -87,6 +90,11 @@ import {
   getProfileEditNextStep,
   getProfileEditPreviousStep
 } from "./state/profileEditMachine.js";
+import {
+  getRouteNextStep,
+  getRoutePreviousStep
+} from "./state/routeMachine.js";
+import { getTripCreateNextStep } from "./state/tripCreateMachine.js";
 import { getTripCardNextStep, getTripCardPreviousStep } from "./state/tripCardMachine.js";
 
 
@@ -1989,6 +1997,22 @@ function buildTripMeetingTimePrompt(currentValue = "") {
     "",
     "Можна натиснути `⏭ Пропустити`, якщо час ще не визначено."
   ].filter(Boolean).join("\n");
+}
+
+function buildRoutePrompt(step, mode = "search") {
+  if (step === "from") {
+    return mode === "search"
+      ? "Введи точку старту маршруту.\nПриклад: `Яремче` або `Заросляк`."
+      : "Введи точку старту походу.\nПриклад: `Заросляк` або `Ворохта`.";
+  }
+
+  if (step === "to") {
+    return mode === "search"
+      ? "Введи точку фінішу маршруту.\nПриклад: `Говерла` або `Кукул`."
+      : "Введи точку фінішу або цілі походу.\nПриклад: `Кукул` або `Говерла`.";
+  }
+
+  return "Введи регіон або населений пункт для погоди походу.\nПриклад: `Ворохта`";
 }
 
 function buildTripMeetingDatePrompt(currentValue = "") {
@@ -5719,9 +5743,7 @@ function startRouteWizard(ctx, groupService, mode) {
   });
 
   return ctx.reply(
-    mode === "search"
-      ? "Введи точку старту маршруту.\nПриклад: `Яремче` або `Заросляк`."
-      : "Введи точку старту походу.\nПриклад: `Заросляк` або `Ворохта`.",
+    buildRoutePrompt("from", mode),
     {
       parse_mode: "Markdown",
       ...getRouteFlowKeyboard(mode)
@@ -5749,7 +5771,7 @@ function startTripCardWizardForTrip(ctx, tripId, initialData = {}) {
 function startCreateTripWizard(ctx, tripName = "") {
   setFlow(String(ctx.from.id), {
     type: "trip_create",
-    step: tripName ? "startDate" : "name",
+    step: tripName ? getTripCreateNextStep("name") : "name",
     data: tripName ? { name: tripName } : {}
   });
 
@@ -5792,19 +5814,59 @@ async function handleRouteFlow(ctx, flow, groupService, routeService, userServic
   }
 
   if (message === getRouteFlowBackLabel(flow.mode)) {
-    clearFlow(String(ctx.from.id));
-    return showParentMenuByContext(ctx, groupService, parentContext, advisorService)
-      || (flow.mode === "search" ? showRoutesMenu(ctx) : showRouteMenu(ctx, groupService, advisorService));
+    const previousStep = getRoutePreviousStep(flow.step);
+    if (previousStep === flow.step) {
+      clearFlow(String(ctx.from.id));
+      return showParentMenuByContext(ctx, groupService, parentContext, advisorService)
+        || (flow.mode === "search" ? showRoutesMenu(ctx) : showRouteMenu(ctx, groupService, advisorService));
+    }
+
+    flow.step = previousStep;
+    setFlow(String(ctx.from.id), flow);
+
+    if (flow.step === "from") {
+      return ctx.reply(
+        buildRoutePrompt("from", flow.mode),
+        { parse_mode: "Markdown", ...getRouteFlowKeyboard(flow.mode) }
+      );
+    }
+
+    if (flow.step === "to") {
+      return ctx.reply(
+        buildRoutePrompt("to", flow.mode),
+        { parse_mode: "Markdown", ...getRouteFlowKeyboard(flow.mode) }
+      );
+    }
+
+    if (flow.step === "stops") {
+      return ctx.reply(
+        (flow.data.stopSuggestions || []).length
+          ? `Обери проміжні точки з перевіреного списку.\nМожна натиснути кілька точок по черзі, а потім \`${FLOW_STOPS_DONE_LABEL}\`.`
+          : "Для цього маршруту немає перевірених проміжних точок у бібліотеці.\nЯкщо зупинок немає, натисни `⏭ Без зупинок`.",
+        { parse_mode: "Markdown", ...getRouteStopsKeyboard(flow.data.stopSuggestions || [], flow.data.stops || [], flow.mode) }
+      );
+    }
+
+    return ctx.reply(buildRoutePrompt("region", flow.mode), {
+      parse_mode: "Markdown",
+      ...getRouteFlowKeyboard(flow.mode)
+    });
   }
 
   if (flow.step === "from") {
-    flow.data.from = message;
-    flow.step = "to";
+    const validation = validateRoutePlace(message);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, {
+        parse_mode: "Markdown",
+        ...getRouteFlowKeyboard(flow.mode)
+      });
+    }
+
+    flow.data.from = validation.value;
+    flow.step = getRouteNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
-      flow.mode === "search"
-        ? "Введи точку фінішу маршруту.\nПриклад: `Говерла` або `Кукул`."
-        : "Введи точку фінішу або цілі походу.\nПриклад: `Кукул` або `Говерла`.",
+      buildRoutePrompt("to", flow.mode),
       {
         parse_mode: "Markdown",
         ...getRouteFlowKeyboard(flow.mode)
@@ -5813,14 +5875,22 @@ async function handleRouteFlow(ctx, flow, groupService, routeService, userServic
   }
 
   if (flow.step === "to") {
-    flow.data.to = message;
+    const validation = validateRoutePlace(message);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, {
+        parse_mode: "Markdown",
+        ...getRouteFlowKeyboard(flow.mode)
+      });
+    }
+
+    flow.data.to = validation.value;
     flow.data.stops = [];
     flow.data.stopSuggestions = routeService.getSuggestedWaypoints({
       from: flow.data.from,
       to: flow.data.to
     });
 
-    flow.step = "stops";
+    flow.step = getRouteNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       flow.data.stopSuggestions.length
@@ -5878,16 +5948,24 @@ async function handleRouteFlow(ctx, flow, groupService, routeService, userServic
       return sendInlineTrackPreviewImage(ctx, routeService, report.meta, "Прев’ю згенерованого треку.");
     }
 
-    flow.step = "region";
+    flow.step = getRouteNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Введи регіон або населений пункт для погоди походу.\nПриклад: `Ворохта`", {
+    return ctx.reply(buildRoutePrompt("region", flow.mode), {
       parse_mode: "Markdown",
       ...getRouteFlowKeyboard(flow.mode)
     });
   }
 
   if (flow.step === "region") {
-    flow.data.region = message;
+    const validation = validateRoutePlace(message);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, {
+        parse_mode: "Markdown",
+        ...getRouteFlowKeyboard(flow.mode)
+      });
+    }
+
+    flow.data.region = validation.value;
     const report = await routeService.getRouteReport({
       points: [flow.data.from, ...(flow.data.stops || []), flow.data.to]
     });
@@ -5908,7 +5986,7 @@ async function handleRouteFlow(ctx, flow, groupService, routeService, userServic
       );
     }
 
-    flow.step = "confirm";
+    flow.step = getRouteNextStep(flow.step);
     flow.data.report = {
       ...report
     };
@@ -6219,7 +6297,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     }
 
     flow.data.name = validation.value;
-    flow.step = "startDate";
+    flow.step = getTripCreateNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
       parse_mode: "Markdown",
@@ -6237,7 +6315,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     }
 
     flow.data.startDate = validation.value;
-    flow.step = "endDate";
+    flow.step = getTripCreateNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи дату завершення у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
       parse_mode: "Markdown",
@@ -6256,7 +6334,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
 
     flow.data.endDate = validation.value;
     flow.data.nights = calculateNights(flow.data.startDate, flow.data.endDate);
-    flow.step = "gearStatus";
+    flow.step = getTripCreateNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
     return ctx.reply(
       `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
@@ -6272,7 +6350,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     }
 
     flow.data.gearReadinessStatus = validation.value;
-    flow.step = "confirm";
+    flow.step = getTripCreateNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
 
     return ctx.reply(
@@ -6416,7 +6494,15 @@ async function handleJoinTripFlow(ctx, flow, groupService, userService, telegram
     return ctx.reply("Приєднання до походу скасовано.", getMainKeyboard(ctx));
   }
 
-  const result = groupService.joinGroup(message, {
+  const validation = validateInviteCode(message);
+  if (!validation.ok) {
+    return ctx.reply(validation.error, {
+      parse_mode: "Markdown",
+      ...FLOW_CANCEL_KEYBOARD
+    });
+  }
+
+  const result = groupService.joinGroup(validation.value, {
     id: String(ctx.from.id),
     name: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx))
   });
@@ -8971,6 +9057,14 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
   }
 
   if (flow.step === "query") {
+    const validation = validateSearchQuery(message);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, {
+        parse_mode: "Markdown",
+        ...getVpohidSearchKeyboard(mode)
+      });
+    }
+
     await ctx.reply("Шукаю маршрути на vpohid.com.ua...");
 
     let matches = [];
@@ -8988,7 +9082,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
     }, 6000);
 
     try {
-      matches = await vpohidLiveService.searchRoutes(message);
+      matches = await vpohidLiveService.searchRoutes(validation.value);
     } catch {
       searchFailed = true;
     } finally {
@@ -9016,7 +9110,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
     flow.step = "results";
     flow.data = {
       ...flow.data,
-      query: message,
+      query: validation.value,
       matches: matches.slice(0, VPOHID_RESULTS_LIMIT).map((route, index) => ({
         id: route.id,
         title: route.title,
@@ -9026,7 +9120,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
     setFlow(String(ctx.from.id), flow);
 
     const prefix = "";
-    return ctx.reply(`${prefix}${formatVpohidSearchResults(message, matches)}`, { parse_mode: "HTML", ...getVpohidResultsKeyboard(matches, mode) });
+    return ctx.reply(`${prefix}${formatVpohidSearchResults(validation.value, matches)}`, { parse_mode: "HTML", ...getVpohidResultsKeyboard(matches, mode) });
   }
 
   if (flow.step === "catalog_loading") {
@@ -10523,7 +10617,12 @@ export function createBot(store) {
   const joinTripByInviteCode = async (ctx, inviteCode) => {
     const memberId = String(ctx.from.id);
     const memberName = userService.getDisplayName(memberId, getUserLabel(ctx));
-    const result = groupService.joinGroup(inviteCode, {
+    const validation = validateInviteCode(inviteCode);
+    if (!validation.ok) {
+      return ctx.reply(validation.error, getMainKeyboard(ctx));
+    }
+
+    const result = groupService.joinGroup(validation.value, {
       id: memberId,
       name: memberName
     });

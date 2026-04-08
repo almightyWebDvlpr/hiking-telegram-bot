@@ -4,6 +4,7 @@ const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const MEETING_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const PHONE_REGEX = /^\+?[0-9()\-\s]{8,20}$/;
 const BLOOD_TYPE_REGEX = /^((1|2|3|4)|(I|II|III|IV))\s?[+-]$/i;
+const INVITE_CODE_REGEX = /^[A-Z0-9]{6}$/;
 
 export const isoDateSchema = z
   .string()
@@ -54,6 +55,24 @@ export const citySchema = z
   .trim()
   .min(2, "Вкажи місто трохи детальніше.")
   .max(80, "Назва міста занадто довга.");
+
+export const routePlaceSchema = z
+  .string()
+  .trim()
+  .min(2, "Вкажи точку маршруту трохи детальніше.")
+  .max(120, "Назва точки маршруту занадто довга.");
+
+export const searchQuerySchema = z
+  .string()
+  .trim()
+  .min(2, "Введи хоча б 2 символи для пошуку.")
+  .max(160, "Пошуковий запит занадто довгий.");
+
+export const inviteCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(INVITE_CODE_REGEX, "Код походу має містити 6 латинських символів або цифр.");
 
 export const profileNameSchema = z
   .string()
@@ -143,6 +162,18 @@ export function validateCity(value) {
 
 export function validateProfileName(value) {
   return buildResult(profileNameSchema.safeParse(value));
+}
+
+export function validateRoutePlace(value) {
+  return buildResult(routePlaceSchema.safeParse(value));
+}
+
+export function validateSearchQuery(value) {
+  return buildResult(searchQuerySchema.safeParse(value));
+}
+
+export function validateInviteCode(value) {
+  return buildResult(inviteCodeSchema.safeParse(value));
 }
 
 export function validateShortProfileText(value) {

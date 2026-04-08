@@ -26,6 +26,11 @@ import {
   resolveGearProfile,
   summarizeGearAttributes
 } from "./data/gearCatalog.js";
+import {
+  canonicalizeFoodName,
+  inferFoodMeasureKind as inferFoodMeasureKindFromCatalog
+} from "./data/foodCatalog.js";
+import { canonicalizeExpenseTitle } from "./data/expenseCatalog.js";
 
 
 
@@ -4706,103 +4711,7 @@ function formatWeightGrams(value) {
 }
 
 function inferFoodMeasureKind(name) {
-  const normalized = String(name || "").trim().toLowerCase();
-
-  const volumeKeywords = [
-    "вода",
-    "сік",
-    "сок",
-    "пепсі",
-    "pepsi",
-    "кола",
-    "cola",
-    "фанта",
-    "спрайт",
-    "міринда",
-    "молоко",
-    "кефір",
-    "ряжанка",
-    "йогурт питний",
-    "айран",
-    "чай",
-    "кава",
-    "компот",
-    "морс",
-    "узвар",
-    "суп",
-    "бульйон",
-    "ізотонік",
-    "енергетик",
-    "напій",
-    "сироп",
-    "олія",
-    "масло",
-    "соус",
-    "кетчуп",
-    "майонез",
-    "гірчиця",
-    "горілка",
-    "водка",
-    "віскі",
-    "коньяк",
-    "коньячок",
-    "вино",
-    "пиво",
-    "ром",
-    "джин"
-  ];
-
-  const weightKeywords = [
-    "гречка",
-    "рис",
-    "макарон",
-    "круп",
-    "вівсян",
-    "пшоно",
-    "булгур",
-    "кус кус",
-    "кускус",
-    "сочевиц",
-    "нут",
-    "квасол",
-    "борошно",
-    "цукор",
-    "сіль",
-    "чай сухий",
-    "кава мелена",
-    "кава зернова",
-    "сухар",
-    "печиво",
-    "батончик",
-    "сублім",
-    "сушене м'ясо",
-    "м'ясо",
-    "ковбас",
-    "сало",
-    "сир",
-    "тушонк",
-    "тушкован",
-    "консерва",
-    "рибна консерва",
-    "м'ясна консерва",
-    "овочева консерва",
-    "горіх",
-    "сухофрукт",
-    "шоколад",
-    "цукерк",
-    "хліб",
-    "лаваш"
-  ];
-
-  if (volumeKeywords.some((keyword) => normalized.includes(keyword))) {
-    return "volume";
-  }
-
-  if (weightKeywords.some((keyword) => normalized.includes(keyword))) {
-    return "weight";
-  }
-
-  return "any";
+  return inferFoodMeasureKindFromCatalog(name);
 }
 
 function parseFoodAmountInput(input, expectedKind = "any") {
@@ -8011,7 +7920,7 @@ async function handleFoodAddFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "name") {
-    flow.data.name = message;
+    flow.data.name = canonicalizeFoodName(message);
     flow.step = "weight";
     setFlow(String(ctx.from.id), flow);
     const measureKind = inferFoodMeasureKind(flow.data.name);
@@ -8090,7 +7999,7 @@ async function handleFoodAddFlow(ctx, flow, groupService, userService) {
       memberId: String(ctx.from.id),
       memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
       food: {
-        name: flow.data.name,
+        name: canonicalizeFoodName(flow.data.name),
         amountLabel: flow.data.amountLabel,
         weightGrams: flow.data.weightGrams,
         quantity: flow.data.quantity,
@@ -8172,7 +8081,7 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
   }
 
   if (flow.step === "title") {
-    flow.data.title = message;
+    flow.data.title = canonicalizeExpenseTitle(message);
     flow.step = "quantity";
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи кількість.\nПриклад: `2` або `1`", {
@@ -8217,7 +8126,7 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
       memberId: String(ctx.from.id),
       memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
       expense: {
-        title: flow.data.title,
+        title: canonicalizeExpenseTitle(flow.data.title),
         quantity: flow.data.quantity,
         price,
         amount,
@@ -10669,7 +10578,8 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
-    const [name, amountRaw, quantity, costRaw] = ctx.message.text.replace("/addfood", "").trim().split(";").map((part) => part?.trim());
+    const [rawName, amountRaw, quantity, costRaw] = ctx.message.text.replace("/addfood", "").trim().split(";").map((part) => part?.trim());
+    const name = canonicalizeFoodName(rawName);
     const amount = parseFoodAmountInput(amountRaw, inferFoodMeasureKind(name));
     const cost = Number(String(costRaw || "").replace(",", "."));
 
@@ -10699,7 +10609,8 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
-    const [title, quantityRaw, priceRaw] = ctx.message.text.replace("/addexpense", "").trim().split(";").map((part) => part?.trim());
+    const [rawTitle, quantityRaw, priceRaw] = ctx.message.text.replace("/addexpense", "").trim().split(";").map((part) => part?.trim());
+    const title = canonicalizeExpenseTitle(rawTitle);
     const quantity = Number(String(quantityRaw || "").replace(",", "."));
     const price = Number(String(priceRaw || "").replace(",", "."));
 

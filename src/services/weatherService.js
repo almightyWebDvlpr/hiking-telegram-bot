@@ -98,6 +98,47 @@ function buildWeatherWarnings(current, daily) {
   return warnings;
 }
 
+function buildWeatherConclusions(current, daily) {
+  const conclusions = [];
+  const currentWind = Number(current?.wind_speed_10m) || 0;
+  const maxWind = Math.max(
+    currentWind,
+    ...(Array.isArray(daily?.wind_speed_10m_max) ? daily.wind_speed_10m_max.map((value) => Number(value) || 0) : [0])
+  );
+  const minTemp = Math.min(
+    ...(Array.isArray(daily?.temperature_2m_min) ? daily.temperature_2m_min.map((value) => Number(value) || 99) : [99])
+  );
+  const maxPrecip = Math.max(
+    ...(Array.isArray(daily?.precipitation_sum) ? daily.precipitation_sum.map((value) => Number(value) || 0) : [0])
+  );
+  const currentCode = Number(current?.weather_code);
+  const dailyCodes = Array.isArray(daily?.weather_code) ? daily.weather_code.map((value) => Number(value)) : [];
+  const hasThunder = isThunderstormCode(currentCode) || dailyCodes.some((code) => isThunderstormCode(code));
+  const hasRainRisk = maxPrecip >= 5 || isRainRiskCode(currentCode) || dailyCodes.some((code) => isRainRiskCode(code));
+
+  if (hasThunder) {
+    conclusions.push("плануй ранній вихід і тримай готовий нижчий або коротший запасний варіант замість відкритого хребта");
+  }
+
+  if (maxWind >= 35) {
+    conclusions.push(`на відкритому рельєфі маршрут відчуватиметься жорсткіше через вітер до ${Math.round(maxWind)} км/год`);
+  }
+
+  if (hasRainRisk) {
+    conclusions.push("заклади дощовик, гермозахист для сухих речей і запас часу на повільніший спуск");
+  }
+
+  if (minTemp <= 2) {
+    conclusions.push(`на ранок і вечір може бути холодно, бо мінімум опускається до ${Math.round(minTemp)}°C`);
+  }
+
+  if (!conclusions.length) {
+    conclusions.push("погода виглядає робочою, але перед виходом усе одно перевір ранкове оновлення прогнозу");
+  }
+
+  return conclusions.slice(0, 4);
+}
+
 const STATIC_WEATHER_LOCATION_ALIASES = new Map([
   ["міжгір'я", { latitude: 48.52458, longitude: 23.50444, name: "Міжгір’я", admin1: "Закарпатська область", country: "Україна" }],
   ["міжгіря", { latitude: 48.52458, longitude: 23.50444, name: "Міжгір’я", admin1: "Закарпатська область", country: "Україна" }],
@@ -220,6 +261,7 @@ export class WeatherService {
       const daily = forecast.daily;
       const area = [place.name, place.admin1, place.country].filter(Boolean).join(", ");
       const warnings = buildWeatherWarnings(current, daily);
+      const conclusions = buildWeatherConclusions(current, daily);
 
       const lines = [
         `<b>🌦 Погода</b>`,
@@ -232,6 +274,9 @@ export class WeatherService {
         "<b>📅 Прогноз</b>",
         escapeHtml(formatDailyLine("Сьогодні", daily, 0)),
         escapeHtml(formatDailyLine("Завтра", daily, 1)),
+        "",
+        "<b>🧭 Що це означає для походу</b>",
+        ...conclusions.map((item) => `• ${escapeHtml(item)}`),
         "",
         "<b>⚠️ Зверни увагу</b>",
         "• для гір перевір також силу вітру, опади і запасний маршрут перед виходом"

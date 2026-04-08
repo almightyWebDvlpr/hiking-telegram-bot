@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const MEETING_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const PHONE_REGEX = /^\+?[0-9()\-\s]{8,20}$/;
+const BLOOD_TYPE_REGEX = /^((1|2|3|4)|(I|II|III|IV))\s?[+-]$/i;
 
 export const isoDateSchema = z
   .string()
@@ -35,11 +37,51 @@ export const tripNameSchema = z
   .min(1, "Назва походу не може бути порожньою.")
   .max(120, "Назва походу занадто довга.");
 
+export const gearItemNameSchema = z
+  .string()
+  .trim()
+  .min(2, "Назва має бути трохи детальнішою.")
+  .max(120, "Назва занадто довга.");
+
 export const meetingPointSchema = z
   .string()
   .trim()
   .min(2, "Точка збору має бути трохи детальнішою.")
   .max(160, "Точка збору занадто довга.");
+
+export const citySchema = z
+  .string()
+  .trim()
+  .min(2, "Вкажи місто трохи детальніше.")
+  .max(80, "Назва міста занадто довга.");
+
+export const profileNameSchema = z
+  .string()
+  .trim()
+  .min(2, "Вкажи ПІБ або ім'я трохи детальніше.")
+  .max(120, "ПІБ занадто довге.");
+
+export const shortProfileTextSchema = z
+  .string()
+  .trim()
+  .min(2, "Вкажи значення трохи детальніше.")
+  .max(80, "Значення занадто довге.");
+
+export const longProfileTextSchema = z
+  .string()
+  .trim()
+  .min(2, "Вкажи значення трохи детальніше.")
+  .max(300, "Текст занадто довгий.");
+
+export const phoneSchema = z
+  .string()
+  .trim()
+  .regex(PHONE_REGEX, "Введи телефон у зрозумілому форматі, наприклад +380671234567.");
+
+export const bloodTypeSchema = z
+  .string()
+  .trim()
+  .regex(BLOOD_TYPE_REGEX, "Введи групу крові у форматі 4+ або 2-.");
 
 export const gearStatusSchema = z.enum(["готово", "частково готово", "збираємо"], {
   errorMap: () => ({ message: "Обери один зі статусів готовності." })
@@ -83,10 +125,38 @@ export function validateTripName(value) {
   return buildResult(tripNameSchema.safeParse(value));
 }
 
+export function validateGearItemName(value) {
+  return buildResult(gearItemNameSchema.safeParse(value));
+}
+
 export function validateMeetingPoint(value) {
   return buildResult(meetingPointSchema.safeParse(value));
 }
 
 export function validateGearStatus(value) {
   return buildResult(gearStatusSchema.safeParse(value));
+}
+
+export function validateCity(value) {
+  return buildResult(citySchema.safeParse(value));
+}
+
+export function validateProfileName(value) {
+  return buildResult(profileNameSchema.safeParse(value));
+}
+
+export function validateShortProfileText(value) {
+  return buildResult(shortProfileTextSchema.safeParse(value));
+}
+
+export function validateLongProfileText(value) {
+  return buildResult(longProfileTextSchema.safeParse(value));
+}
+
+export function validatePhone(value) {
+  return buildResult(phoneSchema.safeParse(value));
+}
+
+export function validateBloodType(value) {
+  return buildResult(bloodTypeSchema.safeParse(value));
 }

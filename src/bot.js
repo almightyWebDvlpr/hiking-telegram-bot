@@ -33,17 +33,36 @@ import {
 } from "./data/foodCatalog.js";
 import { canonicalizeExpenseTitle } from "./data/expenseCatalog.js";
 import {
+  validateBloodType,
+  validateCity,
+  validateGearItemName,
   validateGearStatus,
   validateIsoDate,
+  validateLongProfileText,
   validateMeetingPoint,
   validateMeetingTime,
+  validatePhone,
   validatePositiveInteger,
   validatePositiveMoney,
+  validateProfileName,
+  validateShortProfileText,
   validateTripName
 } from "./services/validationService.js";
 import {
   getGearAddNextStep
 } from "./state/gearAddMachine.js";
+import {
+  getExpenseAddNextStep,
+  getExpenseAddPreviousStep
+} from "./state/expenseAddMachine.js";
+import {
+  getFoodAddNextStep,
+  getFoodAddPreviousStep
+} from "./state/foodAddMachine.js";
+import {
+  getGearNeedNextStep,
+  getGearNeedPreviousStep
+} from "./state/gearNeedMachine.js";
 import {
   getProfileEditNextStep,
   getProfileEditPreviousStep
@@ -5100,6 +5119,33 @@ const PROFILE_EDIT_FIELDS = [
   }
 ];
 
+function validateProfileEditValue(fieldKey, message) {
+  switch (fieldKey) {
+    case "fullName":
+      return validateProfileName(message);
+    case "birthDate":
+      return validateIsoDate(message);
+    case "bloodType":
+      return validateBloodType(message);
+    case "phone":
+    case "emergencyContactPhone":
+      return validatePhone(message);
+    case "city":
+      return validateCity(message);
+    case "gender":
+    case "emergencyContactRelation":
+    case "experienceLevel":
+      return validateShortProfileText(message);
+    case "allergies":
+    case "medications":
+    case "healthNotes":
+    case "emergencyContactName":
+      return validateLongProfileText(message);
+    default:
+      return { ok: true, value: String(message || "").trim() };
+  }
+}
+
 function buildProfileEditPrompt(fieldConfig, notice = "• можна пропустити будь-яке поле і повернутися до нього пізніше") {
   return joinRichLines([
     ...formatCardHeader("✏️ РЕДАГУВАННЯ ПРОФІЛЮ", "Анкета користувача"),
@@ -5117,6 +5163,102 @@ function replyProfileEditStepPrompt(ctx, flow, notice) {
     buildProfileEditPrompt(fieldConfig, notice),
     { parse_mode: "HTML", ...getProfileEditKeyboard() }
   );
+}
+
+function replyGearNeedStepPrompt(ctx, flow) {
+  if (flow.step === "name") {
+    return ctx.reply(
+      "Якого спорядження тобі бракує?\nПриклад: `спальник`",
+      { parse_mode: "Markdown", ...FLOW_CANCEL_KEYBOARD }
+    );
+  }
+
+  if (flow.step === "quantity") {
+    return ctx.reply("Скільки одиниць тобі потрібно?\nПриклад: `1`", {
+      parse_mode: "Markdown",
+      ...FLOW_CANCEL_KEYBOARD
+    });
+  }
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("🆘 КОМЕНТАР ДО ЗАПИТУ", flow.data.name || "Запит"),
+      "",
+      "Додай короткий коментар або введи <b>-</b>, якщо він не потрібен.",
+      "",
+      "Приклад: <b>не маю власних</b>"
+    ]),
+    { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+  );
+}
+
+function replyFoodAddStepPrompt(ctx, flow) {
+  if (flow.step === "name") {
+    return ctx.reply("Що додаємо до харчування?\nПриклад: `гречка`", {
+      parse_mode: "Markdown",
+      ...FLOW_CANCEL_KEYBOARD
+    });
+  }
+
+  if (flow.step === "weight") {
+    const measureKind = inferFoodMeasureKind(flow.data.name);
+    const amountPrompt = measureKind === "volume"
+      ? "Для цієї позиції бот очікує <b>обʼєм</b>. Вкажи його у <b>л</b> або <b>мл</b>."
+      : measureKind === "weight"
+        ? "Для цієї позиції бот очікує <b>вагу</b>. Вкажи її у <b>кг</b> або <b>г</b>."
+        : "Вкажи загальну вагу або обʼєм цієї позиції у <b>кг</b>, <b>г</b>, <b>л</b> або <b>мл</b>.";
+    const amountExample = measureKind === "volume"
+      ? "Приклад: <b>1.5 л</b> або <b>750 мл</b>"
+      : measureKind === "weight"
+        ? "Приклад: <b>800 г</b> або <b>1.2 кг</b>"
+        : "Приклад: <b>800 г</b>, <b>1.2 кг</b>, <b>500 мл</b> або <b>2 л</b>";
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🥘 ДОДАТИ ПРОДУКТ", flow.data.name),
+        "",
+        amountPrompt,
+        "",
+        amountExample,
+        "",
+        "⚠️ Зверни увагу:",
+        "• якщо точну вагу або обʼєм не знаєш, введи <b>0 г</b>"
+      ]),
+      { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
+    );
+  }
+
+  if (flow.step === "quantity") {
+    return ctx.reply("Яку кількість додати?\nПриклад: `2 пачки`, `4 шт`, `1 упаковка`", {
+      parse_mode: "Markdown",
+      ...FLOW_CANCEL_KEYBOARD
+    });
+  }
+
+  return ctx.reply("Яка вартість цієї позиції у гривнях?\nПриклад: `180`", {
+    parse_mode: "Markdown",
+    ...FLOW_CANCEL_KEYBOARD
+  });
+}
+
+function replyExpenseAddStepPrompt(ctx, flow) {
+  if (flow.step === "title") {
+    return ctx.reply("Що це за витрата?\nПриклад: `квиток на автобус`", {
+      parse_mode: "Markdown",
+      ...FLOW_CANCEL_KEYBOARD
+    });
+  }
+
+  if (flow.step === "quantity") {
+    return ctx.reply("Введи кількість.\nПриклад: `2` або `1`", {
+      parse_mode: "Markdown",
+      ...FLOW_CANCEL_KEYBOARD
+    });
+  }
+
+  return ctx.reply("Введи ціну за одиницю у гривнях.\nПриклад: `450`", {
+    parse_mode: "Markdown",
+    ...FLOW_CANCEL_KEYBOARD
+  });
 }
 
 function formatProfileDashboard(userService, groupService, userId, userName) {
@@ -6282,8 +6424,8 @@ async function handleGrantAccessFlow(ctx, flow, groupService, userService) {
     return showTripMembersMenu(ctx, groupService, userService);
   }
 
-  const index = Number(message);
-  const candidate = flow.data.candidates[index - 1];
+  const indexValidation = validatePositiveInteger(message);
+  const candidate = indexValidation.ok ? flow.data.candidates[indexValidation.value - 1] : null;
 
   if (!candidate) {
     return ctx.reply("Введи номер учасника зі списку.", FLOW_CANCEL_KEYBOARD);
@@ -6824,13 +6966,14 @@ async function handleGearEditFlow(ctx, flow, groupService, userService, telegram
   }
 
   if (flow.step === "quantity") {
-    const quantity = Number(message.replace(",", "."));
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return ctx.reply("Вкажи додатну кількість числом. Приклад: `1`.", {
+    const quantityValidation = validatePositiveInteger(message);
+    if (!quantityValidation.ok) {
+      return ctx.reply(`${quantityValidation.error}\nПриклад: \`1\`.`, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
+    const quantity = quantityValidation.value;
     const minQuantity = Math.max(0, Number(flow.data.item?.inUseQuantity) || 0);
     if (quantity < minQuantity) {
       return ctx.reply(
@@ -7028,8 +7171,8 @@ async function handleGearDeleteFlow(ctx, flow, groupService) {
   }
 
   if (flow.step === "pick") {
-    const index = Number(message);
-    const item = flow.data.items[index - 1];
+    const indexValidation = validatePositiveInteger(message);
+    const item = indexValidation.ok ? flow.data.items[indexValidation.value - 1] : null;
 
     if (!item) {
       return ctx.reply("Введи номер позиції зі списку.", FLOW_CANCEL_KEYBOARD);
@@ -7089,48 +7232,56 @@ async function handleGearNeedFlow(ctx, flow, groupService, userService, telegram
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
-    clearFlow(String(ctx.from.id));
-    return showTripGearAccountingMenu(ctx, groupService);
+    const previousStep = getGearNeedPreviousStep(flow.step);
+    if (previousStep === flow.step) {
+      clearFlow(String(ctx.from.id));
+      return showTripGearAccountingMenu(ctx, groupService);
+    }
+    flow.step = previousStep;
+    setFlow(String(ctx.from.id), flow);
+    return replyGearNeedStepPrompt(ctx, flow);
   }
 
   if (flow.step === "name") {
-    flow.data.name = message;
-    flow.step = "quantity";
-    setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Скільки одиниць тобі потрібно?\nПриклад: `1`", {
-      parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
-    });
-  }
-
-  if (flow.step === "quantity") {
-    const quantity = Number(message);
-    if (!message || Number.isNaN(quantity) || quantity <= 0) {
-      return ctx.reply("Введи коректну кількість числом.\nПриклад: `1`", {
+    const validation = validateGearItemName(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`спальник\``, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
 
-    flow.data.quantity = quantity;
-    flow.step = "note";
+    flow.data.name = canonicalizeGearName(validation.value);
+    flow.step = getGearNeedNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
+    return replyGearNeedStepPrompt(ctx, flow);
+  }
 
-    return ctx.reply(
-      joinRichLines([
-        ...formatCardHeader("🆘 КОМЕНТАР ДО ЗАПИТУ", flow.data.name),
-        "",
-        "Додай короткий коментар або введи <b>-</b>, якщо він не потрібен.",
-        "",
-        "Приклад: <b>не маю власних</b>"
-      ]),
-      { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
-    );
+  if (flow.step === "quantity") {
+    const validation = validatePositiveInteger(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`1\``, {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    flow.data.quantity = validation.value;
+    flow.step = getGearNeedNextStep(flow.step);
+    setFlow(String(ctx.from.id), flow);
+    return replyGearNeedStepPrompt(ctx, flow);
   }
 
   if (flow.step === "note") {
     const requesterName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
-    const note = message === "-" ? "" : message;
+    const noteValidation = message === "-" ? { ok: true, value: "" } : validateLongProfileText(message);
+    if (!noteValidation.ok) {
+      return ctx.reply(`${noteValidation.error}\n\nДодай короткий коментар або введи \`-\`.`, {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+    const note = noteValidation.value;
     const need = groupService.addGearNeed({
       groupId: flow.tripId,
       memberId: String(ctx.from.id),
@@ -7934,38 +8085,29 @@ async function handleFoodAddFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
-    clearFlow(String(ctx.from.id));
-    return ctx.reply("Додавання продуктів скасовано.", getTripFoodMenuKeyboard(groupService, flow.tripId));
+    const previousStep = getFoodAddPreviousStep(flow.step);
+    if (previousStep === flow.step) {
+      clearFlow(String(ctx.from.id));
+      return ctx.reply("Додавання продуктів скасовано.", getTripFoodMenuKeyboard(groupService, flow.tripId));
+    }
+    flow.step = previousStep;
+    setFlow(String(ctx.from.id), flow);
+    return replyFoodAddStepPrompt(ctx, flow);
   }
 
   if (flow.step === "name") {
-    flow.data.name = canonicalizeFoodName(message);
-    flow.step = "weight";
+    const validation = validateGearItemName(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`гречка\``, {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    flow.data.name = canonicalizeFoodName(validation.value);
+    flow.step = getFoodAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    const measureKind = inferFoodMeasureKind(flow.data.name);
-    const amountPrompt = measureKind === "volume"
-      ? "Для цієї позиції бот очікує <b>обʼєм</b>. Вкажи його у <b>л</b> або <b>мл</b>."
-      : measureKind === "weight"
-        ? "Для цієї позиції бот очікує <b>вагу</b>. Вкажи її у <b>кг</b> або <b>г</b>."
-        : "Вкажи загальну вагу або обʼєм цієї позиції у <b>кг</b>, <b>г</b>, <b>л</b> або <b>мл</b>.";
-    const amountExample = measureKind === "volume"
-      ? "Приклад: <b>1.5 л</b> або <b>750 мл</b>"
-      : measureKind === "weight"
-        ? "Приклад: <b>800 г</b> або <b>1.2 кг</b>"
-        : "Приклад: <b>800 г</b>, <b>1.2 кг</b>, <b>500 мл</b> або <b>2 л</b>";
-    return ctx.reply(
-      joinRichLines([
-        ...formatCardHeader("🥘 ДОДАТИ ПРОДУКТ", flow.data.name),
-        "",
-        amountPrompt,
-        "",
-        amountExample,
-        "",
-        "⚠️ Зверни увагу:",
-        "• якщо точну вагу або обʼєм не знаєш, введи <b>0 г</b>"
-      ]),
-      { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
-    );
+    return replyFoodAddStepPrompt(ctx, flow);
   }
 
   if (flow.step === "weight") {
@@ -7985,22 +8127,16 @@ async function handleFoodAddFlow(ctx, flow, groupService, userService) {
 
     flow.data.weightGrams = amount.weightGrams;
     flow.data.amountLabel = amount.amountLabel;
-    flow.step = "quantity";
+    flow.step = getFoodAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Яку кількість додати?\nПриклад: `2 пачки`, `4 шт`, `1 упаковка`", {
-      parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
-    });
+    return replyFoodAddStepPrompt(ctx, flow);
   }
 
   if (flow.step === "quantity") {
     flow.data.quantity = message;
-    flow.step = "cost";
+    flow.step = getFoodAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Яка вартість цієї позиції у гривнях?\nПриклад: `180`", {
-      parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
-    });
+    return replyFoodAddStepPrompt(ctx, flow);
   }
 
   if (flow.step === "cost") {
@@ -8095,18 +8231,29 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
-    clearFlow(String(ctx.from.id));
-    return ctx.reply("Додавання витрати скасовано.", getTripExpensesMenuKeyboard(groupService, flow.tripId));
+    const previousStep = getExpenseAddPreviousStep(flow.step);
+    if (previousStep === flow.step) {
+      clearFlow(String(ctx.from.id));
+      return ctx.reply("Додавання витрати скасовано.", getTripExpensesMenuKeyboard(groupService, flow.tripId));
+    }
+    flow.step = previousStep;
+    setFlow(String(ctx.from.id), flow);
+    return replyExpenseAddStepPrompt(ctx, flow);
   }
 
   if (flow.step === "title") {
-    flow.data.title = canonicalizeExpenseTitle(message);
-    flow.step = "quantity";
+    const validation = validateGearItemName(message);
+    if (!validation.ok) {
+      return ctx.reply(`${validation.error}\nПриклад: \`квиток на автобус\``, {
+        parse_mode: "Markdown",
+        ...FLOW_CANCEL_KEYBOARD
+      });
+    }
+
+    flow.data.title = canonicalizeExpenseTitle(validation.value);
+    flow.step = getExpenseAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Введи кількість.\nПриклад: `2` або `1`", {
-      parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
-    });
+    return replyExpenseAddStepPrompt(ctx, flow);
   }
 
   if (flow.step === "quantity") {
@@ -8119,12 +8266,9 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
     }
 
     flow.data.quantity = quantityValidation.value;
-    flow.step = "price";
+    flow.step = getExpenseAddNextStep(flow.step);
     setFlow(String(ctx.from.id), flow);
-    return ctx.reply("Введи ціну за одиницю у гривнях.\nПриклад: `450`", {
-      parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
-    });
+    return replyExpenseAddStepPrompt(ctx, flow);
   }
 
   if (flow.step === "price") {
@@ -8324,7 +8468,14 @@ async function handleProfileEditFlow(ctx, flow, userService) {
   }
 
   if (message !== PROFILE_SKIP_LABEL) {
-    flow.data[fieldConfig.key] = message;
+    const validation = validateProfileEditValue(fieldConfig.key, message);
+    if (!validation.ok) {
+      return ctx.reply(
+        `${validation.error}\n\n${buildProfileEditPrompt(fieldConfig, "• можна пропустити будь-яке поле і повернутися до нього пізніше")}`,
+        { parse_mode: "HTML", ...getProfileEditKeyboard() }
+      );
+    }
+    flow.data[fieldConfig.key] = validation.value;
   }
 
   const nextStep = getProfileEditNextStep(flow.step);
@@ -8655,13 +8806,14 @@ async function handleMyGearEditFlow(ctx, flow, userService) {
   }
 
   if (flow.step === "quantity") {
-    const quantity = Number(message.replace(",", "."));
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return ctx.reply("Вкажи додатну кількість числом. Приклад: `1`.", {
+    const quantityValidation = validatePositiveInteger(message);
+    if (!quantityValidation.ok) {
+      return ctx.reply(`${quantityValidation.error}\nПриклад: \`1\`.`, {
         parse_mode: "Markdown",
         ...FLOW_CANCEL_KEYBOARD
       });
     }
+    const quantity = quantityValidation.value;
 
     flow.data.quantity = quantity;
     flow.data.attributes = { ...(flow.data.item.attributes || {}) };
@@ -10512,8 +10664,10 @@ export function createBot(store) {
       return null;
     }
     const [name, quantityRaw, note] = ctx.message.text.replace("/needgear", "").trim().split(";").map((part) => part?.trim());
-    const quantity = Number(quantityRaw);
-    if (!name || !quantityRaw || Number.isNaN(quantity)) {
+    const nameValidation = validateGearItemName(name);
+    const quantityValidation = validatePositiveInteger(quantityRaw);
+    const noteValidation = !note || note === "-" ? { ok: true, value: note === "-" ? "" : "" } : validateLongProfileText(note);
+    if (!nameValidation.ok || !quantityValidation.ok || !noteValidation.ok) {
       return ctx.reply("Формат: `/needgear кішки;1;не маю власних`", { parse_mode: "Markdown", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) });
     }
     const requesterName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
@@ -10521,7 +10675,7 @@ export function createBot(store) {
       groupId: trip.id,
       memberId: String(ctx.from.id),
       memberName: requesterName,
-      need: { name, quantity, note }
+      need: { name: canonicalizeGearName(nameValidation.value), quantity: quantityValidation.value, note: noteValidation.value }
     });
     void notifyTripMembers(
       bot.telegram,
@@ -10537,10 +10691,11 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
-    const gearName = ctx.message.text.replace("/requestgear", "").trim();
-    if (!gearName) {
+    const gearNameValidation = validateGearItemName(ctx.message.text.replace("/requestgear", "").trim());
+    if (!gearNameValidation.ok) {
       return ctx.reply("Формат: `/requestgear намет`", { parse_mode: "Markdown", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) });
     }
+    const gearName = canonicalizeGearName(gearNameValidation.value);
     const coverage = groupService.findGearCoverage(trip.id, gearName, {
       excludeMemberId: String(ctx.from.id),
       requestedQuantity: 1
@@ -10579,11 +10734,12 @@ export function createBot(store) {
       return null;
     }
     const [rawName, amountRaw, quantity, costRaw] = ctx.message.text.replace("/addfood", "").trim().split(";").map((part) => part?.trim());
-    const name = canonicalizeFoodName(rawName);
+    const nameValidation = validateGearItemName(rawName);
+    const name = nameValidation.ok ? canonicalizeFoodName(nameValidation.value) : "";
     const amount = parseFoodAmountInput(amountRaw, inferFoodMeasureKind(name));
-    const cost = Number(String(costRaw || "").replace(",", "."));
+    const costValidation = validatePositiveMoney(String(costRaw || "").replace(",", "."));
 
-    if (!name || !amountRaw || !quantity || !costRaw || !amount || Number.isNaN(cost) || cost < 0) {
+    if (!nameValidation.ok || !amountRaw || !quantity || !costRaw || !amount || !costValidation.ok) {
       return ctx.reply("Формат: `/addfood гречка;800 г;2 пачки;180`", { parse_mode: "Markdown", ...getTripFoodMenuKeyboard(groupService, trip.id) });
     }
 
@@ -10591,7 +10747,7 @@ export function createBot(store) {
       groupId: trip.id,
       memberId: String(ctx.from.id),
       memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
-      food: { name, amountLabel: amount.amountLabel, weightGrams: amount.weightGrams, quantity, cost }
+      food: { name, amountLabel: amount.amountLabel, weightGrams: amount.weightGrams, quantity, cost: costValidation.value }
     });
 
     return ctx.reply(`✅ "${name}" додано в харчування походу.`, getTripFoodMenuKeyboard(groupService, trip.id));
@@ -10610,11 +10766,12 @@ export function createBot(store) {
       return null;
     }
     const [rawTitle, quantityRaw, priceRaw] = ctx.message.text.replace("/addexpense", "").trim().split(";").map((part) => part?.trim());
-    const title = canonicalizeExpenseTitle(rawTitle);
-    const quantity = Number(String(quantityRaw || "").replace(",", "."));
-    const price = Number(String(priceRaw || "").replace(",", "."));
+    const titleValidation = validateGearItemName(rawTitle);
+    const title = titleValidation.ok ? canonicalizeExpenseTitle(titleValidation.value) : "";
+    const quantityValidation = validatePositiveMoney(String(quantityRaw || "").replace(",", "."));
+    const priceValidation = validatePositiveMoney(String(priceRaw || "").replace(",", "."));
 
-    if (!title || !quantityRaw || !priceRaw || Number.isNaN(quantity) || quantity <= 0 || Number.isNaN(price) || price < 0) {
+    if (!titleValidation.ok || !quantityRaw || !priceRaw || !quantityValidation.ok || !priceValidation.ok) {
       return ctx.reply("Формат: `/addexpense Квиток Київ-Ворохта;1;450`", { parse_mode: "Markdown", ...getTripExpensesMenuKeyboard(groupService, trip.id) });
     }
 
@@ -10622,7 +10779,12 @@ export function createBot(store) {
       groupId: trip.id,
       memberId: String(ctx.from.id),
       memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
-      expense: { title, quantity, price, amount: quantity * price }
+      expense: {
+        title,
+        quantity: quantityValidation.value,
+        price: priceValidation.value,
+        amount: quantityValidation.value * priceValidation.value
+      }
     });
 
     return ctx.reply(`✅ Витрату "${title}" додано.`, getTripExpensesMenuKeyboard(groupService, trip.id));

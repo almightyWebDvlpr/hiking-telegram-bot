@@ -35,7 +35,9 @@ const menuContexts = new Map();
 const vpohidCatalogLoads = new Set();
 const FAQ_LABEL = "❓ Часті питання";
 const FAQ_SEARCH_LABEL = "🔎 Пошук по FAQ";
-const FAQ_REFRESH_LABEL = "🔄 Інші питання";
+const FAQ_ALL_LABEL = "📚 Усі питання";
+const FAQ_PREV_LABEL = "⬅️ Попередні";
+const FAQ_NEXT_LABEL = "➡️ Наступні";
 const HELP_BACK_LABEL = "⬅️ До допомоги";
 const PROFILE_LABEL = "🙍 Мій профіль";
 const PROFILE_DASHBOARD_LABEL = "📊 Дашборд";
@@ -258,8 +260,8 @@ const HELP_CONTENT = {
   ].join("\n"),
   "❓ Як працюють часті питання": [
     "У головному меню є окремий розділ `❓ Часті питання`.",
-    "Там бот щоразу показує 10 випадкових питань по походах, одягу, спорядженню, воді, табору і безпеці.",
-    "Якщо список не підійшов, натисни `🔄 Інші питання`."
+    "Там бот показує питання сторінками по походах, одягу, спорядженню, воді, табору і безпеці.",
+    "Для швидкого пошуку потрібної теми натисни `🔎 Пошук по FAQ`."
   ].join("\n")
 };
 
@@ -5269,29 +5271,47 @@ function startProfileEditWizard(ctx, userService) {
   );
 }
 
-function getFaqKeyboard(questions) {
+function getFaqKeyboard({ questions = [], mode = "browse", canPrev = false, canNext = false }) {
   const rows = [];
+  rows.push([FAQ_SEARCH_LABEL]);
 
   for (let index = 0; index < questions.length; index += 2) {
     const pair = questions.slice(index, index + 2).map((item) => item.question);
     rows.push(pair);
   }
 
-  rows.push([FAQ_SEARCH_LABEL, FAQ_REFRESH_LABEL], ["⬅️ Головне меню"]);
+  if (mode === "search_results" || mode === "search_prompt") {
+    rows.push([FAQ_ALL_LABEL]);
+  }
+
+  const paginationRow = [];
+  if (canPrev) {
+    paginationRow.push(FAQ_PREV_LABEL);
+  }
+  if (canNext) {
+    paginationRow.push(FAQ_NEXT_LABEL);
+  }
+  if (paginationRow.length) {
+    rows.push(paginationRow);
+  }
+
+  rows.push(["⬅️ Головне меню"]);
   return buildKeyboard(rows);
 }
 
-function formatFaqMenuMessage(questions) {
+function formatFaqMenuMessage(pageData) {
+  const questions = pageData.items || [];
   return [
     ...formatCardHeader("❓ ЧАСТІ ПИТАННЯ", "Швидкі відповіді"),
     "",
     "Обери будь-яке питання нижче.",
     "",
     "⚠️ Зверни увагу:",
-    "• теми змішуються випадково",
     "• можна натиснути `🔎 Пошук по FAQ` і ввести частину питання або ключове слово",
     "• питання охоплюють маршрут, одяг, спорядження, воду, безпеку, табір і навігацію",
-    `Зараз у меню: ${questions.length} питань`
+    `Сторінка: ${pageData.page + 1} з ${pageData.totalPages}`,
+    `Усього в довіднику: ${pageData.totalCount} питань`,
+    `На цій сторінці: ${questions.length}`
   ].join("\n");
 }
 
@@ -5309,32 +5329,87 @@ function formatFaqSearchPrompt() {
   ]);
 }
 
-function formatFaqSearchResultsMessage(query, questions) {
+function formatFaqSearchResultsMessage(query, pageData) {
+  const questions = pageData.items || [];
   return joinRichLines([
     ...formatCardHeader("🔎 РЕЗУЛЬТАТИ ПОШУКУ", query),
     "",
     questions.length
-      ? `Знайшов ${questions.length} питань. Обери потрібне кнопкою нижче.`
-      : "Нічого не знайшов. Спробуй інше ключове слово або натисни `🔄 Інші питання`."
+      ? `Знайшов ${pageData.totalCount} питань. Сторінка ${pageData.page + 1} з ${pageData.totalPages}.`
+      : "Нічого не знайшов. Спробуй інше ключове слово або натисни `📚 Усі питання`."
   ]);
 }
 
-function showFaqMenu(ctx, advisorService, previousIds = []) {
-  const questions = advisorService.getRandomFaqQuestions({
-    count: 10,
-    excludeIds: previousIds
+function buildFaqFlowData(flowData = {}, updates = {}) {
+  return {
+    mode: "browse",
+    browsePage: 0,
+    browseTotalPages: 1,
+    browseTotalCount: 0,
+    browseQuestions: [],
+    searchQuery: "",
+    searchPage: 0,
+    searchTotalPages: 1,
+    searchTotalCount: 0,
+    searchQuestions: [],
+    ...flowData,
+    ...updates
+  };
+}
+
+function showFaqMenu(ctx, advisorService, flowData = {}, page = 0) {
+  const pageData = advisorService.getFaqQuestionsPage({ page, pageSize: 10 });
+  const nextData = buildFaqFlowData(flowData, {
+    mode: "browse",
+    browsePage: pageData.page,
+    browseTotalPages: pageData.totalPages,
+    browseTotalCount: pageData.totalCount,
+    browseQuestions: pageData.items
   });
 
   setFlow(String(ctx.from.id), {
     type: "faq_menu",
     step: "pick",
-    data: {
-      questions,
-      previousIds: questions.map((item) => item.id)
-    }
+    data: nextData
   });
 
-  return ctx.reply(formatFaqMenuMessage(questions), { parse_mode: "HTML", ...getFaqKeyboard(questions) });
+  return ctx.reply(formatFaqMenuMessage(pageData), {
+    parse_mode: "HTML",
+    ...getFaqKeyboard({
+      questions: pageData.items,
+      mode: "browse",
+      canPrev: pageData.page > 0,
+      canNext: pageData.page < pageData.totalPages - 1
+    })
+  });
+}
+
+function showFaqSearchResults(ctx, advisorService, flowData = {}, query, page = 0) {
+  const pageData = advisorService.searchFaqQuestions(query, { page, pageSize: 10 });
+  const nextData = buildFaqFlowData(flowData, {
+    mode: "search_results",
+    searchQuery: query,
+    searchPage: pageData.page,
+    searchTotalPages: pageData.totalPages,
+    searchTotalCount: pageData.totalCount,
+    searchQuestions: pageData.items
+  });
+
+  setFlow(String(ctx.from.id), {
+    type: "faq_menu",
+    step: "pick",
+    data: nextData
+  });
+
+  return ctx.reply(formatFaqSearchResultsMessage(query, pageData), {
+    parse_mode: "HTML",
+    ...getFaqKeyboard({
+      questions: pageData.items,
+      mode: "search_results",
+      canPrev: pageData.page > 0,
+      canNext: pageData.page < pageData.totalPages - 1
+    })
+  });
 }
 
 function showAdvicePrompt(ctx, advisorService) {
@@ -8144,16 +8219,26 @@ async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
 
 async function handleFaqFlow(ctx, flow, advisorService) {
   const message = ctx.message.text.trim();
-  const questions = flow.data?.questions || [];
-
-  if (message === FAQ_REFRESH_LABEL) {
-    return showFaqMenu(ctx, advisorService, flow.data?.previousIds || []);
-  }
+  const data = buildFaqFlowData(flow.data || {});
+  const isSearchMode = data.mode === "search_results" || data.mode === "search_prompt";
+  const questions = isSearchMode ? data.searchQuestions || [] : data.browseQuestions || [];
 
   if (message === FAQ_SEARCH_LABEL) {
+    const updatedFlow = {
+      ...flow,
+      data: buildFaqFlowData(data, {
+        mode: "search_prompt"
+      })
+    };
+    setFlow(String(ctx.from.id), updatedFlow);
     return ctx.reply(formatFaqSearchPrompt(), {
       parse_mode: "HTML",
-      ...getFaqKeyboard(questions)
+      ...getFaqKeyboard({
+        questions,
+        mode: "search_prompt",
+        canPrev: false,
+        canNext: false
+      })
     });
   }
 
@@ -8162,31 +8247,35 @@ async function handleFaqFlow(ctx, flow, advisorService) {
     return sendHome(ctx);
   }
 
+  if (message === FAQ_ALL_LABEL) {
+    return showFaqMenu(ctx, advisorService, data, data.browsePage || 0);
+  }
+
+  if (message === FAQ_PREV_LABEL) {
+    return isSearchMode
+      ? showFaqSearchResults(ctx, advisorService, data, data.searchQuery || "", Math.max(0, (data.searchPage || 0) - 1))
+      : showFaqMenu(ctx, advisorService, data, Math.max(0, (data.browsePage || 0) - 1));
+  }
+
+  if (message === FAQ_NEXT_LABEL) {
+    return isSearchMode
+      ? showFaqSearchResults(ctx, advisorService, data, data.searchQuery || "", (data.searchPage || 0) + 1)
+      : showFaqMenu(ctx, advisorService, data, (data.browsePage || 0) + 1);
+  }
+
   const selectedQuestion = questions.find((item) => item.question === message);
   if (selectedQuestion) {
-    return ctx.reply(advisorService.getFaqAnswer(selectedQuestion.id), getFaqKeyboard(questions));
+    return ctx.reply(advisorService.getFaqAnswer(selectedQuestion.id), getFaqKeyboard({
+      questions,
+      mode: data.mode,
+      canPrev: isSearchMode ? (data.searchPage || 0) > 0 : (data.browsePage || 0) > 0,
+      canNext: isSearchMode
+        ? (data.searchPage || 0) < (data.searchTotalPages || 1) - 1
+        : (data.browsePage || 0) < (data.browseTotalPages || 1) - 1
+    }));
   }
 
-  const matches = advisorService.searchFaqQuestions(message, { limit: 10 });
-  if (matches.length) {
-    const updatedFlow = {
-      ...flow,
-      data: {
-        ...(flow.data || {}),
-        questions: matches
-      }
-    };
-    setFlow(String(ctx.from.id), updatedFlow);
-    return ctx.reply(formatFaqSearchResultsMessage(message, matches), {
-      parse_mode: "HTML",
-      ...getFaqKeyboard(matches)
-    });
-  }
-
-  return ctx.reply(formatFaqSearchResultsMessage(message, []), {
-    parse_mode: "HTML",
-    ...getFaqKeyboard(questions)
-  });
+  return showFaqSearchResults(ctx, advisorService, data, message, 0);
 }
 
 async function handleHelpFlow(ctx, flow) {

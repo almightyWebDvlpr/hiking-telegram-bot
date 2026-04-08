@@ -274,18 +274,6 @@ export const BADGE_SERIES = [
       { tier: "crystal", threshold: 30, description: "30 закритих запитів на спорядження" },
       { tier: "diamond", threshold: 60, description: "60 закритих запитів на спорядження" }
     ]
-  },
-  {
-    key: "criticalGearReadyTrips",
-    icon: "📦",
-    title: "Готові до старту",
-    milestones: [
-      { tier: "bronze", threshold: 1, description: "1 похід із закритим критичним спорядженням" },
-      { tier: "silver", threshold: 3, description: "3 походи із закритим критичним спорядженням" },
-      { tier: "gold", threshold: 7, description: "7 походів із закритим критичним спорядженням" },
-      { tier: "crystal", threshold: 15, description: "15 походів із закритим критичним спорядженням" },
-      { tier: "diamond", threshold: 30, description: "30 походів із закритим критичним спорядженням" }
-    ]
   }
 ];
 

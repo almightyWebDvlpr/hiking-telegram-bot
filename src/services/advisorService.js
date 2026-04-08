@@ -9,6 +9,24 @@ function normalizeFaqSearchValue(value) {
     .trim();
 }
 
+function getSeasonFaqIdByDate(dateString = "") {
+  const month = Number(String(dateString || "").slice(5, 7));
+  if (!Number.isFinite(month) || month < 1 || month > 12) {
+    return "";
+  }
+
+  if ([12, 1, 2].includes(month)) {
+    return "packing-winter";
+  }
+  if ([3, 4, 5].includes(month)) {
+    return "packing-spring";
+  }
+  if ([6, 7, 8].includes(month)) {
+    return "packing-summer";
+  }
+  return "packing-autumn";
+}
+
 export class AdvisorService {
   getPreparationAdvice({ season, days, difficulty }) {
     const normalizedDifficulty = difficulty.toLowerCase();
@@ -112,6 +130,19 @@ export class AdvisorService {
     ].join("\n");
   }
 
+  getFaqQuestionById(questionId) {
+    const item = FAQ_ITEMS.find((entry) => entry.id === questionId);
+    if (!item) {
+      return null;
+    }
+
+    return {
+      id: item.id,
+      category: item.category,
+      question: item.question
+    };
+  }
+
   searchFaqQuestions(query, { page = 0, pageSize = 10 } = {}) {
     const normalizedQuery = normalizeFaqSearchValue(query);
     if (!normalizedQuery || normalizedQuery.length < 2) {
@@ -175,6 +206,75 @@ export class AdvisorService {
       totalCount,
       totalPages
     };
+  }
+
+  getContextualFaqSuggestions(context = {}, { limit = 3 } = {}) {
+    const trip = context.trip || {};
+    const tripCard = trip.tripCard || {};
+    const seasonFaqId = getSeasonFaqIdByDate(tripCard.startDate || context.startDate || "");
+    const screen = context.screen || "";
+    const weatherSummary = normalizeFaqSearchValue(context.weatherSummary || "");
+    const routeMeta = context.routeMeta || trip.routePlan?.meta || {};
+    const ids = [];
+
+    if (screen === "trip_details") {
+      if (seasonFaqId) {
+        ids.push(seasonFaqId);
+      }
+      ids.push("gear-must-have", "packing-first-hike");
+      if (Number(tripCard.nights) > 0) {
+        ids.push("clothes-night");
+      }
+      if (trip.routePlan) {
+        ids.push("route-start-time");
+      }
+    }
+
+    if (screen === "trip_gear") {
+      if (seasonFaqId) {
+        ids.push(seasonFaqId);
+      }
+      ids.push("gear-must-have", "packing-first-hike");
+      if (Number(tripCard.nights) > 0) {
+        ids.push("camp-shared", "clothes-night");
+      }
+    }
+
+    if (screen === "route") {
+      ids.push("route-fit", "route-start-time", "nav-offline");
+      if (Number(tripCard.nights) > 0) {
+        ids.push("water-none");
+      } else {
+        ids.push("water-day");
+      }
+      if (String(routeMeta?.difficulty || routeMeta?.difficultyLabel || "").toLowerCase().includes("вис")) {
+        ids.push("route-cancel");
+      }
+    }
+
+    if (screen === "weather") {
+      if (seasonFaqId) {
+        ids.push(seasonFaqId);
+      }
+      if (weatherSummary.includes("дощ") || weatherSummary.includes("опад")) {
+        ids.push("clothes-rain");
+      }
+      if (weatherSummary.includes("гроза")) {
+        ids.push("safety-thunder");
+      }
+      if (weatherSummary.includes("вітер") || weatherSummary.includes("порив")) {
+        ids.push("nav-weather");
+      }
+      if (weatherSummary.includes("сніг") || weatherSummary.includes("мороз") || weatherSummary.includes("мінус")) {
+        ids.unshift("packing-winter");
+      }
+      ids.push("water-day", "route-cancel");
+    }
+
+    const uniqueIds = [...new Set(ids)].slice(0, Math.max(1, Number(limit) || 3));
+    return uniqueIds
+      .map((id) => this.getFaqQuestionById(id))
+      .filter(Boolean);
   }
 
   #shuffle(items) {

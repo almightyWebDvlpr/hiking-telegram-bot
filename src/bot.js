@@ -436,6 +436,40 @@ async function sendRichText(telegram, chatId, text, extra = {}) {
   return lastResult;
 }
 
+function buildContextualFaqInlineKeyboard(items = []) {
+  return Markup.inlineKeyboard(
+    items.map((item) => [Markup.button.callback(`❓ ${truncateButtonLabel(item.question, 30)}`, `faqctx:${item.id}`)])
+  );
+}
+
+function formatContextualFaqSuggestionMessage(items = [], title = "Корисно саме зараз") {
+  return joinRichLines([
+    formatSectionHeader("💡", title),
+    ...items.map((item) => `• ${escapeHtml(item.question)}`),
+    "",
+    "Натисни на потрібну підказку нижче."
+  ]);
+}
+
+async function sendContextualFaqSuggestions(ctx, advisorService, context = {}, title = "Корисно саме зараз") {
+  if (!advisorService) {
+    return null;
+  }
+
+  const suggestions = advisorService.getContextualFaqSuggestions(context, { limit: 3 });
+  if (!suggestions.length) {
+    return null;
+  }
+
+  return ctx.reply(
+    formatContextualFaqSuggestionMessage(suggestions, title),
+    {
+      parse_mode: "HTML",
+      ...buildContextualFaqInlineKeyboard(suggestions)
+    }
+  );
+}
+
 function getHelpMenuKeyboard() {
   const rows = [];
   for (let index = 0; index < HELP_SECTIONS.length; index += 2) {
@@ -640,12 +674,12 @@ function getFlowParentContext(flow) {
   return flow?.data?.parentContext || "";
 }
 
-function showParentMenuByContext(ctx, groupService, context) {
+function showParentMenuByContext(ctx, groupService, context, advisorService = null) {
   if (context === "trip-route-change") {
     return showTripRouteChangeMenu(ctx, groupService);
   }
   if (context === "trip-route" || context === "trip-route-catalog") {
-    return showRouteMenu(ctx, groupService);
+    return showRouteMenu(ctx, groupService, advisorService);
   }
   if (context === "routes-catalog" || context === "routes") {
     return showRoutesMenu(ctx);
@@ -3062,7 +3096,7 @@ function startTripPhotoAddWizard(ctx, groupService) {
   );
 }
 
-function showTripPassport(ctx, groupService, userService) {
+async function showTripPassport(ctx, groupService, userService, advisorService = null) {
   setMenuContext(ctx.from?.id, "trip_details");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
@@ -3070,12 +3104,19 @@ function showTripPassport(ctx, groupService, userService) {
   }
 
   const detailsKeyboard = getTripDetailsKeyboard(trip, String(ctx.from.id));
-  return ctx.reply(
+  const response = await ctx.reply(
     formatTripPassport(trip, groupService, userService, String(ctx.from.id)),
     detailsKeyboard
       ? { parse_mode: "HTML", ...detailsKeyboard }
       : { parse_mode: "HTML" }
   );
+
+  await sendContextualFaqSuggestions(ctx, advisorService, {
+    screen: "trip_details",
+    trip
+  });
+
+  return response;
 }
 
 function showTripMembersMenu(ctx, groupService, userService) {
@@ -4057,14 +4098,14 @@ function handleTripDataAction(ctx, groupService) {
   );
 }
 
-function showRouteMenu(ctx, groupService) {
+async function showRouteMenu(ctx, groupService, advisorService = null) {
   setMenuContext(ctx.from?.id, "trip-route");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
   }
 
-  return ctx.reply(
+  const response = await ctx.reply(
     joinRichLines([
       ...formatCardHeader("📍 МАРШРУТ ПОХОДУ", trip.name),
       "",
@@ -4083,6 +4124,14 @@ function showRouteMenu(ctx, groupService) {
     ]),
     { parse_mode: "HTML", ...getTripRouteKeyboard(trip, canManageTrip(trip, String(ctx.from.id))) }
   );
+
+  await sendContextualFaqSuggestions(ctx, advisorService, {
+    screen: "route",
+    trip,
+    routeMeta: trip.routePlan?.meta || null
+  }, "Перед таким маршрутом корисно");
+
+  return response;
 }
 
 function startTripWeatherSelection(ctx, groupService) {
@@ -5416,7 +5465,7 @@ function showAdvicePrompt(ctx, advisorService) {
   return showFaqMenu(ctx, advisorService);
 }
 
-async function showWeather(ctx, weatherService, location, keyboard = null) {
+async function showWeather(ctx, weatherService, location, keyboard = null, advisorService = null, faqContext = {}) {
   const targetKeyboard = keyboard || getMainKeyboard(ctx);
   if (!location) {
     return ctx.reply("Введи локацію: `/weather Яремче`", {
@@ -5426,10 +5475,17 @@ async function showWeather(ctx, weatherService, location, keyboard = null) {
   }
 
   const summary = await weatherService.getWeatherSummary(location);
-  return ctx.reply(summary, { parse_mode: "HTML", ...targetKeyboard });
+  const response = await ctx.reply(summary, { parse_mode: "HTML", ...targetKeyboard });
+  await sendContextualFaqSuggestions(ctx, advisorService, {
+    screen: "weather",
+    weatherSummary: summary,
+    location,
+    ...faqContext
+  }, "Під це варто глянути");
+  return response;
 }
 
-async function showRouteSearch(ctx, groupService, routeService, input) {
+async function showRouteSearch(ctx, groupService, routeService, input, advisorService = null) {
   const points = parseRoutePointsInput(input);
   if (points.length < 2) {
     return ctx.reply("Введи маршрут: `/route Яремче -> полонина -> Говерла`", {
@@ -5447,6 +5503,11 @@ async function showRouteSearch(ctx, groupService, routeService, input) {
     }, activeTrip?.tripCard || null),
     getRoutesMenuKeyboard(ctx.from.id)
   );
+  await sendContextualFaqSuggestions(ctx, advisorService, {
+    screen: "route",
+    trip: activeTrip || null,
+    routeMeta: report.meta || null
+  }, "Перед таким маршрутом корисно");
   return sendInlineTrackPreviewImage(ctx, routeService, report.meta, "Прев’ю згенерованого треку.");
 }
 
@@ -5555,17 +5616,18 @@ function normalizeGearStatus(value) {
 async function handleRouteFlow(ctx, flow, groupService, routeService, userService, telegram = null) {
   const message = ctx.message.text.trim();
   const parentContext = getFlowParentContext(flow);
+  const advisorService = routeService?.advisorService || null;
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return showParentMenuByContext(ctx, groupService, parentContext)
-      || (flow.mode === "search" ? showRoutesMenu(ctx) : showRouteMenu(ctx, groupService));
+    return showParentMenuByContext(ctx, groupService, parentContext, advisorService)
+      || (flow.mode === "search" ? showRoutesMenu(ctx) : showRouteMenu(ctx, groupService, advisorService));
   }
 
   if (message === getRouteFlowBackLabel(flow.mode)) {
     clearFlow(String(ctx.from.id));
-    return showParentMenuByContext(ctx, groupService, parentContext)
-      || (flow.mode === "search" ? showRoutesMenu(ctx) : showRouteMenu(ctx, groupService));
+    return showParentMenuByContext(ctx, groupService, parentContext, advisorService)
+      || (flow.mode === "search" ? showRoutesMenu(ctx) : showRouteMenu(ctx, groupService, advisorService));
   }
 
   if (flow.step === "from") {
@@ -5753,7 +5815,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
   if (message === "❌ Скасувати") {
     if (flow.step === "name") {
       clearFlow(String(ctx.from.id));
-      return showTripPassport(ctx, groupService, userService);
+      return showTripPassport(ctx, groupService, userService, telegram?.advisorService || null);
     }
 
     if (flow.step === "startDate") {
@@ -7212,7 +7274,7 @@ async function handleGearNeedManageFlow(ctx, flow, groupService, userService, te
 
   if (message === TRIP_GEAR_ADD_BACK_LABEL) {
     clearFlow(String(ctx.from.id));
-    return showTripGearMenu(ctx, groupService);
+    return showTripGearMenu(ctx, groupService, telegram?.advisorService || null);
   }
 
   if (flow.step === "cancel_confirm" && message === "❌ Скасувати") {
@@ -8898,7 +8960,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
     if (message === backLabel) {
       clearFlow(String(ctx.from.id));
       if (mode === "trip") {
-        return showRouteMenu(ctx, groupService);
+        return showRouteMenu(ctx, groupService, advisorService);
       }
       return showRoutesMenu(ctx);
     }
@@ -8994,7 +9056,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
     if (message === backLabel) {
       clearFlow(String(ctx.from.id));
       if (mode === "trip") {
-        return showRouteMenu(ctx, groupService);
+        return showRouteMenu(ctx, groupService, advisorService);
       }
       return showRoutesMenu(ctx);
     }
@@ -9070,7 +9132,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
     if (message === backLabel) {
       clearFlow(String(ctx.from.id));
       if (mode === "trip") {
-        return showRouteMenu(ctx, groupService);
+        return showRouteMenu(ctx, groupService, advisorService);
       }
       return showRoutesMenu(ctx);
     }
@@ -9355,7 +9417,7 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     }
 
     clearFlow(String(ctx.from.id));
-    await showWeather(ctx, weatherService, message, getTripKeyboard(trip, String(ctx.from.id)));
+    await showWeather(ctx, weatherService, message, getTripKeyboard(trip, String(ctx.from.id)), advisorService, { trip });
     return true;
   }
 
@@ -9416,14 +9478,14 @@ function addMyGear(ctx, userService, input) {
   return ctx.reply(`✅ Особисте спорядження "${name}" додано.`, MY_GEAR_KEYBOARD);
 }
 
-function showTripGearMenu(ctx, groupService) {
+async function showTripGearMenu(ctx, groupService, advisorService = null) {
   setMenuContext(ctx.from?.id, "trip-gear");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
   }
 
-  return ctx.reply(
+  const response = await ctx.reply(
     joinRichLines([
       ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
       "",
@@ -9439,6 +9501,13 @@ function showTripGearMenu(ctx, groupService) {
     ]),
     { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
   );
+
+  await sendContextualFaqSuggestions(ctx, advisorService, {
+    screen: "trip_gear",
+    trip
+  }, "Для цього формату походу");
+
+  return response;
 }
 
 function showTripGearAccountingMenu(ctx, groupService) {
@@ -10354,6 +10423,8 @@ export function createBot(store) {
     graphHopperApiKey: config.graphHopperApiKey
   });
   const advisorService = new AdvisorService();
+  routeService.advisorService = advisorService;
+  bot.telegram.advisorService = advisorService;
   startTripReminderLoop(bot, groupService);
   const vpohidArchiveSyncLoop = startVpohidArchiveSyncLoop(vpohidLiveService);
 
@@ -10422,15 +10493,15 @@ export function createBot(store) {
   bot.command("invite", (ctx) => showInviteInfo(ctx, groupService));
   bot.command("grantaccess", (ctx) => startGrantAccessWizard(ctx, groupService, userService));
 
-  bot.command("mygroup", (ctx) => showTripPassport(ctx, groupService, userService));
+  bot.command("mygroup", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.command("route", (ctx) => {
     const input = ctx.message.text.replace("/route", "").trim();
     if (!input) {
       return startRouteWizard(ctx, groupService, "search");
     }
-    return showRouteSearch(ctx, groupService, routeService, input);
+    return showRouteSearch(ctx, groupService, routeService, input, advisorService);
   });
-  bot.command("weather", (ctx) => showWeather(ctx, weatherService, ctx.message.text.replace("/weather", "").trim(), getMainKeyboard(ctx)));
+  bot.command("weather", (ctx) => showWeather(ctx, weatherService, ctx.message.text.replace("/weather", "").trim(), getMainKeyboard(ctx), advisorService));
   bot.command("setgrouproute", (ctx) => {
     const input = ctx.message.text.replace("/setgrouproute", "").trim();
     return saveDirectTripRoute(ctx, groupService, routeService, userService, bot.telegram, input, "create");
@@ -10461,7 +10532,7 @@ export function createBot(store) {
     if (!region) {
       return ctx.reply("Для походу ще не задано регіон або маршрут.", getTripKeyboard(trip, String(ctx.from.id)));
     }
-    return showWeather(ctx, weatherService, region, getTripKeyboard(trip, String(ctx.from.id)));
+    return showWeather(ctx, weatherService, region, getTripKeyboard(trip, String(ctx.from.id)), advisorService, { trip });
   });
   bot.command("finishtrip", (ctx) => finishTrip(ctx, groupService, userService, bot.telegram));
   bot.command("grouphistory", (ctx) => showTripHistory(ctx, groupService, userService));
@@ -10616,7 +10687,12 @@ export function createBot(store) {
   });
   bot.command("food", (ctx) => showTripFood(ctx, groupService, userService));
   bot.command("tripreminders", (ctx) => showTripReminders(ctx, groupService));
-  bot.command("passport", (ctx) => showTripPassport(ctx, groupService, userService));
+  bot.command("passport", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
+  bot.action(/^faqctx:(.+)$/, async (ctx) => {
+    const faqId = ctx.match?.[1] || "";
+    await ctx.answerCbQuery();
+    return ctx.reply(advisorService.getFaqAnswer(faqId));
+  });
   bot.command("addexpense", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
     if (!trip) {
@@ -10691,7 +10767,7 @@ export function createBot(store) {
     const mode = selection?.mode || "routes";
     return mode === "trip" ? startVpohidSearchWizard(ctx, groupService, "trip") : startVpohidSearchWizard(ctx, groupService, "routes");
   });
-  bot.hears(VPOHID_BACK_TO_TRIP_ROUTE_LABEL, (ctx) => showRouteMenu(ctx, groupService));
+  bot.hears(VPOHID_BACK_TO_TRIP_ROUTE_LABEL, (ctx) => showRouteMenu(ctx, groupService, advisorService));
   bot.hears(VPOHID_BACK_TO_ROUTES_LABEL, (ctx) => showRoutesMenu(ctx));
   bot.hears("👥 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("👤 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
@@ -10728,19 +10804,19 @@ export function createBot(store) {
   bot.hears("🔑 Приєднатися до походу", (ctx) => startJoinTripWizard(ctx));
   bot.hears("➕ Запросити учасників", (ctx) => showInviteInfo(ctx, groupService));
   bot.hears("🛡 Права редагування", (ctx) => startGrantAccessWizard(ctx, groupService, userService));
-  bot.hears("🗺 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService));
-  bot.hears("📍 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService));
+  bot.hears("🗺 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService, advisorService));
+  bot.hears("📍 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService, advisorService));
   bot.hears("📄 GPX трек", (ctx) => sendRouteExport(ctx, groupService, routeService, "gpx"));
   bot.hears("📄 KML трек", (ctx) => sendRouteExport(ctx, groupService, routeService, "kml"));
   bot.hears("🗺 HTML карта треку", (ctx) => sendRouteExport(ctx, groupService, routeService, "html"));
   bot.hears("🧭 HTML карта треку", (ctx) => sendRouteExport(ctx, groupService, routeService, "html"));
-  bot.hears("🎒 Спорядження походу", (ctx) => showTripGearMenu(ctx, groupService));
+  bot.hears("🎒 Спорядження походу", (ctx) => showTripGearMenu(ctx, groupService, advisorService));
   bot.hears("🍲 Харчування походу", (ctx) => showTripFoodMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_LABEL, (ctx) => showTripPhotosMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_ADD_LABEL, (ctx) => startTripPhotoAddWizard(ctx, groupService));
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
-  bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService));
-  bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService));
+  bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
+  bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
   bot.hears("🌦 Погода походу", (ctx) => {
@@ -10755,7 +10831,7 @@ export function createBot(store) {
     if (settlements.length > 1) {
       return startTripWeatherSelection(ctx, groupService);
     }
-    return showWeather(ctx, weatherService, settlements[0], getTripKeyboard(trip, String(ctx.from.id)));
+    return showWeather(ctx, weatherService, settlements[0], getTripKeyboard(trip, String(ctx.from.id)), advisorService, { trip });
   });
   bot.hears("✅ Завершити похід", (ctx) => startFinishTripConfirm(ctx, groupService));
   bot.hears(FINISH_TRIP_YES_LABEL, (ctx) => handleFinishTripConfirmFlow(ctx, getFlow(String(ctx.from.id)) || { type: "finish_trip_confirm" }, groupService, userService, bot.telegram));
@@ -10776,7 +10852,7 @@ export function createBot(store) {
   bot.hears(TRIP_GEAR_ADD_LABEL, (ctx) => showTripGearAddMenu(ctx, groupService));
   bot.hears(TRIP_GEAR_ADD_BACK_LABEL, (ctx) => {
     clearFlow(String(ctx.from.id));
-    return showTripGearMenu(ctx, groupService);
+    return showTripGearMenu(ctx, groupService, advisorService);
   });
   bot.hears(TRIP_GEAR_VIEW_ALL_LABEL, (ctx) => showTripGear(ctx, groupService));
   bot.hears("📦 Переглянути все", (ctx) => showTripGear(ctx, groupService));
@@ -10946,7 +11022,7 @@ export function createBot(store) {
     }
 
     if (menuContext === "trip-route-catalog") {
-      return showRouteMenu(ctx, groupService);
+      return showRouteMenu(ctx, groupService, advisorService);
     }
 
     if (menuContext === "routes-catalog") {
@@ -10958,7 +11034,7 @@ export function createBot(store) {
     }
 
     if (menuContext === "trip-gear-add" || menuContext === "trip-gear") {
-      return showTripGearMenu(ctx, groupService);
+      return showTripGearMenu(ctx, groupService, advisorService);
     }
 
     if (menuContext === "trip-photos") {

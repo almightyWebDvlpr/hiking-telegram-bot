@@ -1234,8 +1234,7 @@ function getTripMemberStatusInlineKeyboard(trip, memberId, viewerId) {
     ]);
   }
 
-  rows.push([Markup.button.callback("⬅️ До списку", "mstatus|back")]);
-  return Markup.inlineKeyboard(rows);
+  return rows.length ? Markup.inlineKeyboard(rows) : {};
 }
 
 function getTripRouteKeyboard(trip, canManage = false) {

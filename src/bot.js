@@ -4259,7 +4259,7 @@ function startJoinTripWizard(ctx) {
 
   return ctx.reply("Введи код запрошення в похід.\nПриклад: `A1F951`", {
     parse_mode: "Markdown",
-    ...FLOW_CANCEL_KEYBOARD
+    ...buildKeyboard([["❌ Скасувати"]])
   });
 }
 
@@ -7409,7 +7409,7 @@ async function handleJoinTripFlow(ctx, flow, groupService, userService, telegram
 
   if (message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply("Приєднання до походу скасовано.", getMainKeyboard(ctx));
+    return sendHome(ctx, userService);
   }
 
   const validation = validateInviteCode(message);
@@ -12276,6 +12276,11 @@ export function createBot(store) {
   bot.hears("❌ Скасувати", async (ctx) => {
     const activeFlow = getFlow(String(ctx.from.id));
     const menuContext = getMenuContext(ctx.from.id);
+
+    if (activeFlow?.type === "join_trip") {
+      clearFlow(String(ctx.from.id));
+      return sendHome(ctx, userService);
+    }
 
     if (activeFlow?.type === "borrowed_gear_manage" && activeFlow.step === "action") {
       const trip = groupService.findGroupByMember(String(ctx.from.id));

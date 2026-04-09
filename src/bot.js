@@ -122,7 +122,6 @@ const TRIP_HISTORY_BACK_LABEL = "⬅️ До історії";
 const PROFILE_PHOTO_ALBUMS_BACK_LABEL = "⬅️ До фотоальбомів";
 const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
-const TRIP_SAFETY_INLINE_BACK_LABEL = "⬅️ До безпеки";
 const HELP_SECTIONS = [
   "🚀 Як почати і створити похід",
   "📍 Як додати маршрут",
@@ -1447,16 +1446,8 @@ function getTripSafetyKeyboard() {
   ]);
 }
 
-function getTripSafetyInlineKeyboard({ includeBack = false } = {}) {
-  const rows = includeBack
-    ? []
-    : [[Markup.button.callback(TRIP_SOS_LABEL, "trip_sos_package")]];
-
-  if (includeBack) {
-    rows.push([Markup.button.callback(TRIP_SAFETY_INLINE_BACK_LABEL, "trip_safety_screen")]);
-  }
-
-  return Markup.inlineKeyboard(rows);
+function getTripSafetyInlineKeyboard() {
+  return Markup.inlineKeyboard([[Markup.button.callback(TRIP_SOS_LABEL, "trip_sos_package")]]);
 }
 
 function getTripExpensesKeyboard({ hasItems = false } = {}) {
@@ -3371,10 +3362,7 @@ function showTripSosPackage(ctx, groupService, userService) {
   return replyRichText(
     ctx,
     formatTripSosPackage(trip, groupService, userService, String(ctx.from.id)),
-    {
-      parse_mode: "HTML",
-      ...getTripSafetyInlineKeyboard({ includeBack: true })
-    }
+    { parse_mode: "HTML" }
   );
 }
 

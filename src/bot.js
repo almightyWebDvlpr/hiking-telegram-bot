@@ -3773,16 +3773,26 @@ function showTripMembers(ctx, groupService, userService) {
 
   const items = [];
   const labelCounts = new Map();
+  const memberSummaryLines = [];
 
   for (const member of trip.members) {
     const baseLabel = getMemberDisplayName(userService, member);
     const roleSuffix = member.role === "owner" ? " (Організатор)" : "";
     const count = (labelCounts.get(baseLabel) || 0) + 1;
     labelCounts.set(baseLabel, count);
+    const memberView = userService.getTripMemberView(member, false);
+    const roleLabel = member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник";
+
     items.push({
       id: member.id,
       label: count > 1 ? `${baseLabel}${roleSuffix} (${count})` : `${baseLabel}${roleSuffix}`
     });
+
+    memberSummaryLines.push(`${items.length}. ${baseLabel}`);
+    memberSummaryLines.push(`• Телефон: ${escapeHtml(memberView.title.split(" — ").slice(1).join(" — ") || "не вказано")}`);
+    memberSummaryLines.push(`• Роль: ${roleLabel}`);
+    memberSummaryLines.push("• Статус: скоро додамо");
+    memberSummaryLines.push("");
   }
 
   setFlow(String(ctx.from.id), {
@@ -3795,6 +3805,8 @@ function showTripMembers(ctx, groupService, userService) {
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("👥 СПИСОК УЧАСНИКІВ", trip.name),
+      "",
+      ...memberSummaryLines.slice(0, -1),
       "",
       "Обери учасника кнопкою нижче.",
       "",

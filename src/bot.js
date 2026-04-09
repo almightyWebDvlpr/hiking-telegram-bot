@@ -1679,15 +1679,41 @@ function buildMemberJoinedNotification(trip, memberName) {
   ]);
 }
 
-function buildTripDatesChangedNotification(trip, actorName, previousTripCard) {
-  return joinRichLines([
-    ...formatCardHeader("📅", "ЗМІНЕНО ДАТИ ПОХОДУ"),
+function buildTripCardChangedNotification(trip, actorName, previousTripCard = {}) {
+  const nextTripCard = trip.tripCard || {};
+  const datesChanged =
+    previousTripCard?.startDate !== nextTripCard?.startDate ||
+    previousTripCard?.endDate !== nextTripCard?.endDate;
+  const meetingPointChanged =
+    normalizeLocationLabel(previousTripCard?.meetingPoint || "") !==
+    normalizeLocationLabel(nextTripCard?.meetingPoint || "");
+  const meetingDateTimeChanged =
+    formatTripMeetingDateTime(previousTripCard || {}) !== formatTripMeetingDateTime(nextTripCard || {});
+
+  const lines = [
+    ...formatCardHeader("🪪", "ЗМІНЕНО ДАНІ ПОХОДУ"),
     "",
-    `У поході <b>${escapeHtml(trip.name)}</b> оновлено дати.`,
-    `Було: <b>${escapeHtml(formatTripDatesRange(previousTripCard))}</b>`,
-    `Стало: <b>${escapeHtml(formatTripDatesRange(trip.tripCard))}</b>`,
-    `Змінив: <b>${escapeHtml(actorName)}</b>`
-  ]);
+    `У поході <b>${escapeHtml(trip.name)}</b> оновлено дані.`
+  ];
+
+  if (datesChanged) {
+    lines.push(`Дати: <b>${escapeHtml(formatTripDatesRange(previousTripCard))}</b> → <b>${escapeHtml(formatTripDatesRange(nextTripCard))}</b>`);
+  }
+
+  if (meetingPointChanged) {
+    lines.push(
+      `Точка збору: <b>${escapeHtml(normalizeLocationLabel(previousTripCard?.meetingPoint || "") || "не вказано")}</b> → <b>${escapeHtml(normalizeLocationLabel(nextTripCard?.meetingPoint || "") || "не вказано")}</b>`
+    );
+  }
+
+  if (meetingDateTimeChanged) {
+    lines.push(
+      `Дата та Час збору: <b>${escapeHtml(formatTripMeetingDateTime(previousTripCard || {}) || "не вказано")}</b> → <b>${escapeHtml(formatTripMeetingDateTime(nextTripCard || {}) || "не вказано")}</b>`
+    );
+  }
+
+  lines.push(`Змінив: <b>${escapeHtml(actorName)}</b>`);
+  return joinRichLines(lines);
 }
 
 function buildTripRouteChangedNotification(trip, actorName, previousRoutePlan = null) {
@@ -7002,20 +7028,22 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
     });
     const snapshot = groupService.getGearSnapshot(updatedTrip.id);
     const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
-    const datesChanged = Boolean(
+    const tripCardChanged = Boolean(
       previousTrip?.tripCard &&
       (
         previousTrip.tripCard.startDate !== updatedTrip.tripCard?.startDate ||
-        previousTrip.tripCard.endDate !== updatedTrip.tripCard?.endDate
+        previousTrip.tripCard.endDate !== updatedTrip.tripCard?.endDate ||
+        normalizeLocationLabel(previousTrip.tripCard.meetingPoint || "") !== normalizeLocationLabel(updatedTrip.tripCard?.meetingPoint || "") ||
+        formatTripMeetingDateTime(previousTrip.tripCard || {}) !== formatTripMeetingDateTime(updatedTrip.tripCard || {})
       )
     );
 
     clearFlow(String(ctx.from.id));
-    if (datesChanged) {
+    if (tripCardChanged) {
       void notifyTripMembers(
         telegram,
         updatedTrip,
-        buildTripDatesChangedNotification(updatedTrip, actorName, previousTrip.tripCard),
+        buildTripCardChangedNotification(updatedTrip, actorName, previousTrip.tripCard),
         { excludeMemberId: String(ctx.from.id) }
       );
     }

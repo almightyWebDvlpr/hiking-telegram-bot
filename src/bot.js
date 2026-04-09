@@ -137,7 +137,7 @@ const HELP_SECTIONS = [
 const MAIN_KEYBOARD = Markup.keyboard([
   ["👥 Похід", PROFILE_LABEL],
   ["🔑 Приєднатися до походу", "🗺 Маршрути"],
-  ["🕓 Історія походів", "🌦 Погода"],
+  ["🌦 Погода"],
   [FAQ_LABEL, "ℹ️ Допомога"]
 ]).resize().persistent();
 
@@ -562,7 +562,7 @@ function getProfileKeyboard() {
   return buildKeyboard([
     [PROFILE_DASHBOARD_LABEL, PROFILE_AWARDS_LABEL],
     [PROFILE_ABOUT_LABEL, "🎒 Моє спорядження"],
-    [PROFILE_PHOTO_ALBUMS_LABEL],
+    [PROFILE_PHOTO_ALBUMS_LABEL, "🕓 Історія походів"],
     ["⬅️ Головне меню"]
   ]);
 }

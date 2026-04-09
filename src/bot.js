@@ -2914,10 +2914,57 @@ function formatTripHistoryDetails(trip, userService = null) {
     `Разом витрат: ${formatMoney(finalSummary.totalCost || 0)}`
   );
 
-  const directExpenseItems = Array.isArray(trip.expenses) ? trip.expenses : [];
-  const foodItems = Array.isArray(trip.food) ? trip.food : [];
-  const directExpensesTotal = directExpenseItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const foodTotal = foodItems.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
+  const expenseSettlement = buildTripExpenseSettlementData(
+    trip,
+    {
+      items: Array.isArray(trip.expenses) ? trip.expenses : [],
+      totalCost: Array.isArray(trip.expenses)
+        ? trip.expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+        : 0,
+      byMember: Array.isArray(trip.expenses)
+        ? [...new Map(
+            trip.expenses.map((item) => {
+              const key = getSettlementActorKey(item.memberId, item.memberName);
+              return [key, {
+                memberId: item.memberId || "",
+                memberName: item.memberName || "",
+                totalCost: 0
+              }];
+            })
+          ).values()].map((entry) => ({
+            ...entry,
+            totalCost: (Array.isArray(trip.expenses) ? trip.expenses : [])
+              .filter((item) => getSettlementActorKey(item.memberId, item.memberName) === getSettlementActorKey(entry.memberId, entry.memberName))
+              .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+          }))
+        : []
+    },
+    {
+      totalCost: Array.isArray(trip.food)
+        ? trip.food.reduce((sum, item) => sum + (Number(item.cost) || 0), 0)
+        : 0,
+      byMember: Array.isArray(trip.food)
+        ? [...new Map(
+            trip.food.map((item) => {
+              const key = getSettlementActorKey(item.memberId, item.memberName);
+              return [key, {
+                memberId: item.memberId || "",
+                memberName: item.memberName || "",
+                totalCost: 0
+              }];
+            })
+          ).values()].map((entry) => ({
+            ...entry,
+            totalCost: (Array.isArray(trip.food) ? trip.food : [])
+              .filter((item) => getSettlementActorKey(item.memberId, item.memberName) === getSettlementActorKey(entry.memberId, entry.memberName))
+              .reduce((sum, item) => sum + (Number(item.cost) || 0), 0)
+          }))
+        : []
+    },
+    userService
+  );
+  const directExpenseItems = expenseSettlement.directExpenseItems;
+  const foodItems = expenseSettlement.foodItems;
   const hasExpenseReport = directExpenseItems.length > 0 || foodItems.length > 0;
 
   if (hasExpenseReport) {
@@ -2941,24 +2988,6 @@ function formatTripHistoryDetails(trip, userService = null) {
         })
       : ["немає"];
 
-    const combinedByMemberMap = new Map();
-    for (const item of directExpenseItems) {
-      const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
-      const current = combinedByMemberMap.get(memberName) || 0;
-      combinedByMemberMap.set(memberName, current + (Number(item.amount) || 0));
-    }
-    for (const item of foodItems) {
-      const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
-      const current = combinedByMemberMap.get(memberName) || 0;
-      combinedByMemberMap.set(memberName, current + (Number(item.cost) || 0));
-    }
-
-    const byMemberLines = [...combinedByMemberMap.entries()]
-      .map(([memberName, totalCost]) => formatTotalLine(memberName, totalCost));
-
-    const grandTotal = directExpensesTotal + foodTotal;
-    const settlements = calculateSettlements(getTripMembersIncludedInCalculations(trip), combinedByMemberMap, grandTotal);
-
     lines.push(
       "",
       formatSectionHeader("💸", "Повний Звіт По Витратах"),
@@ -2970,13 +2999,26 @@ function formatTripHistoryDetails(trip, userService = null) {
       ...foodLines,
       "",
       formatSectionHeader("👥", "По Учасниках"),
-      ...(byMemberLines.length ? byMemberLines : ["немає"]),
+      ...(expenseSettlement.paidByMemberLines.length
+        ? expenseSettlement.paidByMemberLines.map((item) => formatTotalLine(item.label, item.value))
+        : ["немає"]),
       "",
       formatSectionHeader("📌", "Фінальний Підсумок"),
-      formatTotalLine("Інші витрати", directExpensesTotal),
-      formatTotalLine("Продукти", foodTotal),
-      formatTotalLine("ВСЬОГО", grandTotal),
-      formatTotalLine("З кожного порівну", settlements.perPerson)
+      formatTotalLine("Інші витрати", expenseSettlement.directExpensesTotal),
+      formatTotalLine("Продукти", expenseSettlement.foodTotal),
+      formatTotalLine("ВСЬОГО", expenseSettlement.grandTotal),
+      formatTotalLine("З кожного порівну", expenseSettlement.perPerson),
+      `• У розрахунку беруть участь: ${expenseSettlement.participantCount}`,
+      "",
+      formatSectionHeader("↩️", "Повернення Тим, Хто Не Йде"),
+      ...(expenseSettlement.excludedPayers.length
+        ? expenseSettlement.excludedPayers.map((item) => `• ${item.memberName} — повернути ${formatMoney(item.paid)}`)
+        : ["• немає"]),
+      "",
+      formatSectionHeader("💱", "Хто Кому Винен"),
+      ...(expenseSettlement.transfers.length
+        ? expenseSettlement.transfers.map((item) => `• ${item.from} → ${item.to}: ${formatMoney(item.amount)}`)
+        : ["• взаєморозрахунки вже збалансовані"])
     );
   }
 
@@ -3461,6 +3503,141 @@ function calculateSettlements(members, paidByMember, totalCost) {
   }
 
   return { perPerson, balances, transfers };
+}
+
+function getSettlementActorKey(memberId = "", memberName = "") {
+  const normalizedMemberId = String(memberId || "").trim();
+  if (normalizedMemberId) {
+    return `id:${normalizedMemberId}`;
+  }
+
+  const normalizedName = String(memberName || "").trim();
+  return normalizedName ? `name:${normalizedName}` : "";
+}
+
+function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, userService) {
+  const participants = getTripMembersIncludedInCalculations(trip);
+  const participantKeys = new Map();
+  const paidByKey = new Map();
+  const directExpenseItems = expenseSnapshot?.items || [];
+  const foodItems = Array.isArray(trip?.food) ? trip.food : [];
+  const directExpensesTotal = expenseSnapshot?.totalCost || 0;
+  const foodTotal = foodSnapshot?.totalCost || 0;
+  const grandTotal = directExpensesTotal + foodTotal;
+
+  for (const member of participants) {
+    const key = getSettlementActorKey(member.id, member.name);
+    if (!key) {
+      continue;
+    }
+    participantKeys.set(key, {
+      memberId: String(member.id || ""),
+      memberName: resolveMemberDisplayName(userService, member.id, member.name)
+    });
+  }
+
+  const registerPaidItem = (memberId, memberName, amount) => {
+    const key = getSettlementActorKey(memberId, memberName);
+    if (!key) {
+      return;
+    }
+
+    const current = paidByKey.get(key) || {
+      memberId: String(memberId || ""),
+      memberName: resolveMemberDisplayName(userService, memberId, memberName),
+      total: 0
+    };
+    current.total += Number(amount) || 0;
+    paidByKey.set(key, current);
+  };
+
+  for (const item of expenseSnapshot?.byMember || []) {
+    registerPaidItem(item.memberId, item.memberName, item.totalCost);
+  }
+
+  for (const item of foodSnapshot?.byMember || []) {
+    registerPaidItem(item.memberId, item.memberName, item.totalCost);
+  }
+
+  const allKeys = new Set([
+    ...participantKeys.keys(),
+    ...paidByKey.keys()
+  ]);
+
+  const perPerson = participants.length ? grandTotal / participants.length : 0;
+  const balances = [...allKeys].map((key) => {
+    const participant = participantKeys.get(key);
+    const payer = paidByKey.get(key);
+    const paid = payer?.total || 0;
+    const expected = participant ? perPerson : 0;
+    return {
+      key,
+      memberId: participant?.memberId || payer?.memberId || "",
+      memberName: participant?.memberName || payer?.memberName || "учасник",
+      isParticipant: Boolean(participant),
+      paid,
+      expected,
+      balance: paid - expected
+    };
+  });
+
+  const creditors = balances
+    .filter((item) => item.balance > 0.5)
+    .map((item) => ({ ...item, remaining: item.balance }))
+    .sort((a, b) => b.remaining - a.remaining);
+  const debtors = balances
+    .filter((item) => item.balance < -0.5)
+    .map((item) => ({ ...item, remaining: Math.abs(item.balance) }))
+    .sort((a, b) => b.remaining - a.remaining);
+
+  const transfers = [];
+  let creditorIndex = 0;
+  let debtorIndex = 0;
+
+  while (creditorIndex < creditors.length && debtorIndex < debtors.length) {
+    const creditor = creditors[creditorIndex];
+    const debtor = debtors[debtorIndex];
+    const amount = Math.min(creditor.remaining, debtor.remaining);
+
+    if (amount > 0.5) {
+      transfers.push({
+        from: debtor.memberName,
+        to: creditor.memberName,
+        amount
+      });
+    }
+
+    creditor.remaining -= amount;
+    debtor.remaining -= amount;
+
+    if (creditor.remaining <= 0.5) {
+      creditorIndex += 1;
+    }
+
+    if (debtor.remaining <= 0.5) {
+      debtorIndex += 1;
+    }
+  }
+
+  const paidByMemberLines = [...paidByKey.values()]
+    .sort((left, right) => right.total - left.total)
+    .map((item) => ({ label: item.memberName, value: item.total }));
+
+  const excludedPayers = balances.filter((item) => !item.isParticipant && item.paid > 0.5);
+
+  return {
+    directExpenseItems,
+    foodItems,
+    directExpensesTotal,
+    foodTotal,
+    grandTotal,
+    perPerson,
+    participantCount: participants.length,
+    paidByMemberLines,
+    balances,
+    excludedPayers,
+    transfers
+  };
 }
 
 function showAuthorizationRequired(ctx, userService, extraNotice = "") {
@@ -11127,8 +11304,9 @@ function showTripExpenses(ctx, groupService, userService) {
 
   const expenseSnapshot = groupService.getExpenseSnapshot(trip.id);
   const foodSnapshot = groupService.getFoodSnapshot(trip.id);
-  const expenseItems = expenseSnapshot?.items || [];
-  const foodTotal = foodSnapshot?.totalCost || 0;
+  const expenseSettlement = buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, userService);
+  const expenseItems = expenseSettlement.directExpenseItems;
+  const foodTotal = expenseSettlement.foodTotal;
 
   if (!expenseItems.length && foodTotal === 0) {
     return ctx.reply(
@@ -11151,35 +11329,14 @@ function showTripExpenses(ctx, groupService, userService) {
   const items = expenseItems.length
     ? expenseItems.map((item, index) => `${index + 1}. ${item.title}\n   ${item.quantity} × ${formatMoney(item.price)} = ${formatMoney(item.amount)}\n   платить: ${resolveMemberDisplayName(userService, item.memberId, item.memberName)}`).join("\n")
     : "немає";
-  const directExpenses = expenseSnapshot?.totalCost || 0;
-  const combinedByMemberMap = new Map();
-  const foodByMemberMap = new Map();
-
-  for (const item of expenseSnapshot?.byMember || []) {
-    const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
-    const current = combinedByMemberMap.get(memberName) || { total: 0, food: 0 };
-    current.total += item.totalCost;
-    combinedByMemberMap.set(memberName, current);
-  }
-
-  for (const item of foodSnapshot?.byMember || []) {
-    const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
-    const current = combinedByMemberMap.get(memberName) || { total: 0, food: 0 };
-    current.total += item.totalCost;
-    current.food += item.totalCost;
-    combinedByMemberMap.set(memberName, current);
-    foodByMemberMap.set(memberName, item.totalCost);
-  }
-
-  const foodByMember = [...foodByMemberMap.entries()]
-    .map(([memberName, totalCost]) => formatTotalLine(memberName, totalCost))
+  const directExpenses = expenseSettlement.directExpensesTotal;
+  const foodByMember = (foodSnapshot?.byMember || [])
+    .map((item) => formatTotalLine(resolveMemberDisplayName(userService, item.memberId, item.memberName), item.totalCost))
     .join("\n") || "немає";
-  const combinedByMember = [...combinedByMemberMap.entries()]
-    .map(([memberName, totals]) => formatTotalLine(memberName, totals.total))
+  const combinedByMember = expenseSettlement.paidByMemberLines
+    .map((item) => formatTotalLine(item.label, item.value))
     .join("\n") || "немає";
-  const grandTotal = directExpenses + foodTotal;
-  const calculationMembers = getTripMembersIncludedInCalculations(trip);
-  const settlements = calculateSettlements(calculationMembers, combinedByMemberMap, grandTotal);
+  const grandTotal = expenseSettlement.grandTotal;
 
   return replyRichText(
     ctx,
@@ -11199,8 +11356,19 @@ function showTripExpenses(ctx, groupService, userService) {
       formatTotalLine("Інші витрати", directExpenses),
       formatTotalLine("Продукти", foodTotal),
       formatTotalLine("ВСЬОГО", grandTotal),
-      formatTotalLine("З кожного порівну", settlements.perPerson),
-      `• У розрахунку беруть участь: ${calculationMembers.length}`,
+      formatTotalLine("З кожного порівну", expenseSettlement.perPerson),
+      `• У розрахунку беруть участь: ${expenseSettlement.participantCount}`,
+      "• статус `👎 Не йду` не включається в поділ витрат",
+      "",
+      formatSectionHeader("↩️", "Повернення Тим, Хто Не Йде"),
+      ...(expenseSettlement.excludedPayers.length
+        ? expenseSettlement.excludedPayers.map((item) => `• ${item.memberName} — повернути ${formatMoney(item.paid)}`)
+        : ["• немає"]),
+      "",
+      formatSectionHeader("💱", "Хто Кому Винен"),
+      ...(expenseSettlement.transfers.length
+        ? expenseSettlement.transfers.map((item) => `• ${item.from} → ${item.to}: ${formatMoney(item.amount)}`)
+        : ["• взаєморозрахунки вже збалансовані"]),
       "",
       divider
     ]),

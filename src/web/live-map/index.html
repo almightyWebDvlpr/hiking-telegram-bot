@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Жива карта походу</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="/mini-app/live-map/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Mini App</p>
+          <h1 id="trip-title">Жива карта</h1>
+          <p id="trip-meta" class="meta"></p>
+        </div>
+        <button id="share-location-button" class="primary-button" type="button">📍 Увімкнути live-локацію</button>
+      </header>
+
+      <section class="map-section">
+        <div id="map"></div>
+        <div id="map-status" class="map-status">Завантажую карту...</div>
+      </section>
+
+      <section class="info-grid">
+        <article class="card">
+          <h2>🚆 Збір</h2>
+          <p id="meeting-point-text" class="body-text">Точка збору не задана.</p>
+          <p id="meeting-time-text" class="muted-text"></p>
+        </article>
+        <article class="card">
+          <h2>🧭 Маршрут</h2>
+          <p id="route-text" class="body-text">Маршрут ще не задано.</p>
+          <p id="route-points-text" class="muted-text"></p>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <h2>👥 Учасники на карті</h2>
+          <button id="refresh-button" class="ghost-button" type="button">Оновити</button>
+        </div>
+        <ul id="members-list" class="member-list"></ul>
+      </section>
+
+      <section class="card">
+        <h2>💧 Вода, ночівлі, укриття</h2>
+        <ul id="features-list" class="feature-list"></ul>
+      </section>
+    </div>
+
+    <script type="module" src="/mini-app/live-map/app.js"></script>
+  </body>
+</html>

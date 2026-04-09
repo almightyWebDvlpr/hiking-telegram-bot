@@ -625,7 +625,7 @@ function getTripKeyboard(trip, userId = "") {
 
   const rows = [
     [TRIP_DETAILS_LABEL, "👥 Учасники походу", "🔔 Нагадування"],
-    ["🗺 Маршрут походу", config.miniAppBaseUrl ? TRIP_LIVE_MAP_LABEL : KEYBOARD_PLACEHOLDER, "🎒 Спорядження походу"],
+    ["🗺 Маршрут походу", TRIP_LIVE_MAP_LABEL, "🎒 Спорядження походу"],
     ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
     ["🌦 Погода походу", "💸 Витрати походу", "⚖️ Вага рюкзака"],
     [isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],

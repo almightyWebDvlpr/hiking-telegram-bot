@@ -124,6 +124,8 @@ const TRIP_HISTORY_BACK_LABEL = "⬅️ До історії";
 const PROFILE_PHOTO_ALBUMS_BACK_LABEL = "⬅️ До фотоальбомів";
 const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
+const TRIP_SETTINGS_LABEL = "⚙️ Налаштування";
+const TRIP_SETTINGS_BACK_LABEL = "⬅️ До походу";
 const HELP_SECTIONS = [
   "🚀 Як почати і створити похід",
   "📍 Як додати маршрут",
@@ -629,7 +631,7 @@ function getTripKeyboard(trip, userId = "") {
   }
 
   const rows = [
-    [TRIP_DETAILS_LABEL, "👥 Учасники походу", "🔔 Нагадування"],
+    [TRIP_DETAILS_LABEL, "👥 Учасники походу", canManageTrip(trip, userId) ? TRIP_SETTINGS_LABEL : KEYBOARD_PLACEHOLDER],
     ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"],
     ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
     ["🌦 Погода походу", "💸 Витрати походу"],
@@ -637,6 +639,20 @@ function getTripKeyboard(trip, userId = "") {
     ["⬅️ Головне меню"]
   ];
 
+  return buildKeyboard(rows);
+}
+
+function getTripSettingsKeyboard(trip, userId = "") {
+  const tripForAccess = trip && canManageTrip(trip, userId) ? trip : null;
+  if (!tripForAccess) {
+    return buildKeyboard([[TRIP_SETTINGS_BACK_LABEL]]);
+  }
+
+  const rows = [["🔔 Нагадування"]];
+  if (isTripOwner(tripForAccess, userId)) {
+    rows.push(["🛡 Права редагування"]);
+  }
+  rows.push([TRIP_SETTINGS_BACK_LABEL]);
   return buildKeyboard(rows);
 }
 
@@ -1154,12 +1170,7 @@ function getTripMembersKeyboard(trip, userId = "") {
     firstRow.push("➕ Запросити учасників");
   }
   rows.push(firstRow);
-
-  if (isTripOwner(trip, userId)) {
-    rows.push(["🛡 Права редагування", "⬅️ До походу"]);
-  } else {
-    rows.push(["⬅️ До походу"]);
-  }
+  rows.push(["⬅️ До походу"]);
 
   return buildKeyboard(rows);
 }
@@ -3315,7 +3326,7 @@ function showTripMenu(ctx, groupService) {
     "Що де шукати:",
     "• Деталі походу — головна зведена картка",
     "• Маршрут походу — трек, GPX/KML і перегляд карти",
-    "• Учасники походу — список, запрошення і права доступу",
+    "• Учасники походу — список і запрошення",
     "• Спорядження походу — речі, запити і облік",
     "• Харчування / Витрати — робочі списки походу",
     "• Фото походу — кадри з маршруту, короткі підписи і фотоальбом"
@@ -3323,6 +3334,7 @@ function showTripMenu(ctx, groupService) {
 
   if (canManageTrip(trip, String(ctx.from.id))) {
     hintLines.push("• У Деталях походу можна редагувати назву, дати і готовність");
+    hintLines.push("• У Налаштуваннях зібрані нагадування і службові дії по походу");
   }
 
   return ctx.reply(
@@ -3355,6 +3367,31 @@ function showTripSafety(ctx, groupService) {
   });
 }
 
+function showTripSettings(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-settings");
+  const trip = requireManageTrip(ctx, groupService);
+  if (!trip) {
+    return null;
+  }
+
+  const lines = [
+    ...formatCardHeader("⚙️ НАЛАШТУВАННЯ", trip.name),
+    "",
+    "Тут зібрані службові дії для керування походом.",
+    "",
+    "• `🔔 Нагадування` — план і тексти автоматичних повідомлень учасникам"
+  ];
+
+  if (isTripOwner(trip, String(ctx.from.id))) {
+    lines.push("• `🛡 Права редагування` — кому з учасників дозволено керувати походом");
+  }
+
+  return ctx.reply(
+    joinRichLines(lines),
+    { parse_mode: "HTML", ...getTripSettingsKeyboard(trip, String(ctx.from.id)) }
+  );
+}
+
 function showTripSosPackage(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
@@ -3369,12 +3406,16 @@ function showTripSosPackage(ctx, groupService, userService) {
 }
 
 function showTripReminders(ctx, groupService) {
-  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  setMenuContext(ctx.from?.id, "trip-settings");
+  const trip = requireManageTrip(ctx, groupService);
   if (!trip) {
     return null;
   }
 
-  return replyRichText(ctx, formatReminderPlan(trip), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
+  return replyRichText(ctx, formatReminderPlan(trip), {
+    parse_mode: "HTML",
+    ...getTripSettingsKeyboard(trip, String(ctx.from.id))
+  });
 }
 
 function showTripPhotosMenu(ctx, groupService) {
@@ -3667,8 +3708,8 @@ function showTripMembersMenu(ctx, groupService, userService) {
     body.push("• повна анкета доступна організатору або редактору походу");
   }
 
-  if (isTripOwner(trip, String(ctx.from.id))) {
-    body.push("• організатор також може керувати правами редагування");
+  if (canManageTrip(trip, String(ctx.from.id))) {
+    body.push("• нагадування і службові дії винесені в `⚙️ Налаштування`");
   }
 
   return ctx.reply(
@@ -3797,7 +3838,7 @@ function startGrantAccessWizard(ctx, groupService, userService) {
 
   const candidates = trip.members.filter((member) => !member.canManage && member.role !== "owner");
   if (!candidates.length) {
-    return ctx.reply("Усі учасники вже мають права редагування або в поході ще немає кого призначати.", getTripMembersKeyboard(trip, String(ctx.from.id)));
+    return ctx.reply("Усі учасники вже мають права редагування або в поході ще немає кого призначати.", getTripSettingsKeyboard(trip, String(ctx.from.id)));
   }
 
   setFlow(String(ctx.from.id), {
@@ -6949,7 +6990,10 @@ async function handleJoinTripFlow(ctx, flow, groupService, userService, telegram
   clearFlow(String(ctx.from.id));
 
   if (!result.ok) {
-    return ctx.reply(result.message, getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
+    return ctx.reply(
+      result.message,
+      getTripSettingsKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id))
+    );
   }
 
   void notifyTripMembers(
@@ -6990,7 +7034,7 @@ async function handleGrantAccessFlow(ctx, flow, groupService, userService) {
 
   return ctx.reply(
     `✅ ${candidate.name} тепер має права редагування походу.`,
-    getTripKeyboard(result.group, String(ctx.from.id))
+    getTripSettingsKeyboard(result.group, String(ctx.from.id))
   );
 }
 
@@ -11432,6 +11476,7 @@ export function createBot(store) {
   bot.hears("👥 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("👤 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("📋 Список учасників", (ctx) => showTripMembers(ctx, groupService, userService));
+  bot.hears(TRIP_SETTINGS_LABEL, (ctx) => showTripSettings(ctx, groupService));
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
   bot.hears(TRIP_DETAILS_BACK_LABEL, (ctx) => {
     const activeFlow = getFlow(String(ctx.from?.id));
@@ -11651,7 +11696,7 @@ export function createBot(store) {
     }
 
     if (activeFlow?.type === "grant_access") {
-      return showTripMembersMenu(ctx, groupService, userService);
+      return showTripSettings(ctx, groupService);
     }
 
     if (activeFlow?.type === "vpohid_search") {

@@ -283,6 +283,12 @@ function createEmptyGroupFields(group) {
     members: Array.isArray(group.members)
       ? group.members.map((member) => ({
           ...member,
+          attendanceStatus:
+            member.attendanceStatus === "going" ||
+            member.attendanceStatus === "thinking" ||
+            member.attendanceStatus === "not_going"
+              ? member.attendanceStatus
+              : "",
           role:
             member.role ||
             (member.id === (group.ownerId || group.members?.[0]?.id) ? "owner" : "member"),
@@ -326,6 +332,7 @@ export class GroupService {
         {
           id: ownerId,
           name: ownerName,
+          attendanceStatus: "",
           role: "owner",
           canManage: true
         }
@@ -383,6 +390,7 @@ export class GroupService {
     if (!alreadyMember) {
       rawGroup.members.push({
         ...member,
+        attendanceStatus: "",
         role: "member",
         canManage: false
       });
@@ -483,6 +491,47 @@ export class GroupService {
     this.store.write(data);
 
     return { ok: true, group: createEmptyGroupFields(group), member: target };
+  }
+
+  setMemberAttendanceStatus({ groupId, actorId, targetMemberId, status }) {
+    const allowedStatuses = new Set(["going", "thinking", "not_going"]);
+    if (!allowedStatuses.has(status)) {
+      return { ok: false, message: "Невідомий статус учасника." };
+    }
+
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return { ok: false, message: "Похід не знайдено." };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const actor = group.members.find((member) => member.id === actorId);
+    if (!actor) {
+      return { ok: false, message: "Тебе не знайдено серед учасників цього походу." };
+    }
+
+    const target = group.members.find((member) => member.id === targetMemberId);
+    if (!target) {
+      return { ok: false, message: "Учасника не знайдено в цьому поході." };
+    }
+
+    const canUpdate = actor.id === target.id || actor.canManage === true || actor.role === "owner";
+    if (!canUpdate) {
+      return { ok: false, message: "Ти можеш змінювати тільки свій статус участі." };
+    }
+
+    target.attendanceStatus = status;
+    this.store.write(data);
+
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group),
+      member: { ...target }
+    };
   }
 
   getGroupHistoryByMember(memberId) {

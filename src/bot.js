@@ -647,6 +647,14 @@ function getAttendanceStatusEmoji(status) {
   return meta.key ? meta.emoji : "";
 }
 
+function isMemberIncludedInCalculations(member) {
+  return String(member?.attendanceStatus || "") !== "not_going";
+}
+
+function getTripMembersIncludedInCalculations(trip) {
+  return (trip?.members || []).filter(isMemberIncludedInCalculations);
+}
+
 function isAttendanceStatusPending(status) {
   const key = String(status || "");
   return key !== "going" && key !== "not_going";
@@ -3335,12 +3343,20 @@ function calculateSettlements(members, paidByMember, totalCost) {
   }
 
   const perPerson = totalCost / members.length;
-  const balances = members.map((member) => {
-    const paid = paidByMember.get(member.name) || 0;
+  const expectedByName = new Map(
+    members.map((member) => [member.name, perPerson])
+  );
+  const balanceNames = new Set([
+    ...expectedByName.keys(),
+    ...paidByMember.keys()
+  ]);
+  const balances = [...balanceNames].map((memberName) => {
+    const paid = paidByMember.get(memberName) || 0;
+    const expected = expectedByName.get(memberName) || 0;
     return {
-      memberName: member.name,
+      memberName,
       paid,
-      balance: paid - perPerson
+      balance: paid - expected
     };
   });
 
@@ -10919,7 +10935,9 @@ function showBackpackWeight(ctx, groupService, userService) {
       joinRichLines([
         ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
         "",
-        "Для тебе поки немає розрахунку в цьому поході."
+        getTripMember(trip, viewerId)?.attendanceStatus === "not_going"
+          ? "Ти зараз у статусі `👎 Не йду`, тому не враховуєшся в розрахунку ваги."
+          : "Для тебе поки немає розрахунку в цьому поході."
       ]),
       { parse_mode: "HTML", ...getTripKeyboard(trip, viewerId) }
     );
@@ -10938,7 +10956,7 @@ function showBackpackWeight(ctx, groupService, userService) {
     member.totalWeight <= 0 && member.missingWeights <= 0 ? "• Для тебе поки немає доданого спорядження чи їжі з вагою." : null,
     member.missingWeights > 0 ? "• Деякі ваги ще не заповнені, тому розрахунок поки неповний." : null,
     "• Позичені речі додаються саме до ваги того, хто їх зараз несе.",
-    "• Вільне спільне спорядження і їжа діляться порівну між усіма учасниками."
+    "• Вільне спільне спорядження і їжа діляться порівну тільки між тими, хто бере участь у поході."
   ];
 
   return replyRichText(ctx, joinRichLines(lines), { parse_mode: "HTML", ...getTripKeyboard(trip, viewerId) });
@@ -11075,7 +11093,8 @@ function showTripExpenses(ctx, groupService, userService) {
     .map(([memberName, totals]) => formatTotalLine(memberName, totals.total))
     .join("\n") || "немає";
   const grandTotal = directExpenses + foodTotal;
-  const settlements = calculateSettlements(trip.members || [], combinedByMemberMap, grandTotal);
+  const calculationMembers = getTripMembersIncludedInCalculations(trip);
+  const settlements = calculateSettlements(calculationMembers, combinedByMemberMap, grandTotal);
 
   return replyRichText(
     ctx,
@@ -11096,6 +11115,7 @@ function showTripExpenses(ctx, groupService, userService) {
       formatTotalLine("Продукти", foodTotal),
       formatTotalLine("ВСЬОГО", grandTotal),
       formatTotalLine("З кожного порівну", settlements.perPerson),
+      `• У розрахунку беруть участь: ${calculationMembers.length}`,
       "",
       divider
     ]),

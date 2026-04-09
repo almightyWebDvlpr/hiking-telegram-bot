@@ -119,6 +119,20 @@ function getTripCost(trip) {
   return food + expenses;
 }
 
+function tripHasMember(trip, userId) {
+  const normalizedUserId = String(userId || "");
+  if (!normalizedUserId) {
+    return false;
+  }
+
+  if (Array.isArray(trip?.members) && trip.members.some((member) => String(member?.id || "") === normalizedUserId)) {
+    return true;
+  }
+
+  return Array.isArray(trip?.finalSummary?.members)
+    && trip.finalSummary.members.some((member) => String(member?.id || "") === normalizedUserId);
+}
+
 function getRouteAscent(routePlan) {
   return Number(routePlan?.meta?.ascentGain) || 0;
 }
@@ -168,8 +182,7 @@ function getCompletedTrips(groups, userId) {
   return groups.filter((trip) =>
     hasTrackableRoute(trip) &&
     (trip.status === "completed" || trip.status === "archived") &&
-    Array.isArray(trip.members) &&
-    trip.members.some((member) => member.id === userId)
+    tripHasMember(trip, userId)
   );
 }
 
@@ -189,7 +202,7 @@ function getLifetimeStats(groups, userId) {
     totalDays: passedTrips.reduce((sum, trip) => sum + getTripDays(trip), 0),
     totalNights: passedTrips.reduce((sum, trip) => sum + (Number(trip?.tripCard?.nights) || 0), 0),
     totalCost: passedTrips.reduce((sum, trip) => sum + getTripCost(trip), 0),
-    organizedTrips: passedTrips.filter((trip) => trip.ownerId === userId).length,
+    organizedTrips: passedTrips.filter((trip) => String(trip.ownerId || "") === String(userId || "")).length,
     totalAscent: passedTrips.reduce((sum, trip) => sum + getRouteAscent(trip.routePlan), 0),
     weatherTrips: passedTrips.filter((trip) => hasWeatherWarnings(trip)).length,
     stormTrips: passedTrips.filter((trip) => hasStormRisk(trip)).length,
@@ -197,19 +210,19 @@ function getLifetimeStats(groups, userId) {
     longestDistance,
     longestOneDayDistance,
     openSkyNights: passedTrips.reduce((sum, trip) => sum + (Number(trip?.tripCard?.nights) || 0), 0),
-    foodTrips: passedTrips.filter((trip) => Array.isArray(trip.food) && trip.food.some((item) => item.memberId === userId)).length,
+    foodTrips: passedTrips.filter((trip) => Array.isArray(trip.food) && trip.food.some((item) => String(item.memberId || "") === String(userId || ""))).length,
     sharedGearTrips: passedTrips.filter((trip) =>
       Array.isArray(trip.gear) &&
-      trip.gear.some((item) => item.memberId === userId && (item.scope === "shared" || item.scope === "spare" || item.shareable))
+      trip.gear.some((item) => String(item.memberId || "") === String(userId || "") && (item.scope === "shared" || item.scope === "spare" || item.shareable))
     ).length,
     safetyTrips: passedTrips.filter((trip) =>
       Array.isArray(trip.gear) &&
       trip.gear.some((item) =>
-        item.memberId === userId &&
+        String(item.memberId || "") === String(userId || "") &&
         (item.categoryKey === "safety" || String(item.name || "").toLowerCase().includes("аптеч"))
       )
     ).length,
-    expenseTrips: passedTrips.filter((trip) => Array.isArray(trip.expenses) && trip.expenses.some((item) => item.memberId === userId)).length
+    expenseTrips: passedTrips.filter((trip) => Array.isArray(trip.expenses) && trip.expenses.some((item) => String(item.memberId || "") === String(userId || ""))).length
   };
 }
 
@@ -354,19 +367,26 @@ function calculateTripXp(trip, memberId) {
   const distanceKm = getRouteDistanceKm(trip?.routePlan);
   const ascentGain = getRouteAscent(trip?.routePlan);
   const nights = Number(trip?.tripCard?.nights) || 0;
-  const member = Array.isArray(trip?.members) ? trip.members.find((item) => item.id === memberId) : null;
-  const isNavigator = trip?.ownerId === memberId || Boolean(member?.canManage);
-  const foodContributions = Array.isArray(trip?.food) ? trip.food.filter((item) => item.memberId === memberId).length : 0;
+  const normalizedMemberId = String(memberId || "");
+  const member = Array.isArray(trip?.members)
+    ? trip.members.find((item) => String(item?.id || "") === normalizedMemberId)
+    : null;
+  const isNavigator = String(trip?.ownerId || "") === normalizedMemberId || Boolean(member?.canManage);
+  const foodContributions = Array.isArray(trip?.food)
+    ? trip.food.filter((item) => String(item.memberId || "") === normalizedMemberId).length
+    : 0;
   const sharedGearContributions = Array.isArray(trip?.gear)
-    ? trip.gear.filter((item) => item.memberId === memberId && (item.scope === "shared" || item.scope === "spare" || item.shareable)).length
+    ? trip.gear.filter((item) => String(item.memberId || "") === normalizedMemberId && (item.scope === "shared" || item.scope === "spare" || item.shareable)).length
     : 0;
   const safetyGearContributions = Array.isArray(trip?.gear)
     ? trip.gear.filter((item) =>
-      item.memberId === memberId &&
+      String(item.memberId || "") === normalizedMemberId &&
       (item.categoryKey === "safety" || String(item.name || "").toLowerCase().includes("аптеч"))
     ).length
     : 0;
-  const expensesContributions = Array.isArray(trip?.expenses) ? trip.expenses.filter((item) => item.memberId === memberId).length : 0;
+  const expensesContributions = Array.isArray(trip?.expenses)
+    ? trip.expenses.filter((item) => String(item.memberId || "") === normalizedMemberId).length
+    : 0;
 
   const components = [
     { key: "base", label: "Завершений похід", xp: 100 },
@@ -643,9 +663,7 @@ export class UserService {
     const user = ensureUser(data.users, userId, userName);
     const groups = Array.isArray(data.groups) ? data.groups : [];
     const visibleAwards = getVisibleAwardsList(user);
-    const relatedTrips = groups.filter((trip) =>
-      Array.isArray(trip.members) && trip.members.some((member) => member.id === userId)
-    );
+    const relatedTrips = groups.filter((trip) => tripHasMember(trip, userId));
     const stats = getLifetimeStats(groups, userId);
 
     return {
@@ -713,7 +731,9 @@ export class UserService {
     const groups = Array.isArray(data.groups) ? data.groups : [];
     const stats = getLifetimeStats(groups, memberId);
     const previousStats = getLifetimeStatsWithoutTrip(groups, memberId, trip.id);
-    const member = Array.isArray(trip.members) ? trip.members.find((item) => item.id === memberId) : null;
+    const member = Array.isArray(trip.members)
+      ? trip.members.find((item) => String(item?.id || "") === String(memberId || ""))
+      : null;
     const profile = this.getProfile(memberId, userName).profile;
     const personalGearCount = user.personalGear.length;
     const preparedLevel = getPreparedProfileLevel(user, profile, personalGearCount);

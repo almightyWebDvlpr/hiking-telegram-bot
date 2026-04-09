@@ -126,6 +126,8 @@ const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
 const TRIP_SETTINGS_LABEL = "⚙️ Налаштування";
 const TRIP_SETTINGS_BACK_LABEL = "⬅️ До походу";
+const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
+const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
 const HELP_SECTIONS = [
   "🚀 Як почати і створити похід",
   "📍 Як додати маршрут",
@@ -652,6 +654,17 @@ function getTripSettingsKeyboard(trip, userId = "") {
     rows.push(["🛡 Права редагування"]);
   }
   rows.push([TRIP_SETTINGS_BACK_LABEL]);
+  return buildKeyboard(rows);
+}
+
+function getTripRemindersKeyboard(trip) {
+  const rows = [];
+  if (trip?.remindersEnabled === true) {
+    rows.push([TRIP_REMINDERS_DISABLE_LABEL]);
+  } else {
+    rows.push([TRIP_REMINDERS_ENABLE_LABEL]);
+  }
+  rows.push([TRIP_DETAILS_BACK_LABEL]);
   return buildKeyboard(rows);
 }
 
@@ -1815,6 +1828,9 @@ function formatReminderPlan(trip) {
   const meetingPoint = normalizeLocationLabel(trip.tripCard?.meetingPoint || "");
   const meetingDateTime = formatTripMeetingDateTime(trip.tripCard || {});
   const lines = [...formatCardHeader("🔔 НАГАДУВАННЯ", trip.name), ""];
+
+  lines.push(`Статус нагадувань: ${trip.remindersEnabled === true ? "увімкнено" : "вимкнено"}`);
+  lines.push("");
 
   if (meetingPoint || meetingDateTime) {
     lines.push("🚆 Що бот також нагадає учасникам про збір");
@@ -3405,7 +3421,7 @@ function showTripSosPackage(ctx, groupService, userService) {
 }
 
 function showTripReminders(ctx, groupService) {
-  setMenuContext(ctx.from?.id, "trip-settings");
+  setMenuContext(ctx.from?.id, "trip-reminders");
   const trip = requireManageTrip(ctx, groupService);
   if (!trip) {
     return null;
@@ -3413,8 +3429,36 @@ function showTripReminders(ctx, groupService) {
 
   return replyRichText(ctx, formatReminderPlan(trip), {
     parse_mode: "HTML",
-    ...getTripSettingsKeyboard(trip, String(ctx.from.id))
+    ...getTripRemindersKeyboard(trip)
   });
+}
+
+function toggleTripReminders(ctx, groupService, enabled) {
+  const trip = requireManageTrip(ctx, groupService);
+  if (!trip) {
+    return null;
+  }
+
+  const updatedTrip = groupService.setRemindersEnabled({
+    groupId: trip.id,
+    enabled
+  });
+
+  setMenuContext(ctx.from?.id, "trip-reminders");
+  return replyRichText(
+    ctx,
+    joinRichLines([
+      ...formatCardHeader(enabled ? "✅ НАГАДУВАННЯ УВІМКНЕНО" : "⛔️ НАГАДУВАННЯ ВИМКНЕНО", updatedTrip.name),
+      "",
+      enabled
+        ? "Бот тепер надсилатиме автоматичні нагадування учасникам за розкладом цього походу."
+        : "Бот більше не надсилатиме автоматичні нагадування учасникам для цього походу."
+    ]),
+    {
+      parse_mode: "HTML",
+      ...getTripRemindersKeyboard(updatedTrip)
+    }
+  );
 }
 
 function showTripPhotosMenu(ctx, groupService) {
@@ -10986,6 +11030,10 @@ function startTripReminderLoop(bot, groupService) {
     const activeTrips = groupService.getActiveGroups();
 
     for (const trip of activeTrips) {
+      if (trip.remindersEnabled !== true) {
+        continue;
+      }
+
       const startDate = trip.tripCard?.startDate;
       const daysUntil = calculateDaysUntil(startDate);
 
@@ -11489,6 +11537,12 @@ export function createBot(store) {
       clearFlow(String(ctx.from.id));
       return showTripMembersMenu(ctx, groupService, userService);
     }
+    if (getMenuContext(ctx.from?.id) === "trip-reminders") {
+      return showTripSettings(ctx, groupService);
+    }
+    if (getMenuContext(ctx.from?.id) === "trip-settings") {
+      return showTripMenu(ctx, groupService);
+    }
     if (getMenuContext(ctx.from?.id) === "trip_details") {
       return showTripMenu(ctx, groupService);
     }
@@ -11523,6 +11577,8 @@ export function createBot(store) {
   bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
+  bot.hears(TRIP_REMINDERS_ENABLE_LABEL, (ctx) => toggleTripReminders(ctx, groupService, true));
+  bot.hears(TRIP_REMINDERS_DISABLE_LABEL, (ctx) => toggleTripReminders(ctx, groupService, false));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
   bot.hears(TRIP_SOS_LABEL, (ctx) => showTripSosPackage(ctx, groupService, userService));
   bot.hears("🌦 Погода походу", (ctx) => {

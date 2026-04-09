@@ -274,6 +274,7 @@ function createEmptyGroupFields(group) {
     region: group.region || null,
     tripCard: group.tripCard || null,
     reminderState: group.reminderState || {},
+    remindersEnabled: group.remindersEnabled === true,
     status: group.status || "active",
     createdAt: group.createdAt || null,
     completedAt: group.completedAt || null,
@@ -339,6 +340,7 @@ export class GroupService {
       region: null,
       tripCard: null,
       reminderState: {},
+      remindersEnabled: false,
       status: "active",
       createdAt: new Date().toISOString(),
       completedAt: null,
@@ -996,6 +998,21 @@ export class GroupService {
       ...preparedGroup.reminderState,
       [reminderKey]: new Date().toISOString()
     };
+    this.store.write(data);
+    return createEmptyGroupFields(group);
+  }
+
+  setRemindersEnabled({ groupId, enabled }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+    group.remindersEnabled = enabled === true;
     this.store.write(data);
     return createEmptyGroupFields(group);
   }

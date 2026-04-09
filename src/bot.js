@@ -643,13 +643,12 @@ function getTripKeyboard(trip, userId = "") {
 }
 
 function getTripSettingsKeyboard(trip, userId = "") {
-  const tripForAccess = trip && canManageTrip(trip, userId) ? trip : null;
-  if (!tripForAccess) {
+  if (!trip || !canManageTrip(trip, userId)) {
     return buildKeyboard([[TRIP_SETTINGS_BACK_LABEL]]);
   }
 
   const rows = [["🔔 Нагадування"]];
-  if (isTripOwner(tripForAccess, userId)) {
+  if (isTripOwner(trip, userId)) {
     rows.push(["🛡 Права редагування"]);
   }
   rows.push([TRIP_SETTINGS_BACK_LABEL]);
@@ -6990,10 +6989,7 @@ async function handleJoinTripFlow(ctx, flow, groupService, userService, telegram
   clearFlow(String(ctx.from.id));
 
   if (!result.ok) {
-    return ctx.reply(
-      result.message,
-      getTripSettingsKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id))
-    );
+    return ctx.reply(result.message, getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
   }
 
   void notifyTripMembers(
@@ -7029,7 +7025,10 @@ async function handleGrantAccessFlow(ctx, flow, groupService, userService) {
   clearFlow(String(ctx.from.id));
 
   if (!result.ok) {
-    return ctx.reply(result.message, getTripKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id)));
+    return ctx.reply(
+      result.message,
+      getTripSettingsKeyboard(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id))
+    );
   }
 
   return ctx.reply(

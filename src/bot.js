@@ -12160,6 +12160,9 @@ export function createBot(store) {
     if (activeFlow?.type === "loaned_gear_manage") {
       return handleLoanedGearManageFlow(ctx, activeFlow, groupService, userService, bot.telegram);
     }
+    if (activeFlow?.type === "trip_history") {
+      return handleTripHistoryFlow(ctx, activeFlow, groupService, userService);
+    }
     if (activeFlow?.type === "trip_member_list") {
       clearFlow(String(ctx.from.id));
       return showTripMembersMenu(ctx, groupService, userService);

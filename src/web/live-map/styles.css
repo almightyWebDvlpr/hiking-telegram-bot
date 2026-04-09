@@ -1,0 +1,209 @@
+:root {
+  color-scheme: light;
+  --bg: #eef3e6;
+  --panel: rgba(255, 252, 245, 0.94);
+  --ink: #183022;
+  --muted: #58715f;
+  --line: rgba(24, 48, 34, 0.12);
+  --accent: #1f7a4c;
+  --accent-strong: #145c38;
+  --warning: #d1692f;
+  --shadow: 0 18px 40px rgba(31, 51, 37, 0.12);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(77, 143, 92, 0.18), transparent 28%),
+    linear-gradient(180deg, #eef3e6 0%, #dde9d7 100%);
+  color: var(--ink);
+}
+
+.app-shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 18px 14px 26px;
+}
+
+.topbar,
+.card {
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+}
+
+.topbar {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+h1, h2, p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 18px;
+}
+
+.meta,
+.muted-text {
+  color: var(--muted);
+}
+
+.meta,
+.body-text,
+.muted-text {
+  margin-top: 8px;
+  line-height: 1.45;
+}
+
+.primary-button,
+.ghost-button {
+  border: 0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fff;
+  min-width: 220px;
+}
+
+.ghost-button {
+  background: rgba(31, 122, 76, 0.1);
+  color: var(--accent-strong);
+}
+
+.map-section {
+  position: relative;
+  margin-top: 16px;
+}
+
+#map {
+  height: min(54vh, 520px);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--line);
+}
+
+.map-status {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  background: rgba(24, 48, 34, 0.86);
+  color: #fff;
+  border-radius: 14px;
+  padding: 8px 12px;
+  font-size: 13px;
+  max-width: min(80vw, 420px);
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.card {
+  padding: 16px;
+  margin-top: 14px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.member-list,
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.member-item,
+.feature-item {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.member-item strong,
+.feature-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.feature-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.marker {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.marker.route-start { background: #0b7285; }
+.marker.route-finish { background: #1f7a4c; }
+.marker.meeting { background: #d1692f; }
+.marker.viewer { background: #9333ea; }
+.marker.member { background: #2563eb; }
+.marker.water { background: #0ea5e9; }
+.marker.camp { background: #16a34a; }
+.marker.shelter { background: #92400e; }
+.marker.warning { background: #dc2626; }
+.marker.exit { background: #7c3aed; }
+
+@media (max-width: 720px) {
+  .topbar {
+    flex-direction: column;
+  }
+
+  .primary-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+}

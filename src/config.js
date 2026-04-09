@@ -23,6 +23,10 @@ export const config = {
   migrationFile: process.env.MIGRATION_FILE || "",
   openRouteServiceApiKey: process.env.OPENROUTESERVICE_API_KEY || "",
   graphHopperApiKey: process.env.GRAPHHOPPER_API_KEY || "",
+  miniAppBaseUrl: String(process.env.MINI_APP_BASE_URL || process.env.PUBLIC_BASE_URL || "").replace(/\/$/, ""),
+  miniAppHost: process.env.MINI_APP_HOST || "0.0.0.0",
+  miniAppPort: Math.max(1, Number(process.env.MINI_APP_PORT || 3210)),
+  miniAppSecret: process.env.MINI_APP_SECRET || botToken || "hiking-telegram-bot-mini-app",
   vpohidArchiveSyncEnabled: String(process.env.VPOHID_ARCHIVE_SYNC_ENABLED || "true").toLowerCase() !== "false",
   vpohidArchiveSyncHours: Math.max(1, Number(process.env.VPOHID_ARCHIVE_SYNC_HOURS || 24)),
   vpohidArchiveSyncStartupDelayMinutes: Math.max(0, Number(process.env.VPOHID_ARCHIVE_SYNC_STARTUP_DELAY_MINUTES || 3))

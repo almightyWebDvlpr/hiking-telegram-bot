@@ -11,7 +11,6 @@ import { UserService } from "./services/userService.js";
 import { WeatherService } from "./services/weatherService.js";
 import { RouteService } from "./services/routeService.js";
 import { AdvisorService } from "./services/advisorService.js";
-import { LiveMapService } from "./services/liveMapService.js";
 import { resolveSafetyProfile } from "./data/safetyContacts.js";
 import { VpohidLiveService } from "./services/vpohidLiveService.js";
 import {
@@ -145,7 +144,6 @@ const ROUTES_GENERATE_LABEL = "🧭 Згенерувати маршрут";
 const ROUTES_EXISTING_LABEL = "📚 Знайти в каталозі маршрутів";
 const ROUTES_DETAILS_LABEL = "📋 Деталі маршруту";
 const TRIP_WEATHER_BACK_LABEL = "⬅️ До походу";
-const TRIP_LIVE_MAP_LABEL = "🛰 Жива карта";
 const TRIP_PHOTOS_LABEL = "📸 Фото походу";
 const TRIP_PHOTOS_ADD_LABEL = "📷 Поділитися фото";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
@@ -625,9 +623,9 @@ function getTripKeyboard(trip, userId = "") {
 
   const rows = [
     [TRIP_DETAILS_LABEL, "👥 Учасники походу", "🔔 Нагадування"],
-    ["🗺 Маршрут походу", config.miniAppBaseUrl ? TRIP_LIVE_MAP_LABEL : KEYBOARD_PLACEHOLDER, "🎒 Спорядження походу"],
+    ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"],
     ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
-    ["🌦 Погода походу", "💸 Витрати походу", "⚖️ Вага рюкзака"],
+    ["🌦 Погода походу", "💸 Витрати походу"],
     [isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],
     ["⬅️ Головне меню"]
   ];
@@ -3150,12 +3148,11 @@ function showTripMenu(ctx, groupService) {
     "Що де шукати:",
     "• Деталі походу — головна зведена картка",
     "• Маршрут походу — трек, GPX/KML і перегляд карти",
-    config.miniAppBaseUrl ? "• Жива карта — маршрут, точка збору, POI і live-локації учасників" : null,
     "• Учасники походу — список, запрошення і права доступу",
-    "• Спорядження походу — речі, запити і облік",
+    "• Спорядження походу — речі, запити, облік і критичне спорядження",
     "• Харчування / Витрати — робочі списки походу",
     "• Фото походу — кадри з маршруту і короткі підписи до них"
-  ].filter(Boolean);
+  ];
 
   if (canManageTrip(trip, String(ctx.from.id))) {
     hintLines.push("• У Деталях походу можна редагувати назву, дати і готовність");
@@ -3185,49 +3182,6 @@ function showTripSafety(ctx, groupService) {
   }
 
   return ctx.reply(formatSafetySection(trip), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
-}
-
-function showLiveMapEntry(ctx, groupService, liveMapService) {
-  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
-  if (!trip) {
-    return null;
-  }
-
-  if (!liveMapService?.isConfigured()) {
-    return ctx.reply(
-      "Жива карта поки недоступна, бо для Mini App ще не задано публічний URL сервера.",
-      getTripKeyboard(trip, String(ctx.from.id))
-    );
-  }
-
-  const url = liveMapService.buildMiniAppUrl({
-    tripId: trip.id,
-    memberId: String(ctx.from.id)
-  });
-
-  return ctx.reply(
-    joinRichLines([
-      ...formatCardHeader("🛰", "ЖИВА КАРТА ПОХОДУ"),
-      "",
-      `Похід: ${trip.name}`,
-      "Тут будуть:",
-      "• маршрут на інтерактивній карті",
-      "• точка збору",
-      "• вода, ночівлі й укриття",
-      "• live-локації учасників, які дозволили геодоступ",
-      "",
-      "Натисни кнопку нижче, щоб відкрити Mini App."
-    ]),
-    {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "🛰 Відкрити живу карту", web_app: { url } }],
-          [{ text: "🔗 Відкрити в браузері", url }]
-        ]
-      }
-    }
-  );
 }
 
 function showTripReminders(ctx, groupService) {
@@ -10645,12 +10599,6 @@ export function createBot(store) {
     graphHopperApiKey: config.graphHopperApiKey
   });
   const advisorService = new AdvisorService();
-  const liveMapService = new LiveMapService({
-    groupService,
-    routeService,
-    baseUrl: config.miniAppBaseUrl,
-    secret: config.miniAppSecret
-  });
   routeService.advisorService = advisorService;
   bot.telegram.advisorService = advisorService;
   startTripReminderLoop(bot, groupService);
@@ -10965,7 +10913,6 @@ export function createBot(store) {
   bot.hears("🌦 Погода", (ctx) => ctx.reply("Введи: `/weather Яремче`", { parse_mode: "Markdown", ...getMainKeyboard(ctx) }));
   bot.hears("🗺 Маршрути", (ctx) => showRoutesMenu(ctx));
   bot.hears("👥 Похід", (ctx) => showTripMenu(ctx, groupService));
-  bot.hears(TRIP_LIVE_MAP_LABEL, (ctx) => showLiveMapEntry(ctx, groupService, liveMapService));
   bot.hears(KEYBOARD_PLACEHOLDER, () => null);
   bot.hears(PROFILE_LABEL, (ctx) => showProfileMenu(ctx, userService));
   bot.hears(PROFILE_DASHBOARD_LABEL, (ctx) => showProfileDashboard(ctx, userService, groupService));
@@ -11343,10 +11290,6 @@ export function createBot(store) {
       // Ignore secondary reply errors inside catch handler.
     }
   });
-
-  bot.groupService = groupService;
-  bot.routeService = routeService;
-  bot.liveMapService = liveMapService;
 
   return bot;
 }

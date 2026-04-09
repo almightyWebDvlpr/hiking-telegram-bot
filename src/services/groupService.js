@@ -358,42 +358,6 @@ export class GroupService {
     return preparedGroup.members.find((member) => member.id === memberId) || null;
   }
 
-  updateMemberLiveLocation({ groupId, memberId, location }) {
-    const data = this.store.read();
-    const group = data.groups.find((item) => item.id === groupId);
-
-    if (!group) {
-      return { ok: false, message: "Похід не знайдено." };
-    }
-
-    const preparedGroup = createEmptyGroupFields(group);
-    Object.assign(group, preparedGroup);
-
-    const member = group.members.find((item) => item.id === memberId);
-    if (!member) {
-      return { ok: false, message: "Учасника не знайдено в цьому поході." };
-    }
-
-    const latitude = Number(location?.latitude);
-    const longitude = Number(location?.longitude);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return { ok: false, message: "Некоректні координати." };
-    }
-
-    member.liveLocation = {
-      latitude,
-      longitude,
-      accuracy: Number.isFinite(Number(location?.accuracy)) ? Number(location.accuracy) : null,
-      heading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : null,
-      speed: Number.isFinite(Number(location?.speed)) ? Number(location.speed) : null,
-      source: location?.source || "mini_app",
-      updatedAt: new Date().toISOString()
-    };
-
-    this.store.write(data);
-    return { ok: true, group: createEmptyGroupFields(group), member };
-  }
-
   canManageGroup(groupId, memberId) {
     const member = this.getMember(groupId, memberId);
     return Boolean(member?.canManage);

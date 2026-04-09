@@ -1,6 +1,5 @@
 import { config } from "./config.js";
 import { createBot } from "./bot.js";
-import { createLiveMapServer } from "./web/liveMapServer.js";
 import { MongoStore } from "./store/mongoStore.js";
 
 if (!config.botToken) {
@@ -26,12 +25,7 @@ async function createStore() {
 
 const store = await createStore();
 const bot = createBot(store);
-const liveMapServer = createLiveMapServer({
-  config,
-  liveMapService: bot.liveMapService
-});
 
-await liveMapServer.start();
 bot.launch().then(() => {
   console.log(`Hiking Telegram bot is running with MongoDB. Stage=${config.appStage}, collection=${config.mongoCollectionName}`);
 });
@@ -39,9 +33,6 @@ bot.launch().then(() => {
 process.once("SIGINT", async () => {
   if (bot.vpohidArchiveSyncLoop?.stop) {
     bot.vpohidArchiveSyncLoop.stop();
-  }
-  if (liveMapServer?.stop) {
-    await liveMapServer.stop().catch(() => null);
   }
   bot.stop("SIGINT");
   if (typeof store.close === "function") {
@@ -51,9 +42,6 @@ process.once("SIGINT", async () => {
 process.once("SIGTERM", async () => {
   if (bot.vpohidArchiveSyncLoop?.stop) {
     bot.vpohidArchiveSyncLoop.stop();
-  }
-  if (liveMapServer?.stop) {
-    await liveMapServer.stop().catch(() => null);
   }
   bot.stop("SIGTERM");
   if (typeof store.close === "function") {

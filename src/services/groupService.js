@@ -289,6 +289,7 @@ function createEmptyGroupFields(group) {
             member.attendanceStatus === "not_going"
               ? member.attendanceStatus
               : "",
+          attendanceSelfLocked: member.attendanceSelfLocked === true,
           role:
             member.role ||
             (member.id === (group.ownerId || group.members?.[0]?.id) ? "owner" : "member"),
@@ -333,6 +334,7 @@ export class GroupService {
           id: ownerId,
           name: ownerName,
           attendanceStatus: "",
+          attendanceSelfLocked: false,
           role: "owner",
           canManage: true
         }
@@ -391,6 +393,7 @@ export class GroupService {
       rawGroup.members.push({
         ...member,
         attendanceStatus: "",
+        attendanceSelfLocked: false,
         role: "member",
         canManage: false
       });
@@ -493,7 +496,14 @@ export class GroupService {
     return { ok: true, group: createEmptyGroupFields(group), member: target };
   }
 
-  setMemberAttendanceStatus({ groupId, actorId, targetMemberId, status }) {
+  setMemberAttendanceStatus({
+    groupId,
+    actorId,
+    targetMemberId,
+    status,
+    lockSelfChange = false,
+    clearSelfLock = false
+  }) {
     const allowedStatuses = new Set(["going", "thinking", "not_going"]);
     if (!allowedStatuses.has(status)) {
       return { ok: false, message: "Невідомий статус учасника." };
@@ -519,18 +529,87 @@ export class GroupService {
       return { ok: false, message: "Учасника не знайдено в цьому поході." };
     }
 
-    const canUpdate = actor.id === target.id || actor.canManage === true || actor.role === "owner";
-    if (!canUpdate) {
+    const actorCanManage = actor.canManage === true || actor.role === "owner";
+    const isSelfUpdate = actor.id === target.id;
+
+    if (!isSelfUpdate && !actorCanManage) {
       return { ok: false, message: "Ти можеш змінювати тільки свій статус участі." };
     }
 
+    if (isSelfUpdate && target.attendanceSelfLocked === true && !actorCanManage) {
+      return {
+        ok: false,
+        message:
+          "Твій статус уже зафіксовано як «Не йду». Якщо це помилка, звернися до організатора або редактора походу."
+      };
+    }
+
+    const previousStatus = target.attendanceStatus || "";
+    const previousLock = target.attendanceSelfLocked === true;
     target.attendanceStatus = status;
+    if (lockSelfChange) {
+      target.attendanceSelfLocked = true;
+    } else if (clearSelfLock || actorCanManage) {
+      target.attendanceSelfLocked = false;
+    }
     this.store.write(data);
 
     return {
       ok: true,
       group: createEmptyGroupFields(group),
-      member: { ...target }
+      member: { ...target },
+      previousStatus,
+      changed:
+        previousStatus !== status ||
+        previousLock !== (target.attendanceSelfLocked === true)
+    };
+  }
+
+  setMemberAttendanceStatusSystem({
+    groupId,
+    targetMemberId,
+    status,
+    lockSelfChange = false,
+    clearSelfLock = false
+  }) {
+    const allowedStatuses = new Set(["going", "thinking", "not_going"]);
+    if (!allowedStatuses.has(status)) {
+      return { ok: false, message: "Невідомий статус учасника." };
+    }
+
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return { ok: false, message: "Похід не знайдено." };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const target = group.members.find((member) => member.id === targetMemberId);
+    if (!target) {
+      return { ok: false, message: "Учасника не знайдено в цьому поході." };
+    }
+
+    const previousStatus = target.attendanceStatus || "";
+    const previousLock = target.attendanceSelfLocked === true;
+    target.attendanceStatus = status;
+    if (lockSelfChange) {
+      target.attendanceSelfLocked = true;
+    } else if (clearSelfLock) {
+      target.attendanceSelfLocked = false;
+    }
+    this.store.write(data);
+
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group),
+      member: { ...target },
+      previousStatus,
+      changed:
+        previousStatus !== status ||
+        previousLock !== (target.attendanceSelfLocked === true)
     };
   }
 

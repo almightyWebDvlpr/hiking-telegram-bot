@@ -606,6 +606,33 @@ function getMemberDisplayName(userService, member) {
   return userService.getDisplayName(member.id, member.name);
 }
 
+function getAttendanceStatusMeta(status) {
+  switch (String(status || "")) {
+    case "going":
+      return { key: "going", emoji: "👍", label: "Йду" };
+    case "thinking":
+      return { key: "thinking", emoji: "🤔", label: "Думаю" };
+    case "not_going":
+      return { key: "not_going", emoji: "👎", label: "Не йду" };
+    default:
+      return { key: "", emoji: "❔", label: "Не вказано" };
+  }
+}
+
+function formatAttendanceStatusText(status) {
+  const meta = getAttendanceStatusMeta(status);
+  return `${meta.emoji} ${meta.label}`;
+}
+
+function getAttendanceStatusEmoji(status) {
+  const meta = getAttendanceStatusMeta(status);
+  return meta.key ? meta.emoji : "";
+}
+
+function canUpdateTripMemberStatus(trip, viewerId, memberId) {
+  return Boolean(canManageTrip(trip, viewerId) || String(viewerId) === String(memberId));
+}
+
 function isValidTelegramUsername(value) {
   return /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(String(value || ""));
 }
@@ -1196,8 +1223,19 @@ function getTripMembersListKeyboard(items) {
   return buildKeyboard(rows);
 }
 
-function getTripMemberDetailsKeyboard(items) {
-  return getTripMembersListKeyboard(items);
+function getTripMemberStatusInlineKeyboard(trip, memberId, viewerId) {
+  const rows = [];
+
+  if (canUpdateTripMemberStatus(trip, viewerId, memberId)) {
+    rows.push([
+      Markup.button.callback("👍 Йду", `mstatus|${memberId}|going`),
+      Markup.button.callback("🤔 Думаю", `mstatus|${memberId}|thinking`),
+      Markup.button.callback("👎 Не йду", `mstatus|${memberId}|not_going`)
+    ]);
+  }
+
+  rows.push([Markup.button.callback("⬅️ До списку", "mstatus|back")]);
+  return Markup.inlineKeyboard(rows);
 }
 
 function getTripRouteKeyboard(trip, canManage = false) {
@@ -2451,7 +2489,8 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
   const members = trip.members.map((member) => {
     const name = getMemberDisplayName(userService, member);
-    return `• ${name} — ${member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник"}`;
+    const emoji = getAttendanceStatusEmoji(member.attendanceStatus);
+    return `• ${emoji ? `${emoji} ` : ""}${name} — ${member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник"}`;
   });
   const endpoints = getRouteEndpoints(trip.routePlan);
   const routeLine = trip.routePlan
@@ -3777,21 +3816,23 @@ function showTripMembers(ctx, groupService, userService) {
 
   for (const member of trip.members) {
     const baseLabel = getMemberDisplayName(userService, member);
+    const statusEmoji = getAttendanceStatusEmoji(member.attendanceStatus);
     const roleSuffix = member.role === "owner" ? " (Організатор)" : "";
     const count = (labelCounts.get(baseLabel) || 0) + 1;
     labelCounts.set(baseLabel, count);
     const memberView = userService.getTripMemberView(member, false);
     const roleLabel = member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник";
+    const displayLabel = `${statusEmoji ? `${statusEmoji} ` : ""}${baseLabel}${roleSuffix}`;
 
     items.push({
       id: member.id,
-      label: count > 1 ? `${baseLabel}${roleSuffix} (${count})` : `${baseLabel}${roleSuffix}`
+      label: count > 1 ? `${displayLabel} (${count})` : displayLabel
     });
 
-    memberSummaryLines.push(`${items.length}. ${baseLabel}`);
+    memberSummaryLines.push(`${items.length}. ${displayLabel}`);
     memberSummaryLines.push(`• Телефон: ${escapeHtml(memberView.title.split(" — ").slice(1).join(" — ") || "не вказано")}`);
     memberSummaryLines.push(`• Роль: ${roleLabel}`);
-    memberSummaryLines.push("• Статус: скоро додамо");
+    memberSummaryLines.push(`• Статус: ${formatAttendanceStatusText(member.attendanceStatus)}`);
     memberSummaryLines.push("");
   }
 
@@ -3818,6 +3859,23 @@ function showTripMembers(ctx, groupService, userService) {
   );
 }
 
+function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
+  const canSeeFull = canManageTrip(trip, viewerId) || member.id === viewerId;
+  const role = member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник";
+  const memberView = userService.getTripMemberView(member, canSeeFull);
+  const titleName = `${getAttendanceStatusEmoji(member.attendanceStatus) ? `${getAttendanceStatusEmoji(member.attendanceStatus)} ` : ""}${getMemberDisplayName(userService, member)}`;
+
+  return joinRichLines([
+    ...formatCardHeader("👤 УЧАСНИК ПОХОДУ", titleName),
+    "",
+    memberView.title,
+    `Роль: ${role}`,
+    `Статус: ${formatAttendanceStatusText(member.attendanceStatus)}`,
+    "",
+    ...memberView.details
+  ]);
+}
+
 function showTripMemberDetails(ctx, groupService, userService, trip, memberId, items = []) {
   const member = trip.members.find((item) => item.id === memberId);
   if (!member) {
@@ -3825,21 +3883,73 @@ function showTripMemberDetails(ctx, groupService, userService, trip, memberId, i
   }
 
   const viewerId = String(ctx.from.id);
-  const canSeeFull = canManageTrip(trip, viewerId) || member.id === viewerId;
-  const role = member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник";
-  const memberView = userService.getTripMemberView(member, canSeeFull);
+  const text = formatTripMemberDetailsMessage(trip, member, userService, viewerId);
 
   return ctx.reply(
-    joinRichLines([
-      ...formatCardHeader("👤 УЧАСНИК ПОХОДУ", getMemberDisplayName(userService, member)),
-      "",
-      memberView.title,
-      `Роль: ${role}`,
-      "",
-      ...memberView.details
-    ]),
-    { parse_mode: "HTML", ...getTripMemberDetailsKeyboard(items) }
+    text,
+    {
+      parse_mode: "HTML",
+      ...getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
+    }
   );
+}
+
+async function handleTripMemberStatusAction(ctx, groupService, userService, memberId, status) {
+  const viewerId = String(ctx.from.id);
+  const trip = groupService.findGroupByMember(viewerId);
+  if (!trip) {
+    await ctx.answerCbQuery("Активний похід не знайдено.", { show_alert: true });
+    return null;
+  }
+
+  const member = trip.members.find((item) => String(item.id) === String(memberId));
+  if (!member) {
+    await ctx.answerCbQuery("Учасника не знайдено в цьому поході.", { show_alert: true });
+    return null;
+  }
+
+  if (!canUpdateTripMemberStatus(trip, viewerId, member.id)) {
+    await ctx.answerCbQuery("Ти можеш змінювати тільки свій статус участі.", { show_alert: true });
+    return null;
+  }
+
+  const result = groupService.setMemberAttendanceStatus({
+    groupId: trip.id,
+    actorId: viewerId,
+    targetMemberId: member.id,
+    status
+  });
+
+  if (!result.ok) {
+    await ctx.answerCbQuery(result.message || "Не вдалося оновити статус.", { show_alert: true });
+    return null;
+  }
+
+  const updatedTrip = result.group;
+  const updatedMember = updatedTrip.members.find((item) => String(item.id) === String(member.id));
+  if (!updatedMember) {
+    await ctx.answerCbQuery("Учасника не знайдено після оновлення.", { show_alert: true });
+    return null;
+  }
+
+  await ctx.answerCbQuery(`Статус оновлено: ${formatAttendanceStatusText(updatedMember.attendanceStatus)}`);
+  return ctx.editMessageText(
+    formatTripMemberDetailsMessage(updatedTrip, updatedMember, userService, viewerId),
+    {
+      parse_mode: "HTML",
+      ...getTripMemberStatusInlineKeyboard(updatedTrip, updatedMember.id, viewerId)
+    }
+  );
+}
+
+async function handleTripMemberStatusBack(ctx, groupService, userService) {
+  await ctx.answerCbQuery();
+  try {
+    await ctx.deleteMessage();
+  } catch {
+    // Ignore delete failures and still show the list again.
+  }
+  return showTripMembers(ctx, groupService, userService);
 }
 
 function showInviteInfo(ctx, groupService) {
@@ -11448,6 +11558,10 @@ export function createBot(store) {
     await ctx.answerCbQuery();
     return showTripSafety(ctx, groupService);
   });
+  bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
+  bot.action(/^mstatus\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
+    handleTripMemberStatusAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
+  );
   bot.command("addexpense", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
     if (!trip) {

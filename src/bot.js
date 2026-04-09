@@ -112,7 +112,6 @@ const FAQ_PREV_LABEL = "⬅️ Попередні";
 const FAQ_NEXT_LABEL = "➡️ Наступні";
 const HELP_BACK_LABEL = "⬅️ До допомоги";
 const PROFILE_LABEL = "🙍 Мій профіль";
-const AUTH_REGISTER_LABEL = "📝 Завершити реєстрацію";
 const AUTH_CONTACT_LABEL = "📱 Підтвердити свій номер";
 const PROFILE_DASHBOARD_LABEL = "📊 Дашборд";
 const PROFILE_ABOUT_LABEL = "👤 Про мене";
@@ -356,7 +355,7 @@ function getMainKeyboard(ctxOrUser = null) {
 }
 
 function getAuthorizationKeyboard(authState = { contactVerified: false }) {
-  const rows = [[AUTH_REGISTER_LABEL]];
+  const rows = [[PROFILE_LABEL]];
   if (!authState.contactVerified) {
     rows.push([Markup.button.contactRequest(AUTH_CONTACT_LABEL)]);
   }
@@ -3400,7 +3399,7 @@ function showAuthorizationRequired(ctx, userService, extraNotice = "") {
       ...formatAuthorizationMissingList(authState),
       "",
       "Що зробити:",
-      "• натисни `📝 Завершити реєстрацію` і заповни базові дані",
+      "• відкрий `🙍 Мій профіль` і заповни базові дані",
       authState.contactVerified ? null : "• натисни `📱 Підтвердити свій номер` і надішли саме свій Telegram-контакт",
       extraNotice || null
     ].filter(Boolean)),
@@ -3467,7 +3466,6 @@ function isAuthExemptFlow(flow) {
 
 function isAuthExemptText(text = "") {
   return [
-    AUTH_REGISTER_LABEL,
     PROFILE_LABEL,
     PROFILE_ABOUT_LABEL,
     PROFILE_EDIT_LABEL,
@@ -12082,7 +12080,6 @@ export function createBot(store) {
   bot.hears("👥 Похід", (ctx) => showTripMenu(ctx, groupService));
   bot.hears(KEYBOARD_PLACEHOLDER, () => null);
   bot.hears(PROFILE_LABEL, (ctx) => showProfileMenu(ctx, userService));
-  bot.hears(AUTH_REGISTER_LABEL, (ctx) => startProfileEditWizard(ctx, userService));
   bot.hears(PROFILE_DASHBOARD_LABEL, (ctx) => showProfileDashboard(ctx, userService));
   bot.hears(PROFILE_ABOUT_LABEL, (ctx) => showProfileAbout(ctx, userService));
   bot.hears(PROFILE_MEDICAL_LABEL, (ctx) => showProfileMedicalCard(ctx, userService));

@@ -589,26 +589,13 @@ export class UserService {
   getAuthorizationState(userId, userName = "") {
     const profileData = this.getProfile(userId, userName);
     const profile = profileData.profile || {};
-    const missing = [];
-
-    if (!hasMeaningfulValue(profile.fullName)) {
-      missing.push("ПІБ");
-    }
-
-    if (!hasMeaningfulValue(profile.city)) {
-      missing.push("місто");
-    }
-
-    if (!hasMeaningfulValue(profile.phone)) {
-      missing.push("номер телефону");
-    } else if (!hasVerifiedContact(profile)) {
-      missing.push("підтвердження номера");
-    }
+    const contactVerified = hasVerifiedContact(profile);
+    const missing = contactVerified ? [] : ["підтвердження номера телефону"];
 
     return {
-      isAuthorized: missing.length === 0,
+      isAuthorized: contactVerified,
       missing,
-      contactVerified: hasVerifiedContact(profile),
+      contactVerified,
       profile
     };
   }

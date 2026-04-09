@@ -61,6 +61,10 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function hasVerifiedContact(profile = {}) {
+  return Boolean(normalizeText(profile.contactVerifiedAt));
+}
+
 function isValidDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
 }
@@ -527,7 +531,8 @@ export class UserService {
         emergencyContactPhone: normalizeText(user.profile.emergencyContactPhone),
         emergencyContactRelation: normalizeText(user.profile.emergencyContactRelation),
         experienceLevel: normalizeText(user.profile.experienceLevel),
-        city: normalizeText(user.profile.city)
+        city: normalizeText(user.profile.city),
+        contactVerifiedAt: normalizeText(user.profile.contactVerifiedAt)
       },
       personalGear: user.personalGear,
       awards: [...user.awards].sort((left, right) => String(right.earnedAt || "").localeCompare(String(left.earnedAt || "")))
@@ -545,6 +550,14 @@ export class UserService {
       nextProfile[key] = normalizeText(value);
     }
 
+    if (Object.prototype.hasOwnProperty.call(patch || {}, "phone")) {
+      const previousPhone = normalizeText(user.profile.phone);
+      const nextPhone = normalizeText(nextProfile.phone);
+      if (previousPhone !== nextPhone) {
+        nextProfile.contactVerifiedAt = "";
+      }
+    }
+
     user.profile = nextProfile;
     user.profileUpdatedAt = new Date().toISOString();
     if (normalizeText(nextProfile.fullName)) {
@@ -555,6 +568,49 @@ export class UserService {
 
     this.store.write(data);
     return this.getProfile(userId, userName);
+  }
+
+  confirmOwnContact({ userId, userName = "", phone = "" }) {
+    const data = withUsers(this.store.read());
+    const user = ensureUser(data.users, userId, userName);
+    const normalizedPhone = normalizeText(phone);
+
+    user.profile = {
+      ...user.profile,
+      phone: normalizedPhone,
+      contactVerifiedAt: normalizedPhone ? new Date().toISOString() : ""
+    };
+    user.profileUpdatedAt = new Date().toISOString();
+
+    this.store.write(data);
+    return this.getProfile(userId, userName);
+  }
+
+  getAuthorizationState(userId, userName = "") {
+    const profileData = this.getProfile(userId, userName);
+    const profile = profileData.profile || {};
+    const missing = [];
+
+    if (!hasMeaningfulValue(profile.fullName)) {
+      missing.push("ПІБ");
+    }
+
+    if (!hasMeaningfulValue(profile.city)) {
+      missing.push("місто");
+    }
+
+    if (!hasMeaningfulValue(profile.phone)) {
+      missing.push("номер телефону");
+    } else if (!hasVerifiedContact(profile)) {
+      missing.push("підтвердження номера");
+    }
+
+    return {
+      isAuthorized: missing.length === 0,
+      missing,
+      contactVerified: hasVerifiedContact(profile),
+      profile
+    };
   }
 
   getDisplayName(userId, fallbackName = "") {

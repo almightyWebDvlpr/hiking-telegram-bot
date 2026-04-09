@@ -112,6 +112,8 @@ const FAQ_PREV_LABEL = "⬅️ Попередні";
 const FAQ_NEXT_LABEL = "➡️ Наступні";
 const HELP_BACK_LABEL = "⬅️ До допомоги";
 const PROFILE_LABEL = "🙍 Мій профіль";
+const AUTH_REGISTER_LABEL = "📝 Завершити реєстрацію";
+const AUTH_CONTACT_LABEL = "📱 Підтвердити свій номер";
 const PROFILE_DASHBOARD_LABEL = "📊 Дашборд";
 const PROFILE_ABOUT_LABEL = "👤 Про мене";
 const PROFILE_MEDICAL_LABEL = "🩺 Медична картка";
@@ -351,6 +353,15 @@ function buildKeyboard(rows) {
 
 function getMainKeyboard(ctxOrUser = null) {
   return MAIN_KEYBOARD;
+}
+
+function getAuthorizationKeyboard(authState = { contactVerified: false }) {
+  const rows = [[AUTH_REGISTER_LABEL]];
+  if (!authState.contactVerified) {
+    rows.push([Markup.button.contactRequest(AUTH_CONTACT_LABEL)]);
+  }
+  rows.push([FAQ_LABEL, "ℹ️ Допомога"]);
+  return Markup.keyboard(rows).resize().persistent();
 }
 
 function escapeHtml(value) {
@@ -600,6 +611,14 @@ function isTripOwner(trip, userId) {
 
 function getUserLabel(ctx) {
   return ctx.from.first_name || ctx.from.username || "Мандрівник";
+}
+
+function isUserAuthorized(userService, userId, userName = "") {
+  return userService.getAuthorizationState(String(userId), userName).isAuthorized;
+}
+
+function formatAuthorizationMissingList(authState) {
+  return (authState?.missing || []).map((item) => `• ${item}`);
 }
 
 function getMemberDisplayName(userService, member) {
@@ -3367,8 +3386,37 @@ function calculateSettlements(members, paidByMember, totalCost) {
   return { perPerson, balances, transfers };
 }
 
-function sendHome(ctx) {
+function showAuthorizationRequired(ctx, userService, extraNotice = "") {
+  setMenuContext(ctx.from?.id, "auth");
+  const authState = userService.getAuthorizationState(String(ctx.from.id), getUserLabel(ctx));
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("🔐", "ПІДТВЕРДИ ПРОФІЛЬ"),
+      "",
+      "Щоб користуватися ботом далі, потрібно завершити базову реєстрацію.",
+      "",
+      "Що обовʼязково потрібно:",
+      ...formatAuthorizationMissingList(authState),
+      "",
+      "Що зробити:",
+      "• натисни `📝 Завершити реєстрацію` і заповни базові дані",
+      authState.contactVerified ? null : "• натисни `📱 Підтвердити свій номер` і надішли саме свій Telegram-контакт",
+      extraNotice || null
+    ].filter(Boolean)),
+    {
+      parse_mode: "HTML",
+      ...getAuthorizationKeyboard(authState)
+    }
+  );
+}
+
+function sendHome(ctx, userService = null) {
   setMenuContext(ctx.from?.id, "home");
+  if (userService && !isUserAuthorized(userService, String(ctx.from.id), getUserLabel(ctx))) {
+    return showAuthorizationRequired(ctx, userService);
+  }
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("🏔 ГОЛОВНЕ МЕНЮ", "Мандрівник +"),
@@ -3411,6 +3459,32 @@ function sendHelp(ctx) {
       ...getHelpMenuKeyboard()
     }
   );
+}
+
+function isAuthExemptFlow(flow) {
+  return ["profile_edit", "help_menu", "faq_menu"].includes(flow?.type || "");
+}
+
+function isAuthExemptText(text = "") {
+  return [
+    AUTH_REGISTER_LABEL,
+    PROFILE_LABEL,
+    PROFILE_ABOUT_LABEL,
+    PROFILE_EDIT_LABEL,
+    PROFILE_MEDICAL_LABEL,
+    PROFILE_BACK_LABEL,
+    FAQ_LABEL,
+    FAQ_SEARCH_LABEL,
+    FAQ_ALL_LABEL,
+    FAQ_PREV_LABEL,
+    FAQ_NEXT_LABEL,
+    "ℹ️ Допомога",
+    HELP_BACK_LABEL,
+    PROFILE_SKIP_LABEL,
+    "❌ Скасувати",
+    "⬅️ Головне меню",
+    ...HELP_SECTIONS
+  ].includes(text);
 }
 
 function showTripHistory(ctx, groupService, userService) {
@@ -3813,7 +3887,7 @@ async function handleProfilePhotoAlbumFlow(ctx, flow, groupService, userService,
 
   if (message === "⬅️ Головне меню") {
     clearFlow(String(ctx.from.id));
-    return sendHome(ctx);
+    return sendHome(ctx, userService);
   }
 
   const items = flow.data?.items || [];
@@ -6207,7 +6281,9 @@ function formatProfileAwards(userService, userId, userName) {
 }
 
 function formatProfileAbout(userService, userId, userName) {
-  const profile = userService.getProfile(userId, userName).profile;
+  const profileData = userService.getProfile(userId, userName);
+  const profile = profileData.profile;
+  const authState = userService.getAuthorizationState(userId, userName);
   return joinRichLines([
     ...formatCardHeader("👤 ПРО МЕНЕ", profile.fullName || userName),
     "",
@@ -6220,6 +6296,7 @@ function formatProfileAbout(userService, userId, userName) {
     "",
     formatSectionHeader("📞", "Контакти"),
     `Мій телефон: ${profile.phone || "не вказано"}`,
+    `Номер підтверджено: ${authState.contactVerified ? "так" : "ні"}`,
     `Екстрений контакт: ${profile.emergencyContactName || "не вказано"}`,
     `Телефон контакту: ${profile.emergencyContactPhone || "не вказано"}`,
     `Хто це: ${profile.emergencyContactRelation || "не вказано"}`,
@@ -6261,6 +6338,21 @@ function formatProfileMedicalCard(userService, userId, userName) {
 function showProfileMenu(ctx, userService) {
   setMenuContext(ctx.from?.id, "profile");
   const profile = userService.getProfile(String(ctx.from.id), getUserLabel(ctx));
+  const authState = userService.getAuthorizationState(String(ctx.from.id), getUserLabel(ctx));
+  if (!authState.isAuthorized) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🙍 МІЙ ПРОФІЛЬ", profile.profile.fullName || profile.name || getUserLabel(ctx)),
+        "",
+        "Профіль ще не завершено.",
+        "",
+        "Що залишилось:",
+        ...formatAuthorizationMissingList(authState)
+      ]),
+      { parse_mode: "HTML", ...getAuthorizationKeyboard(authState) }
+    );
+  }
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("🙍 МІЙ ПРОФІЛЬ", profile.profile.fullName || profile.name || getUserLabel(ctx)),
@@ -9283,7 +9375,7 @@ async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
   return null;
 }
 
-async function handleFaqFlow(ctx, flow, advisorService) {
+async function handleFaqFlow(ctx, flow, advisorService, userService) {
   const message = ctx.message.text.trim();
   const data = buildFaqFlowData(flow.data || {});
   const isSearchMode = data.mode === "search_results" || data.mode === "search_prompt";
@@ -9310,7 +9402,7 @@ async function handleFaqFlow(ctx, flow, advisorService) {
 
   if (message === "⬅️ Головне меню") {
     clearFlow(String(ctx.from.id));
-    return sendHome(ctx);
+    return sendHome(ctx, userService);
   }
 
   if (message === FAQ_ALL_LABEL) {
@@ -9344,12 +9436,12 @@ async function handleFaqFlow(ctx, flow, advisorService) {
   return showFaqSearchResults(ctx, advisorService, data, message, 0);
 }
 
-async function handleHelpFlow(ctx, flow) {
+async function handleHelpFlow(ctx, flow, userService) {
   const message = ctx.message.text.trim();
 
   if (message === "⬅️ Головне меню") {
     clearFlow(String(ctx.from.id));
-    return sendHome(ctx);
+    return sendHome(ctx, userService);
   }
 
   if (message === HELP_BACK_LABEL) {
@@ -9413,21 +9505,36 @@ async function handleProfileEditFlow(ctx, flow, userService) {
   const nextStep = getProfileEditNextStep(flow.step);
 
   if (nextStep === flow.step || !PROFILE_EDIT_FIELDS[currentIndex + 1]) {
-    userService.updateProfile({
+    const updatedProfile = userService.updateProfile({
       userId: String(ctx.from.id),
       userName: getUserLabel(ctx),
       patch: flow.data
     });
+    const authState = userService.getAuthorizationState(String(ctx.from.id), getUserLabel(ctx));
     clearFlow(String(ctx.from.id));
     await ctx.reply(
       joinRichLines([
         ...formatCardHeader("✅ ПРОФІЛЬ ОНОВЛЕНО", getUserLabel(ctx)),
         "",
-        "Анкету збережено. Тепер ці дані можна використовувати в походах."
+        authState.isAuthorized
+          ? "Анкету збережено. Реєстрацію завершено, тепер можна повноцінно користуватися ботом."
+          : "Анкету збережено. Тепер залишилось підтягнути відсутні дані або підтвердити номер."
       ]),
-      { parse_mode: "HTML", ...getProfileKeyboard() }
+      {
+        parse_mode: "HTML",
+        ...(authState.isAuthorized ? getProfileKeyboard() : getAuthorizationKeyboard(authState))
+      }
     );
-    return showProfileAbout(ctx, userService);
+    if (authState.isAuthorized) {
+      return showProfileAbout(ctx, userService);
+    }
+    return showAuthorizationRequired(
+      ctx,
+      userService,
+      updatedProfile.profile.phone && !authState.contactVerified
+        ? "• номер у профілі вже є, але його ще потрібно підтвердити кнопкою `📱 Підтвердити свій номер`"
+        : ""
+    );
   }
 
   flow.step = nextStep;
@@ -10374,12 +10481,12 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
   }
 
   if (flow.type === "faq_menu") {
-    await handleFaqFlow(ctx, flow, advisorService);
+    await handleFaqFlow(ctx, flow, advisorService, userService);
     return true;
   }
 
   if (flow.type === "help_menu") {
-    await handleHelpFlow(ctx, flow);
+    await handleHelpFlow(ctx, flow, userService);
     return true;
   }
 
@@ -11599,13 +11706,104 @@ export function createBot(store) {
     });
     const payload = ctx.message.text.replace("/start", "").trim();
     const inviteCode = extractJoinInviteCode(payload);
+    if (!isUserAuthorized(userService, String(ctx.from.id), getUserLabel(ctx))) {
+      return showAuthorizationRequired(
+        ctx,
+        userService,
+        inviteCode ? `• після завершення реєстрації знову відкрий запрошення або введи код походу: \`${inviteCode}\`` : ""
+      );
+    }
     if (inviteCode) {
       return joinTripByInviteCode(ctx, inviteCode);
     }
 
-    return sendHome(ctx);
+    return sendHome(ctx, userService);
   });
   bot.help((ctx) => sendHelp(ctx));
+
+  bot.on("contact", async (ctx) => {
+    userService.ensureUserRecord({
+      userId: String(ctx.from.id),
+      userName: getUserLabel(ctx)
+    });
+
+    const contact = ctx.message?.contact;
+    if (!contact) {
+      return null;
+    }
+
+    if (String(contact.user_id || "") !== String(ctx.from.id)) {
+      return ctx.reply(
+        "Потрібно надіслати саме свій Telegram-контакт кнопкою нижче.",
+        getAuthorizationKeyboard(userService.getAuthorizationState(String(ctx.from.id), getUserLabel(ctx)))
+      );
+    }
+
+    userService.confirmOwnContact({
+      userId: String(ctx.from.id),
+      userName: getUserLabel(ctx),
+      phone: contact.phone_number || ""
+    });
+
+    const authState = userService.getAuthorizationState(String(ctx.from.id), getUserLabel(ctx));
+    if (authState.isAuthorized) {
+      await ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("✅", "КОНТАКТ ПІДТВЕРДЖЕНО"),
+          "",
+          "Номер підтверджено. Реєстрацію завершено, доступ до бота відкрито."
+        ]),
+        { parse_mode: "HTML", ...getMainKeyboard(ctx) }
+      );
+      return sendHome(ctx, userService);
+    }
+
+    return showAuthorizationRequired(
+      ctx,
+      userService,
+      "• номер уже підтверджено, тепер залишилось завершити базову анкету"
+    );
+  });
+
+  bot.use(async (ctx, next) => {
+    const userId = String(ctx.from?.id || "");
+    if (!userId) {
+      return next();
+    }
+
+    userService.ensureUserRecord({
+      userId,
+      userName: getUserLabel(ctx)
+    });
+
+    if (isUserAuthorized(userService, userId, getUserLabel(ctx))) {
+      return next();
+    }
+
+    const flow = getFlow(userId);
+    if (isAuthExemptFlow(flow)) {
+      return next();
+    }
+
+    if (ctx.message?.contact) {
+      return next();
+    }
+
+    if (ctx.callbackQuery?.data && String(ctx.callbackQuery.data).startsWith("faqctx:")) {
+      return next();
+    }
+
+    const text = String(ctx.message?.text || "").trim();
+    if (isAuthExemptText(text) || text === "/help" || text === "/start") {
+      return next();
+    }
+
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery("Спочатку заверши реєстрацію.", { show_alert: true });
+    }
+
+    return showAuthorizationRequired(ctx, userService);
+  });
 
   bot.command("newgroup", (ctx) => {
     const name = ctx.message.text.replace("/newgroup", "").trim();
@@ -11884,6 +12082,7 @@ export function createBot(store) {
   bot.hears("👥 Похід", (ctx) => showTripMenu(ctx, groupService));
   bot.hears(KEYBOARD_PLACEHOLDER, () => null);
   bot.hears(PROFILE_LABEL, (ctx) => showProfileMenu(ctx, userService));
+  bot.hears(AUTH_REGISTER_LABEL, (ctx) => startProfileEditWizard(ctx, userService));
   bot.hears(PROFILE_DASHBOARD_LABEL, (ctx) => showProfileDashboard(ctx, userService));
   bot.hears(PROFILE_ABOUT_LABEL, (ctx) => showProfileAbout(ctx, userService));
   bot.hears(PROFILE_MEDICAL_LABEL, (ctx) => showProfileMedicalCard(ctx, userService));
@@ -12048,7 +12247,7 @@ export function createBot(store) {
   bot.hears("⬅️ До походу", (ctx) => showTripMenu(ctx, groupService));
   bot.hears("⬅️ Головне меню", (ctx) => {
     clearFlow(String(ctx.from.id));
-    return sendHome(ctx);
+    return sendHome(ctx, userService);
   });
   bot.hears("❌ Скасувати", async (ctx) => {
     const activeFlow = getFlow(String(ctx.from.id));
@@ -12139,11 +12338,11 @@ export function createBot(store) {
     clearFlow(String(ctx.from.id));
 
     if (activeFlow?.type === "faq_menu") {
-      return sendHome(ctx);
+      return sendHome(ctx, userService);
     }
 
     if (activeFlow?.type === "help_menu") {
-      return sendHome(ctx);
+      return sendHome(ctx, userService);
     }
 
     if (activeFlow?.type === "profile_edit") {

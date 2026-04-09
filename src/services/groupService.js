@@ -20,6 +20,72 @@ function normalizeGearLoan(loan = {}) {
   };
 }
 
+const TRIP_PHOTO_MOMENT_RULES = [
+  {
+    key: "start",
+    label: "Старт і дорога",
+    keywords: ["старт", "виїзд", "збір", "вокзал", "дорога", "електричка", "поїзд", "автобус"]
+  },
+  {
+    key: "camp",
+    label: "Табір і ночівля",
+    keywords: ["табір", "намет", "нічліг", "ночівл", "вечір", "ранок", "вогонь", "вогнище", "казанок"]
+  },
+  {
+    key: "summit",
+    label: "Вершини і краєвиди",
+    keywords: ["вершин", "пік", "гора", "хребет", "полонин", "панорама", "краєвид", "вид"]
+  },
+  {
+    key: "finish",
+    label: "Фініш і повернення",
+    keywords: ["фініш", "повернен", "додому", "завершення", "назад", "кінець"]
+  }
+];
+
+function normalizeTripPhotoCaption(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function detectTripPhotoMoment(caption = "") {
+  const haystack = normalizeTripPhotoCaption(caption).toLowerCase();
+  if (!haystack) {
+    return {
+      key: "route",
+      label: "Маршрут і команда"
+    };
+  }
+
+  for (const rule of TRIP_PHOTO_MOMENT_RULES) {
+    if (rule.keywords.some((keyword) => haystack.includes(keyword))) {
+      return {
+        key: rule.key,
+        label: rule.label
+      };
+    }
+  }
+
+  return {
+    key: "route",
+    label: "Маршрут і команда"
+  };
+}
+
+function normalizeTripPhotoEntry(entry = {}) {
+  const moment = detectTripPhotoMoment(entry.caption || entry.momentLabel || "");
+
+  return {
+    id: entry.id || crypto.randomUUID(),
+    authorMemberId: entry.authorMemberId || "",
+    authorMemberName: entry.authorMemberName || "",
+    fileId: entry.fileId || "",
+    caption: normalizeTripPhotoCaption(entry.caption),
+    momentKey: entry.momentKey || moment.key,
+    momentLabel: entry.momentLabel || moment.label,
+    createdAt: entry.createdAt || new Date().toISOString()
+  };
+}
+
 function enrichTripGearItem(item = {}) {
   const enriched = enrichGearItem(item);
   const loans = Array.isArray(enriched.loans)
@@ -187,6 +253,7 @@ function buildFinalSummary(group) {
     gearNeedsCount: activeNeeds.length,
     foodCount: group.food.length,
     foodTotal,
+    photoCount: Array.isArray(group.tripPhotos) ? group.tripPhotos.length : 0,
     expensesCount: group.expenses.length,
     expensesTotal,
     totalCost: foodTotal + expensesTotal
@@ -201,6 +268,7 @@ function createEmptyGroupFields(group) {
     gearNeeds: Array.isArray(group.gearNeeds) ? group.gearNeeds.map((item) => normalizeGearNeed(item)) : [],
     food: Array.isArray(group.food) ? group.food : [],
     expenses: Array.isArray(group.expenses) ? group.expenses : [],
+    tripPhotos: Array.isArray(group.tripPhotos) ? group.tripPhotos.map((item) => normalizeTripPhotoEntry(item)).filter((item) => item.fileId) : [],
     tripNotes: Array.isArray(group.tripNotes) ? group.tripNotes : [],
     routePlan: group.routePlan || null,
     region: group.region || null,
@@ -265,6 +333,7 @@ export class GroupService {
       gearNeeds: [],
       food: [],
       expenses: [],
+      tripPhotos: [],
       tripNotes: [],
       routePlan: null,
       region: null,
@@ -832,6 +901,74 @@ export class GroupService {
 
     this.store.write(data);
     return createEmptyGroupFields(group);
+  }
+
+  addTripPhoto({ groupId, photo }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const normalizedPhoto = normalizeTripPhotoEntry(photo);
+    group.tripPhotos.push(normalizedPhoto);
+    this.store.write(data);
+
+    return normalizedPhoto;
+  }
+
+  getTripPhotoAlbum(groupId, { limit = 12 } = {}) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return null;
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    const items = [...preparedGroup.tripPhotos]
+      .filter((item) => item.fileId)
+      .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+    const safeLimit = Math.max(1, Number(limit) || 12);
+    const byMomentMap = new Map();
+    const byAuthorMap = new Map();
+
+    for (const item of items) {
+      const currentMoment = byMomentMap.get(item.momentKey);
+      if (currentMoment) {
+        currentMoment.count += 1;
+      } else {
+        byMomentMap.set(item.momentKey, {
+          key: item.momentKey,
+          label: item.momentLabel || "Маршрут і команда",
+          count: 1
+        });
+      }
+
+      const authorKey = String(item.authorMemberId || item.authorMemberName || "");
+      const currentAuthor = byAuthorMap.get(authorKey);
+      if (currentAuthor) {
+        currentAuthor.count += 1;
+      } else {
+        byAuthorMap.set(authorKey, {
+          authorMemberId: item.authorMemberId || "",
+          authorMemberName: item.authorMemberName || "учасник",
+          count: 1
+        });
+      }
+    }
+
+    return {
+      items: items.slice(0, safeLimit),
+      totalCount: items.length,
+      byMoment: [...byMomentMap.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label)),
+      byAuthor: [...byAuthorMap.values()].sort((left, right) => right.count - left.count || left.authorMemberName.localeCompare(right.authorMemberName)),
+      latestAt: items[0]?.createdAt || null
+    };
   }
 
   getTripNotes(groupId) {
@@ -1742,6 +1879,113 @@ export class GroupService {
       items,
       totalCost,
       byMember
+    };
+  }
+
+  getTripDataQualityReport(groupId) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return null;
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    const critical = [];
+    const warnings = [];
+    const ok = [];
+    const tripCard = preparedGroup.tripCard || {};
+    const routePlan = preparedGroup.routePlan || null;
+    const routePoints = Array.isArray(routePlan?.points)
+      ? routePlan.points.filter(Boolean)
+      : [routePlan?.from, ...(routePlan?.stops || []), routePlan?.to].filter(Boolean);
+    const activeNeeds = preparedGroup.gearNeeds.filter((item) => isActiveGearNeedStatus(item.status));
+    const outstandingLoans = this.getOutstandingGearLoans(groupId);
+
+    if (!tripCard.startDate || !tripCard.endDate) {
+      critical.push("Не заповнені дати походу.");
+    } else {
+      ok.push("Дати походу задані.");
+    }
+
+    if (!routePlan) {
+      critical.push("Маршрут походу ще не заданий.");
+    } else if (!routePoints.length && !(Number(routePlan?.meta?.distance) > 0)) {
+      warnings.push("Маршрут є, але в ньому бракує точок або даних треку.");
+    } else {
+      ok.push("Маршрут походу доданий.");
+    }
+
+    if (!preparedGroup.region) {
+      warnings.push("Регіон походу ще не визначений.");
+    } else {
+      ok.push("Регіон походу визначений.");
+    }
+
+    if (!String(tripCard.meetingPoint || "").trim()) {
+      warnings.push("Точка збору ще не задана.");
+    } else {
+      ok.push("Точка збору задана.");
+    }
+
+    if (!String(tripCard.meetingDate || "").trim() || !String(tripCard.meetingTime || "").trim()) {
+      warnings.push("Дата та Час збору ще не заповнені повністю.");
+    } else {
+      ok.push("Дата та Час збору задані.");
+    }
+
+    if (preparedGroup.members.length < 2) {
+      warnings.push("У поході поки що менше двох учасників.");
+    } else {
+      ok.push(`Учасників у поході: ${preparedGroup.members.length}.`);
+    }
+
+    if (!preparedGroup.gear.length) {
+      warnings.push("Спорядження походу ще не додано.");
+    } else {
+      ok.push(`У спорядженні вже є ${preparedGroup.gear.length} позицій.`);
+    }
+
+    if (activeNeeds.length > 0) {
+      critical.push(`Є незакриті запити на спорядження: ${activeNeeds.length}.`);
+    } else {
+      ok.push("Активних запитів на спорядження немає.");
+    }
+
+    if (outstandingLoans.length > 0) {
+      critical.push(`Є неповернені позики спорядження: ${outstandingLoans.length}.`);
+    } else {
+      ok.push("Неповерненого позиченого спорядження немає.");
+    }
+
+    if (!preparedGroup.food.length) {
+      warnings.push("Харчування походу ще не заповнене.");
+    } else {
+      ok.push(`Харчування має ${preparedGroup.food.length} позицій.`);
+    }
+
+    if (!preparedGroup.expenses.length) {
+      warnings.push("Витрати походу ще не додані.");
+    } else {
+      ok.push(`У витратах уже є ${preparedGroup.expenses.length} позицій.`);
+    }
+
+    if (!preparedGroup.tripPhotos.length) {
+      warnings.push("У фотоальбомі походу ще немає жодного фото.");
+    } else {
+      ok.push(`У фотоальбомі вже є ${preparedGroup.tripPhotos.length} фото.`);
+    }
+
+    const score = Math.max(0, 100 - (critical.length * 25) - (warnings.length * 8));
+
+    return {
+      critical,
+      warnings,
+      ok,
+      score,
+      criticalCount: critical.length,
+      warningCount: warnings.length,
+      status: critical.length ? "critical" : warnings.length ? "warning" : "ok"
     };
   }
 }

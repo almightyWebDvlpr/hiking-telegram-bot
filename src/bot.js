@@ -629,8 +629,25 @@ function getAttendanceStatusEmoji(status) {
   return meta.key ? meta.emoji : "";
 }
 
+function isAttendanceStatusPending(status) {
+  const key = String(status || "");
+  return key !== "going" && key !== "not_going";
+}
+
+function isTripMemberAttendanceSelfLocked(trip, memberId) {
+  const member = trip?.members?.find((item) => String(item.id) === String(memberId));
+  return member?.attendanceSelfLocked === true;
+}
+
 function canUpdateTripMemberStatus(trip, viewerId, memberId) {
-  return Boolean(canManageTrip(trip, viewerId) || String(viewerId) === String(memberId));
+  if (canManageTrip(trip, viewerId)) {
+    return true;
+  }
+
+  return (
+    String(viewerId) === String(memberId) &&
+    !isTripMemberAttendanceSelfLocked(trip, memberId)
+  );
 }
 
 function isValidTelegramUsername(value) {
@@ -1739,6 +1756,63 @@ async function notifyTripMembers(telegram, trip, text, { excludeMemberId = "" } 
       // Ignore users who blocked the bot or haven't started it yet.
     }
   }
+}
+
+function getTripOwnerMember(trip) {
+  return trip?.members?.find((member) => member.role === "owner") || trip?.members?.[0] || null;
+}
+
+function buildAttendanceReminderMessage(trip, member, userService) {
+  const owner = getTripOwnerMember(trip);
+  const ownerName = owner ? getMemberDisplayName(userService, owner) : "організатор";
+
+  return joinRichLines([
+    `🔔 Підтверди участь у поході "${trip.name}"`,
+    "",
+    `Зараз у тебе статус: ${formatAttendanceStatusText(member.attendanceStatus)}`,
+    "До старту залишилось 8 днів, тому вже час зафіксувати участь.",
+    "",
+    "Де це змінити:",
+    "• `👥 Похід`",
+    "• `👥 Учасники походу`",
+    "• обери себе в списку і натисни один зі статусів: `👍 Йду`, `🤔 Думаю` або `👎 Не йду`",
+    "",
+    `Якщо щось неясно, напиши організатору: ${ownerName}.`
+  ]);
+}
+
+function buildAttendanceAutoDeclinedMessage(trip, member, userService) {
+  const owner = getTripOwnerMember(trip);
+  const ownerName = owner ? getMemberDisplayName(userService, owner) : "організатор";
+
+  return joinRichLines([
+    `⚠️ Статус участі в поході "${trip.name}" оновлено автоматично`,
+    "",
+    `Твій статус був: ${formatAttendanceStatusText(member.attendanceStatus)}`,
+    `Новий статус: ${formatAttendanceStatusText("not_going")}`,
+    "",
+    "До старту залишилось 7 днів, а участь не була підтверджена, тому бот автоматично перевів тебе в статус `Не йду`.",
+    "Самостійно змінити цей статус тепер не можна.",
+    `Якщо це помилка або плани змінились, зв'яжися з організатором: ${ownerName}.`
+  ]);
+}
+
+function buildAttendanceStatusChangedNotification(trip, member, actorLabel, previousStatus, nextStatus, { automatic = false } = {}) {
+  const lines = [
+    `👥 Оновлення статусу участі в поході "${trip.name}"`,
+    "",
+    `Учасник: ${member}`,
+    `Було: ${formatAttendanceStatusText(previousStatus)}`,
+    `Стало: ${formatAttendanceStatusText(nextStatus)}`
+  ];
+
+  if (automatic) {
+    lines.push("Оновлено автоматично ботом за правилом підтвердження участі.");
+  } else if (actorLabel) {
+    lines.push(`Змінив: ${actorLabel}`);
+  }
+
+  return lines.join("\n");
 }
 
 function getRouteEndpoints(routePlan) {
@@ -3870,6 +3944,9 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
     memberView.title,
     `Роль: ${role}`,
     `Статус: ${formatAttendanceStatusText(member.attendanceStatus)}`,
+    member.attendanceSelfLocked === true
+      ? "Самозміна статусу вимкнена. Для оновлення звернись до організатора або редактора."
+      : null,
     "",
     ...memberView.details
   ]);
@@ -3908,15 +3985,23 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
   }
 
   if (!canUpdateTripMemberStatus(trip, viewerId, member.id)) {
-    await ctx.answerCbQuery("Ти можеш змінювати тільки свій статус участі.", { show_alert: true });
+    const selfLocked = String(viewerId) === String(member.id) && member.attendanceSelfLocked === true;
+    await ctx.answerCbQuery(
+      selfLocked
+        ? "Твій статус уже зафіксовано як «Не йду». Для зміни звернися до організатора або редактора."
+        : "Ти можеш змінювати тільки свій статус участі.",
+      { show_alert: true }
+    );
     return null;
   }
 
+  const actorMember = trip.members.find((item) => String(item.id) === viewerId) || null;
   const result = groupService.setMemberAttendanceStatus({
     groupId: trip.id,
     actorId: viewerId,
     targetMemberId: member.id,
-    status
+    status,
+    clearSelfLock: canManageTrip(trip, viewerId)
   });
 
   if (!result.ok) {
@@ -3932,13 +4017,30 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
   }
 
   await ctx.answerCbQuery(`Статус оновлено: ${formatAttendanceStatusText(updatedMember.attendanceStatus)}`);
-  return ctx.editMessageText(
+  const response = await ctx.editMessageText(
     formatTripMemberDetailsMessage(updatedTrip, updatedMember, userService, viewerId),
     {
       parse_mode: "HTML",
       ...getTripMemberStatusInlineKeyboard(updatedTrip, updatedMember.id, viewerId)
     }
   );
+
+  if (result.previousStatus !== updatedMember.attendanceStatus) {
+    const actorLabel = actorMember ? getMemberDisplayName(userService, actorMember) : getUserLabel(ctx);
+    void notifyTripMembers(
+      ctx.telegram,
+      updatedTrip,
+      buildAttendanceStatusChangedNotification(
+        updatedTrip,
+        getMemberDisplayName(userService, updatedMember),
+        actorLabel,
+        result.previousStatus,
+        updatedMember.attendanceStatus
+      )
+    );
+  }
+
+  return response;
 }
 
 async function handleTripMemberStatusBack(ctx, groupService, userService) {
@@ -11146,7 +11248,7 @@ function buildBorrowedGearReminderMessage(trip, borrowedItems, daysAfterEnd) {
   return lines.join("\n");
 }
 
-function startTripReminderLoop(bot, groupService) {
+function startTripReminderLoop(bot, groupService, userService) {
   const sendDueReminders = async () => {
     const activeTrips = groupService.getActiveGroups();
 
@@ -11175,6 +11277,75 @@ function startTripReminderLoop(bot, groupService) {
 
           if (delivered) {
             groupService.markReminderSent({ groupId: trip.id, reminderKey });
+          }
+        }
+
+        for (const member of trip.members || []) {
+          const memberId = String(member.id || "");
+          if (!memberId) {
+            continue;
+          }
+
+          if (daysUntil === 8 && isAttendanceStatusPending(member.attendanceStatus)) {
+            const attendanceReminderKey = `attendance_d8:${memberId}`;
+            if (!trip.reminderState?.[attendanceReminderKey]) {
+              try {
+                await sendRichText(
+                  bot.telegram,
+                  member.id,
+                  buildAttendanceReminderMessage(trip, member, userService),
+                  getTripKeyboard(trip, memberId)
+                );
+                groupService.markReminderSent({ groupId: trip.id, reminderKey: attendanceReminderKey });
+              } catch {
+                // Ignore users who haven't opened the bot or blocked it.
+              }
+            }
+          }
+
+          if (daysUntil === 7 && isAttendanceStatusPending(member.attendanceStatus)) {
+            const attendanceAutoDeclineKey = `attendance_d7:${memberId}`;
+            if (!trip.reminderState?.[attendanceAutoDeclineKey]) {
+              const result = groupService.setMemberAttendanceStatusSystem({
+                groupId: trip.id,
+                targetMemberId: memberId,
+                status: "not_going",
+                lockSelfChange: true
+              });
+
+              if (result.ok) {
+                const updatedTrip = result.group;
+                const updatedMember = updatedTrip.members.find((item) => String(item.id) === memberId) || member;
+
+                try {
+                  await sendRichText(
+                    bot.telegram,
+                    member.id,
+                    buildAttendanceAutoDeclinedMessage(trip, member, userService),
+                    getTripKeyboard(updatedTrip, memberId)
+                  );
+                } catch {
+                  // Ignore users who haven't opened the bot or blocked it.
+                }
+
+                if (result.previousStatus !== updatedMember.attendanceStatus) {
+                  void notifyTripMembers(
+                    bot.telegram,
+                    updatedTrip,
+                    buildAttendanceStatusChangedNotification(
+                      updatedTrip,
+                      getMemberDisplayName(userService, updatedMember),
+                      "",
+                      result.previousStatus,
+                      updatedMember.attendanceStatus,
+                      { automatic: true }
+                    )
+                  );
+                }
+
+                groupService.markReminderSent({ groupId: trip.id, reminderKey: attendanceAutoDeclineKey });
+              }
+            }
           }
         }
       }
@@ -11271,7 +11442,7 @@ export function createBot(store) {
   const advisorService = new AdvisorService();
   routeService.advisorService = advisorService;
   bot.telegram.advisorService = advisorService;
-  startTripReminderLoop(bot, groupService);
+  startTripReminderLoop(bot, groupService, userService);
   const vpohidArchiveSyncLoop = startVpohidArchiveSyncLoop(vpohidLiveService);
 
   bot.vpohidArchiveSyncLoop = vpohidArchiveSyncLoop;

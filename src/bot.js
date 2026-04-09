@@ -15,10 +15,12 @@ import { resolveSafetyProfile } from "./data/safetyContacts.js";
 import { VpohidLiveService } from "./services/vpohidLiveService.js";
 import {
   PROFILE_AWARDS_LABEL,
+  BADGE_SERIES,
   AWARD_RULES_OVERVIEW,
   MANUAL_AWARDS_OVERVIEW,
   TITLE_RULES_OVERVIEW,
-  formatAwardName
+  formatAwardName,
+  getTierMeta
 } from "./data/awardsCatalog.js";
 import {
   categorizeGearName,
@@ -560,7 +562,7 @@ function getHelpSectionKeyboard() {
 
 function getProfileKeyboard() {
   return buildKeyboard([
-    [PROFILE_DASHBOARD_LABEL, PROFILE_AWARDS_LABEL],
+    [PROFILE_AWARDS_LABEL],
     [PROFILE_ABOUT_LABEL, "🎒 Моє спорядження"],
     [PROFILE_PHOTO_ALBUMS_LABEL, "🕓 Історія походів"],
     ["⬅️ Головне меню"]
@@ -5683,52 +5685,101 @@ function replyExpenseAddStepPrompt(ctx, flow) {
   });
 }
 
-function formatProfileDashboard(userService, groupService, userId, userName) {
-  const dashboard = userService.getDashboard(userId, userName);
-  const latestAwards = dashboard.latestAwards.length
-    ? dashboard.latestAwards.map((award) => `• ${formatAwardName(award)}`).join("\n")
-    : "• Поки що нагород немає";
-  return joinRichLines([
-    ...formatCardHeader("📊 ДАШБОРД", dashboard.fullName),
-    "",
-    formatSectionHeader("🥾", "Підсумок По Походах"),
-    `Пройдених походів: ${dashboard.hikesCount}`,
-    `Активних походів: ${dashboard.activeTrips}`,
-    `Архівних походів: ${dashboard.archivedTrips}`,
-    "",
-    formatSectionHeader("📍", "Пройдений Обсяг"),
-    `Кілометри: ${dashboard.totalKm.toFixed(1)} км`,
-    `Набір висоти: ${Math.round(dashboard.totalAscent || 0)} м`,
-    `Днів у походах: ${dashboard.totalDays}`,
-    `Ночівель: ${dashboard.totalNights}`,
-    "",
-    formatSectionHeader("💸", "Витрати І Спорядження"),
-    `Сумарні витрати: ${formatMoney(dashboard.totalCost)}`,
-    `Позицій у моєму спорядженні: ${dashboard.personalGearCount}`,
-    `Організованих походів: ${dashboard.organizedTrips}`,
-    "",
-    formatSectionHeader("⭐", "Рівень І XP"),
-    `Рівень: ${dashboard.xp.level}`,
-    `Загальний XP: ${dashboard.xp.totalXp}`,
-    dashboard.xp.progress.next
-      ? `До наступного рівня: ${dashboard.xp.progress.currentXp} / ${dashboard.xp.progress.nextTargetXp} XP`
-      : `Максимальний відкритий рівень: ${dashboard.xp.progress.currentXp} XP`,
-    "",
-    formatSectionHeader("🏅", "Нагороди І Титул"),
-    `Поточний титул: ${dashboard.currentTitle || "ще не відкрито"}`,
-    `Усього нагород: ${dashboard.awardsCount}`,
-    latestAwards,
-    "",
-    "⚠️ Зверни увагу:",
-    "• дашборд рахується по завершених та архівних походах",
-    "• активний похід окремо не додається в пройдену статистику"
-  ]);
+function formatUkrainianCount(value, forms) {
+  const count = Math.abs(Number(value) || 0);
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${count} ${forms[0]}`;
+  }
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) {
+    return `${count} ${forms[1]}`;
+  }
+  return `${count} ${forms[2]}`;
+}
+
+function getSeriesDynamicDescription(seriesKey, stats, fallbackDescription = "") {
+  switch (seriesKey) {
+    case "hikes":
+      return formatUkrainianCount(stats.hikesCount, ["завершений похід", "завершені походи", "завершених походів"]);
+    case "distance":
+      return `${stats.totalKm.toFixed(1)} км`;
+    case "nights":
+      return formatUkrainianCount(stats.totalNights, ["ночівля", "ночівлі", "ночівель"]);
+    case "ascent":
+      return `${Math.round(stats.totalAscent || 0)} м набору висоти`;
+    case "weatheredTrips":
+      return `${formatUkrainianCount(stats.weatherTrips, ["похід", "походи", "походів"])} з погодними попередженнями`;
+    case "stormTrips":
+      return `${formatUkrainianCount(stats.stormTrips, ["похід", "походи", "походів"])} з грозою, дощем або сильним вітром`;
+    case "freezeTrips":
+      return `${formatUkrainianCount(stats.freezeTrips, ["похід", "походи", "походів"])} з ризиком морозу або заморозку`;
+    case "longestDistance":
+      return `Найдовший маршрут: ${Number(stats.longestDistance || 0).toFixed(1)} км`;
+    case "longestOneDayDistance":
+      return `Найдовший одноденний маршрут: ${Number(stats.longestOneDayDistance || 0).toFixed(1)} км`;
+    case "openSkyNights":
+      return formatUkrainianCount(stats.openSkyNights, ["ніч", "ночі", "ночей"]) + " у польових умовах";
+    case "organizer":
+      return `${formatUkrainianCount(stats.organizedTrips, ["похід", "походи", "походів"])} як організатор або провідник`;
+    case "foodTrips":
+      return `${formatUkrainianCount(stats.foodTrips, ["похід", "походи", "походів"])} із закритим харчуванням`;
+    case "sharedGearTrips":
+      return `${formatUkrainianCount(stats.sharedGearTrips, ["похід", "походи", "походів"])} зі спільним або запасним спорядженням`;
+    case "safetyTrips":
+      return `${formatUkrainianCount(stats.safetyTrips, ["похід", "походи", "походів"])} із закритою аптечкою або безпекою`;
+    case "expenseTrips":
+      return `${formatUkrainianCount(stats.expenseTrips, ["похід", "походи", "походів"])} із веденням витрат`;
+    case "preparedLevel":
+      return fallbackDescription;
+    default:
+      return fallbackDescription;
+  }
+}
+
+function buildUnifiedAwardLines(awards = [], stats = {}) {
+  const seriesEntries = [];
+  const oneTimeEntries = [];
+
+  for (const series of BADGE_SERIES) {
+    const awarded = awards
+      .filter((award) => String(award.key || "").startsWith(`${series.key}_`))
+      .sort((left, right) => {
+        const leftIndex = series.milestones.findIndex((item) => item.tier === left.tier);
+        const rightIndex = series.milestones.findIndex((item) => item.tier === right.tier);
+        return leftIndex - rightIndex;
+      });
+
+    if (!awarded.length) {
+      continue;
+    }
+
+    const icons = awarded
+      .map((award) => getTierMeta(award.tier).icon)
+      .join(" ");
+    const highestAward = awarded[awarded.length - 1];
+    const description = getSeriesDynamicDescription(series.key, stats, highestAward.description || "");
+
+    seriesEntries.push(`• ${icons} ${series.title}${description ? ` — ${description}` : ""}`);
+  }
+
+  for (const award of awards) {
+    const isSeriesAward = BADGE_SERIES.some((series) => String(award.key || "").startsWith(`${series.key}_`));
+    if (isSeriesAward) {
+      continue;
+    }
+    oneTimeEntries.push(`• ${formatAwardName(award)}${award.description ? ` — ${award.description}` : ""}`);
+  }
+
+  return [...seriesEntries, ...oneTimeEntries];
 }
 
 function formatProfileAwards(userService, userId, userName) {
   const data = userService.getAwards(userId, userName);
+  const dashboard = userService.getDashboard(userId, userName);
   const awardLines = data.awards.length
-    ? data.awards.map((award) => `• ${formatAwardName(award)}${award.description ? ` — ${award.description}` : ""}`)
+    ? buildUnifiedAwardLines(data.awards, data.stats)
     : ["• Поки що нагород немає. Заверши перший похід, і вони з’являться тут."];
   const historyLines = data.history.length
     ? data.history.flatMap((item) => {
@@ -5751,25 +5802,39 @@ function formatProfileAwards(userService, userId, userName) {
   return joinRichLines([
     ...formatCardHeader("🏅 МОЇ ДОСЯГНЕННЯ", data.fullName),
     "",
-    formatSectionHeader("🎯", "Титул І Рівень"),
-    `• Титул: ${data.title || "ще не відкрито"}`,
+    formatSectionHeader("🎯", "Титул, Рівень І XP"),
+    `• Поточний титул: ${data.title || "ще не відкрито"}`,
     `• Рівень: ${data.xp.level}`,
     `• Загальний XP: ${data.xp.totalXp}`,
     data.xp.progress.next
       ? `• До наступного рівня: ${data.xp.progress.currentXp} / ${data.xp.progress.nextTargetXp} XP`
       : `• Максимальний відкритий рівень: ${data.xp.progress.currentXp} XP`,
     "",
-    formatSectionHeader("📈", "Прогрес"),
-    `• Походів: ${data.stats.hikesCount}`,
-    `• Кілометрів: ${data.stats.totalKm.toFixed(1)} км`,
+    formatSectionHeader("🥾", "Підсумок По Походах"),
+    `• Пройдених походів: ${dashboard.hikesCount}`,
+    `• Активних походів: ${dashboard.activeTrips}`,
+    `• Архівних походів: ${dashboard.archivedTrips}`,
+    "",
+    formatSectionHeader("📍", "Пройдений Обсяг"),
+    `• Кілометри: ${data.stats.totalKm.toFixed(1)} км`,
     `• Набір висоти: ${Math.round(data.stats.totalAscent || 0)} м`,
+    `• Днів у походах: ${data.stats.totalDays}`,
     `• Ночівель: ${data.stats.totalNights}`,
+    "",
+    formatSectionHeader("💸", "Витрати І Спорядження"),
+    `• Сумарні витрати: ${formatMoney(dashboard.totalCost)}`,
+    `• Позицій у моєму спорядженні: ${dashboard.personalGearCount}`,
+    `• Організованих походів: ${dashboard.organizedTrips}`,
     "",
     formatSectionHeader("🧾", "Останні Нарахування XP"),
     ...historyLines,
     "",
     formatSectionHeader("🏆", "Усі Нагороди"),
-    ...awardLines
+    ...awardLines,
+    "",
+    "⚠️ Зверни увагу:",
+    "• статистика рахується по завершених та архівних походах",
+    "• активний похід окремо не додається в пройдену статистику"
   ]);
 }
 
@@ -5842,12 +5907,8 @@ function showProfileMenu(ctx, userService) {
   );
 }
 
-function showProfileDashboard(ctx, userService, groupService) {
-  setMenuContext(ctx.from?.id, "profile");
-  return ctx.reply(
-    formatProfileDashboard(userService, groupService, String(ctx.from.id), getUserLabel(ctx)),
-    { parse_mode: "HTML", ...getProfileKeyboard() }
-  );
+function showProfileDashboard(ctx, userService) {
+  return showProfileAwards(ctx, userService);
 }
 
 function showProfileAbout(ctx, userService) {
@@ -11320,7 +11381,7 @@ export function createBot(store) {
   bot.hears("👥 Похід", (ctx) => showTripMenu(ctx, groupService));
   bot.hears(KEYBOARD_PLACEHOLDER, () => null);
   bot.hears(PROFILE_LABEL, (ctx) => showProfileMenu(ctx, userService));
-  bot.hears(PROFILE_DASHBOARD_LABEL, (ctx) => showProfileDashboard(ctx, userService, groupService));
+  bot.hears(PROFILE_DASHBOARD_LABEL, (ctx) => showProfileDashboard(ctx, userService));
   bot.hears(PROFILE_ABOUT_LABEL, (ctx) => showProfileAbout(ctx, userService));
   bot.hears(PROFILE_MEDICAL_LABEL, (ctx) => showProfileMedicalCard(ctx, userService));
   bot.hears(PROFILE_AWARDS_LABEL, (ctx) => showProfileAwards(ctx, userService));

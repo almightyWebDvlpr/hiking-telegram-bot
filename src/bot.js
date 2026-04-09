@@ -146,6 +146,9 @@ const ROUTES_DETAILS_LABEL = "📋 Деталі маршруту";
 const TRIP_WEATHER_BACK_LABEL = "⬅️ До походу";
 const TRIP_PHOTOS_LABEL = "📸 Фото походу";
 const TRIP_PHOTOS_ADD_LABEL = "📷 Поділитися фото";
+const TRIP_PHOTO_ALBUM_LABEL = "🖼 Фотоальбом";
+const TRIP_SOS_LABEL = "🚨 SOS пакет";
+const TRIP_DATA_QUALITY_LABEL = "🧪 Перевірка даних";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
 const GEAR_EDIT_ACTION_LABEL = "✏️ Редагувати";
 const GEAR_EDIT_DELETE_LABEL = "🗑 Видалити";
@@ -639,7 +642,7 @@ function getTripDetailsKeyboard(trip, userId = "") {
   }
 
   return buildKeyboard([
-    ["✏️ Редагувати дані походу"],
+    ["✏️ Редагувати дані походу", TRIP_DATA_QUALITY_LABEL],
     [TRIP_DETAILS_BACK_LABEL]
   ]);
 }
@@ -1430,7 +1433,14 @@ function getTripFoodKeyboard({ hasItems = false } = {}) {
 
 function getTripPhotosKeyboard() {
   return buildKeyboard([
-    [TRIP_PHOTOS_ADD_LABEL],
+    [TRIP_PHOTOS_ADD_LABEL, TRIP_PHOTO_ALBUM_LABEL],
+    ["⬅️ До походу"]
+  ]);
+}
+
+function getTripSafetyKeyboard() {
+  return buildKeyboard([
+    [TRIP_SOS_LABEL],
     ["⬅️ До походу"]
   ]);
 }
@@ -2053,6 +2063,246 @@ function formatTripMeetingDateTime(tripCard = {}) {
   return effectiveDate || meetingTime || "";
 }
 
+function formatIsoDateTimeShort(value = "") {
+  const raw = String(value || "").trim();
+  return raw ? raw.slice(0, 16).replace("T", " ") : "не вказано";
+}
+
+function truncateListForMessage(items = [], limit = 3) {
+  if (!items.length) {
+    return [];
+  }
+
+  if (items.length <= limit) {
+    return items;
+  }
+
+  return [...items.slice(0, limit), `… і ще ${items.length - limit}`];
+}
+
+function getTripProfileQualityWarnings(trip, userService) {
+  const missingCity = [];
+  const missingPhone = [];
+  const missingMedicalCore = [];
+
+  for (const member of trip.members || []) {
+    const profile = userService.getProfile(member.id, member.name).profile;
+    const displayName = userService.getDisplayName(member.id, member.name);
+
+    if (!String(profile.city || "").trim()) {
+      missingCity.push(displayName);
+    }
+    if (!String(profile.phone || "").trim()) {
+      missingPhone.push(displayName);
+    }
+    if (
+      !String(profile.bloodType || "").trim() ||
+      !String(profile.emergencyContactName || "").trim() ||
+      !String(profile.emergencyContactPhone || "").trim()
+    ) {
+      missingMedicalCore.push(displayName);
+    }
+  }
+
+  return {
+    missingCity,
+    missingPhone,
+    missingMedicalCore
+  };
+}
+
+function getTripDataQualityOverview(trip, groupService, userService) {
+  const baseReport = groupService.getTripDataQualityReport(trip.id) || {
+    critical: [],
+    warnings: [],
+    ok: [],
+    score: 0,
+    criticalCount: 0,
+    warningCount: 0,
+    status: "warning"
+  };
+  const profileWarnings = getTripProfileQualityWarnings(trip, userService);
+  const warnings = [
+    ...baseReport.warnings,
+    ...(profileWarnings.missingCity.length ? [`Не у всіх учасників заповнене місто профілю: ${profileWarnings.missingCity.length}.`] : []),
+    ...(profileWarnings.missingPhone.length ? [`Не у всіх учасників заповнений телефон: ${profileWarnings.missingPhone.length}.`] : []),
+    ...(profileWarnings.missingMedicalCore.length ? [`Не у всіх учасників заповнене медичне ядро профілю: ${profileWarnings.missingMedicalCore.length}.`] : [])
+  ];
+
+  const warningPenalty = Math.max(0, warnings.length - baseReport.warnings.length) * 6;
+  const score = Math.max(0, Number(baseReport.score || 0) - warningPenalty);
+
+  return {
+    ...baseReport,
+    warnings,
+    warningCount: warnings.length,
+    score,
+    profileWarnings,
+    status: baseReport.critical.length ? "critical" : warnings.length ? "warning" : "ok"
+  };
+}
+
+function buildTripDataQualitySummaryLines(report) {
+  if (!report.criticalCount && !report.warningCount) {
+    return ["• Дані походу виглядають узгодженими."];
+  }
+
+  return [
+    report.criticalCount ? `• Критично: ${report.criticalCount}` : null,
+    report.warningCount ? `• Варто доповнити: ${report.warningCount}` : null
+  ].filter(Boolean);
+}
+
+function formatTripDataQualityReport(trip, report, userService, viewerCanManage = false) {
+  const lines = [
+    ...formatCardHeader("🧪 ПЕРЕВІРКА ДАНИХ", trip.name),
+    "",
+    `Оцінка узгодженості: ${report.score}/100`,
+    `Критично: ${report.criticalCount}`,
+    `Варто доповнити: ${report.warningCount}`
+  ];
+
+  if (report.critical.length) {
+    lines.push("", formatSectionHeader("🔴", "Потрібно Закрити"));
+    lines.push(...report.critical.map((item) => `• ${item}`));
+  }
+
+  if (report.warnings.length) {
+    lines.push("", formatSectionHeader("🟡", "Варто Доповнити"));
+    lines.push(...report.warnings.map((item) => `• ${item}`));
+  }
+
+  const okLines = truncateListForMessage(report.ok, 5);
+  if (okLines.length) {
+    lines.push("", formatSectionHeader("🟢", "Вже Узгоджено"));
+    lines.push(...okLines.map((item) => `• ${item}`));
+  }
+
+  if (viewerCanManage && report.profileWarnings?.missingMedicalCore?.length) {
+    lines.push("", formatSectionHeader("🩺", "Медичні Дані Учасників"));
+    lines.push(`• Без повного медичного ядра: ${report.profileWarnings.missingMedicalCore.join(" • ")}`);
+  }
+
+  lines.push("", "⚠️ Це не формальний чекліст, а швидка перевірка того, де похід ще просідає по даних.");
+  return joinRichLines(lines);
+}
+
+function formatTripPhotoAlbumSummary(trip, album) {
+  const lines = [
+    ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
+    "",
+    `Усього фото: ${album.totalCount}`,
+    `Останнє оновлення: ${formatIsoDateTimeShort(album.latestAt)}`,
+    ""
+  ];
+
+  if (album.byMoment.length) {
+    lines.push(formatSectionHeader("🗂", "За Подіями"));
+    lines.push(...album.byMoment.map((item) => `• ${item.label}: ${item.count}`));
+    lines.push("");
+  }
+
+  if (album.byAuthor.length) {
+    lines.push(formatSectionHeader("👥", "Хто Додавав Фото"));
+    lines.push(...truncateListForMessage(album.byAuthor, 5).map((item) =>
+      typeof item === "string" ? `• ${item}` : `• ${escapeHtml(item.authorMemberName)}: ${item.count}`
+    ));
+    lines.push("");
+  }
+
+  lines.push(`Показую останні фото: ${album.items.length}${album.totalCount > album.items.length ? ` із ${album.totalCount}` : ""}.`);
+  return joinRichLines(lines);
+}
+
+function groupTripPhotoItemsByMoment(items = []) {
+  const grouped = new Map();
+
+  for (const item of items) {
+    const key = String(item?.momentKey || "route");
+    const current = grouped.get(key);
+    if (current) {
+      current.items.push(item);
+      continue;
+    }
+
+    grouped.set(key, {
+      key,
+      label: item?.momentLabel || "Маршрут і команда",
+      items: [item]
+    });
+  }
+
+  return [...grouped.values()];
+}
+
+function getTripSosMedicalLines(trip, userService, viewerCanManage = false) {
+  if (!viewerCanManage) {
+    return [];
+  }
+
+  const lines = [];
+
+  for (const member of trip.members || []) {
+    const profile = userService.getProfile(member.id, member.name).profile;
+    const details = [
+      profile.bloodType ? `група крові: ${profile.bloodType}` : null,
+      profile.allergies ? `алергії: ${profile.allergies}` : null,
+      profile.medications ? `ліки: ${profile.medications}` : null,
+      profile.healthNotes ? `важливо: ${profile.healthNotes}` : null,
+      profile.emergencyContactName
+        ? `контакт: ${profile.emergencyContactName}${profile.emergencyContactPhone ? `, ${profile.emergencyContactPhone}` : ""}`
+        : null
+    ].filter(Boolean);
+
+    if (!details.length) {
+      continue;
+    }
+
+    lines.push(`• ${escapeHtml(userService.getDisplayName(member.id, member.name))} — ${escapeHtml(details.join(" | "))}`);
+  }
+
+  return lines;
+}
+
+function formatTripSosPackage(trip, groupService, userService, viewerId = "") {
+  const safety = resolveSafetyProfile(trip);
+  const safetyPhones = [...new Set((safety.general || []).flatMap((item) => item.phones || []))];
+  const members = (trip.members || []).map((member) => {
+    const profile = userService.getProfile(member.id, member.name).profile;
+    const phone = profile.phone || "телефон не вказано";
+    return `• ${escapeHtml(userService.getDisplayName(member.id, member.name))} — ${escapeHtml(phone)}`;
+  });
+  const routeLine = formatRouteStatus(trip.routePlan);
+  const localRescuers = (safety.contacts || []).map((item) => `• ${item.label}: ${item.phones.join(" / ")}`);
+  const medicalLines = getTripSosMedicalLines(trip, userService, canManageTrip(trip, viewerId));
+  const lines = [
+    ...formatCardHeader("🚨 SOS ПАКЕТ", trip.name),
+    "",
+    `Маршрут: ${routeLine}`,
+    `Регіон: ${trip.region || safety.title}`,
+    trip.tripCard ? `Дати: ${trip.tripCard.startDate} -> ${trip.tripCard.endDate}` : null,
+    trip.tripCard?.meetingPoint ? `Точка збору: ${escapeHtml(trip.tripCard.meetingPoint)}` : null,
+    formatTripMeetingDateTime(trip.tripCard || {}) ? `Дата та Час збору: ${formatTripMeetingDateTime(trip.tripCard || {})}` : null,
+    "",
+    formatSectionHeader("👥", "Учасники і Контакти"),
+    ...members,
+    "",
+    formatSectionHeader("🚨", "Екстрені Номери"),
+    `• ${safetyPhones.join(" / ")}`,
+    "",
+    formatSectionHeader("⛰", "Рятувальники Регіону"),
+    ...(localRescuers.length ? localRescuers : ["• Локальний підрозділ не визначено автоматично. У разі загрози телефонуй 101 або 112."])
+  ].filter(Boolean);
+
+  if (medicalLines.length) {
+    lines.push("", formatSectionHeader("🩺", "Медичні Позначки"));
+    lines.push(...medicalLines);
+  }
+
+  lines.push("", "⚠️ Це короткий пакет, який можна швидко переслати в разі потреби.");
+  return joinRichLines(lines);
+}
+
 function buildTripNamePrompt(currentValue = "") {
   return [
     "Введи назву походу.",
@@ -2271,6 +2521,7 @@ function buildTripMeetingPointLines(trip, userService, safety) {
 
 function formatTripPassport(trip, groupService, userService, userId = "") {
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
+  const qualityReport = getTripDataQualityOverview(trip, groupService, userService);
   const safety = resolveSafetyProfile(trip);
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
   const members = trip.members.map((member) => {
@@ -2306,6 +2557,9 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     ...members,
     "",
     ...buildTripMeetingPointLines(trip, userService, safety),
+    "",
+    formatSectionHeader("🧪", "Якість Даних"),
+    ...buildTripDataQualitySummaryLines(qualityReport),
     "",
     formatSectionHeader("🆘", "Безпека"),
     `• Регіон рятувальників: ${safety.title}`,
@@ -2482,6 +2736,7 @@ function formatTripCompletionSummary(trip, userService = null) {
     `Готовність спорядження: ${finalSummary.gearReadinessStatus || "не вказано"}`,
     `Спорядження: ${finalSummary.gearCount || 0} позицій | Запити: ${finalSummary.gearNeedsCount || 0}`,
     `Харчування: ${finalSummary.foodCount || 0} позицій | ${formatMoney(finalSummary.foodTotal || 0)}`,
+    `Фото: ${finalSummary.photoCount || 0}`,
     `Інші витрати: ${formatMoney(finalSummary.expensesTotal || 0)}`,
     `Разом витрат: ${formatMoney(finalSummary.totalCost || 0)}`,
     "",
@@ -2522,6 +2777,7 @@ function formatTripHistoryDetails(trip, userService = null) {
     `Готовність спорядження: ${finalSummary.gearReadinessStatus || "не вказано"}`,
     `Спорядження: ${finalSummary.gearCount || 0} позицій | Запити: ${finalSummary.gearNeedsCount || 0}`,
     `Харчування: ${finalSummary.foodCount || 0} позицій | ${formatMoney(finalSummary.foodTotal || 0)}`,
+    `Фото: ${finalSummary.photoCount || 0}`,
     `Інші витрати: ${formatMoney(finalSummary.expensesTotal || 0)}`,
     `Разом витрат: ${formatMoney(finalSummary.totalCost || 0)}`
   );
@@ -3149,9 +3405,9 @@ function showTripMenu(ctx, groupService) {
     "• Деталі походу — головна зведена картка",
     "• Маршрут походу — трек, GPX/KML і перегляд карти",
     "• Учасники походу — список, запрошення і права доступу",
-    "• Спорядження походу — речі, запити, облік і критичне спорядження",
+    "• Спорядження походу — речі, запити і облік",
     "• Харчування / Витрати — робочі списки походу",
-    "• Фото походу — кадри з маршруту і короткі підписи до них"
+    "• Фото походу — кадри з маршруту, короткі підписи і фотоальбом"
   ];
 
   if (canManageTrip(trip, String(ctx.from.id))) {
@@ -3176,12 +3432,26 @@ function showTripMenu(ctx, groupService) {
 }
 
 function showTripSafety(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-safety");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
   }
 
-  return ctx.reply(formatSafetySection(trip), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
+  return replyRichText(ctx, formatSafetySection(trip), { parse_mode: "HTML", ...getTripSafetyKeyboard() });
+}
+
+function showTripSosPackage(ctx, groupService, userService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  return replyRichText(
+    ctx,
+    formatTripSosPackage(trip, groupService, userService, String(ctx.from.id)),
+    { parse_mode: "HTML", ...getTripSafetyKeyboard() }
+  );
 }
 
 function showTripReminders(ctx, groupService) {
@@ -3191,6 +3461,20 @@ function showTripReminders(ctx, groupService) {
   }
 
   return replyRichText(ctx, formatReminderPlan(trip), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
+}
+
+function showTripDataQualityReport(ctx, groupService, userService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  const report = getTripDataQualityOverview(trip, groupService, userService);
+  return replyRichText(
+    ctx,
+    formatTripDataQualityReport(trip, report, userService, canManageTrip(trip, String(ctx.from.id))),
+    { parse_mode: "HTML", ...(getTripDetailsKeyboard(trip, String(ctx.from.id)) || getTripKeyboard(trip, String(ctx.from.id))) }
+  );
 }
 
 function showTripPhotosMenu(ctx, groupService) {
@@ -3206,14 +3490,85 @@ function showTripPhotosMenu(ctx, groupService) {
       "",
       "Що тут можна робити:",
       `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
+      `• \`${TRIP_PHOTO_ALBUM_LABEL}\` — відкрити зведений фотоальбом походу`,
       "",
       "⚠️ Зверни увагу:",
-      "• бот не зберігає фото в БД",
+      "• бот не зберігає важкі файли фото в БД",
+      "• для фотоальбому зберігаються лише легкі службові дані і Telegram file_id",
       "• фото одразу надсилається учасникам походу через Telegram",
       "• можна додати підпис прямо в повідомленні до фото"
     ]),
     { parse_mode: "HTML", ...getTripPhotosKeyboard() }
   );
+}
+
+async function sendTripPhotoAlbumPreview(telegram, chatId, items = []) {
+  const momentGroups = groupTripPhotoItemsByMoment(items);
+
+  for (const group of momentGroups) {
+    try {
+      await telegram.sendMessage(
+        chatId,
+        joinRichLines([
+          formatSectionHeader("🗂", group.label),
+          `• Фото в цій події: ${group.items.length}`
+        ]),
+        { parse_mode: "HTML" }
+      );
+    } catch {
+      // Ignore section header delivery errors and still try to send the photos.
+    }
+
+    const chunks = [];
+    for (let index = 0; index < group.items.length; index += 10) {
+      chunks.push(group.items.slice(index, index + 10));
+    }
+
+    for (const chunk of chunks) {
+      const media = chunk.map((item) => ({
+        type: "photo",
+        media: item.fileId
+      }));
+
+      try {
+        await telegram.sendMediaGroup(chatId, media);
+      } catch {
+        for (const item of chunk) {
+          try {
+            await telegram.sendPhoto(chatId, item.fileId);
+          } catch {
+            // Ignore invalid or expired file ids and continue.
+          }
+        }
+      }
+    }
+  }
+}
+
+async function showTripPhotoAlbum(ctx, groupService, telegram) {
+  setMenuContext(ctx.from?.id, "trip-photos");
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  const album = groupService.getTripPhotoAlbum(trip.id, { limit: 10 });
+  if (!album || !album.totalCount) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
+        "",
+        "У фотоальбомі походу поки ще немає фото.",
+        "",
+        `Скористайся \`${TRIP_PHOTOS_ADD_LABEL}\`, щоб почати збирати альбом.`
+      ]),
+      { parse_mode: "HTML", ...getTripPhotosKeyboard() }
+    );
+  }
+
+  await replyRichText(ctx, formatTripPhotoAlbumSummary(trip, album), { parse_mode: "HTML", ...getTripPhotosKeyboard() });
+  await sendTripPhotoAlbumPreview(telegram, ctx.chat.id, album.items);
+  return null;
 }
 
 function startTripPhotoAddWizard(ctx, groupService) {
@@ -3238,7 +3593,8 @@ function startTripPhotoAddWizard(ctx, groupService) {
       "Якщо хочеш, додай короткий підпис прямо до фото.",
       "",
       "⚠️ Зверни увагу:",
-      "• бот не зберігає фото в БД",
+      "• бот не зберігає важкі файли фото в БД",
+      "• для фотоальбому зберігаються лише легкі службові дані і Telegram file_id",
       "• фото буде розіслано учасникам походу",
       "• можна надсилати кілька фото підряд",
       "• `❌ Скасувати` поверне в розділ фото походу"
@@ -3255,7 +3611,8 @@ async function showTripPassport(ctx, groupService, userService, advisorService =
   }
 
   const detailsKeyboard = getTripDetailsKeyboard(trip, String(ctx.from.id));
-  const response = await ctx.reply(
+  const response = await replyRichText(
+    ctx,
     formatTripPassport(trip, groupService, userService, String(ctx.from.id)),
     detailsKeyboard
       ? { parse_mode: "HTML", ...detailsKeyboard }
@@ -6785,13 +7142,25 @@ async function handleTripPhotoMessage(ctx, flow, groupService, userService, tele
     caption,
     authorName
   );
+  const savedPhoto = groupService.addTripPhoto({
+    groupId: trip.id,
+    photo: {
+      authorMemberId: senderId,
+      authorMemberName: authorName,
+      fileId: photo.file_id,
+      caption
+    }
+  });
+  const album = groupService.getTripPhotoAlbum(trip.id, { limit: 10 });
 
   if (delivery.recipients === 0) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📸 ФОТО НЕ РОЗІСЛАНО", trip.name),
         "",
-        "У цьому поході поки немає інших учасників, яким можна надіслати фото."
+        "У цьому поході поки немає інших учасників, яким можна надіслати фото.",
+        `Фотоальбом оновлено: ${album?.totalCount || 1} фото.`,
+        `Подія: ${savedPhoto.momentLabel}`
       ]),
       { parse_mode: "HTML", ...FLOW_CANCEL_KEYBOARD }
     );
@@ -6802,7 +7171,9 @@ async function handleTripPhotoMessage(ctx, flow, groupService, userService, tele
       ...formatCardHeader("📸 ФОТО НАДІСЛАНО", trip.name),
       "",
       `Надіслав: ${authorName}`,
+      `Подія: ${savedPhoto.momentLabel}`,
       `Отримали учасників: ${delivery.delivered} із ${delivery.recipients}`,
+      `Фотоальбом: ${album?.totalCount || 1} фото`,
       caption ? `Підпис: ${caption}` : null,
       "",
       "Можеш надіслати ще фото або натиснути `❌ Скасувати`, щоб повернутися назад."
@@ -11007,11 +11378,14 @@ export function createBot(store) {
   bot.hears("🍲 Харчування походу", (ctx) => showTripFoodMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_LABEL, (ctx) => showTripPhotosMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_ADD_LABEL, (ctx) => startTripPhotoAddWizard(ctx, groupService));
+  bot.hears(TRIP_PHOTO_ALBUM_LABEL, (ctx) => showTripPhotoAlbum(ctx, groupService, bot.telegram));
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
   bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
+  bot.hears(TRIP_DATA_QUALITY_LABEL, (ctx) => showTripDataQualityReport(ctx, groupService, userService));
   bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
+  bot.hears(TRIP_SOS_LABEL, (ctx) => showTripSosPackage(ctx, groupService, userService));
   bot.hears("🌦 Погода походу", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
     if (!trip) {

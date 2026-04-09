@@ -2717,11 +2717,7 @@ function getTripHistoryKeyboard(items, { includeHistoryBack = false } = {}) {
   for (let index = 0; index < items.length; index += 2) {
     rows.push(items.slice(index, index + 2).map((item) => item.label));
   }
-  if (includeHistoryBack) {
-    rows.push([TRIP_HISTORY_BACK_LABEL, "⬅️ Головне меню"]);
-  } else {
-    rows.push(["⬅️ Головне меню"]);
-  }
+  rows.push([TRIP_DETAILS_BACK_LABEL]);
   return buildKeyboard(rows);
 }
 
@@ -3543,9 +3539,32 @@ async function handleTripHistoryFlow(ctx, flow, groupService, userService) {
     return showTripHistory(ctx, groupService, userService);
   }
 
+  if (message === TRIP_DETAILS_BACK_LABEL) {
+    if (flow.step === "detail") {
+      flow.step = "list";
+      delete flow.data.selectedId;
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("🕓 ІСТОРІЯ ПОХОДІВ", "Завершені та архівні"),
+          "",
+          "Обери похід кнопкою нижче, щоб відкрити його підсумок.",
+          "",
+          "⚠️ Зверни увагу:",
+          "• тут показані завершені й архівні походи",
+          "• у картці походу будуть маршрут, учасники і фінальний підсумок"
+        ]),
+        { parse_mode: "HTML", ...getTripHistoryKeyboard(flow.data?.items || []) }
+      );
+    }
+
+    clearFlow(String(ctx.from.id));
+    return showProfileMenu(ctx, userService);
+  }
+
   if (message === "⬅️ Головне меню") {
     clearFlow(String(ctx.from.id));
-    return ctx.reply(WELCOME_TEXT, { parse_mode: "Markdown", ...getMainKeyboard(ctx) });
+    return showProfileMenu(ctx, userService);
   }
 
   const items = flow.data?.items || [];

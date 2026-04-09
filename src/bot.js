@@ -2094,113 +2094,6 @@ function truncateListForMessage(items = [], limit = 3) {
   return [...items.slice(0, limit), `… і ще ${items.length - limit}`];
 }
 
-function getTripProfileQualityWarnings(trip, userService) {
-  const missingCity = [];
-  const missingPhone = [];
-  const missingMedicalCore = [];
-
-  for (const member of trip.members || []) {
-    const profile = userService.getProfile(member.id, member.name).profile;
-    const displayName = userService.getDisplayName(member.id, member.name);
-
-    if (!String(profile.city || "").trim()) {
-      missingCity.push(displayName);
-    }
-    if (!String(profile.phone || "").trim()) {
-      missingPhone.push(displayName);
-    }
-    if (
-      !String(profile.bloodType || "").trim() ||
-      !String(profile.emergencyContactName || "").trim() ||
-      !String(profile.emergencyContactPhone || "").trim()
-    ) {
-      missingMedicalCore.push(displayName);
-    }
-  }
-
-  return {
-    missingCity,
-    missingPhone,
-    missingMedicalCore
-  };
-}
-
-function getTripDataQualityOverview(trip, groupService, userService) {
-  const baseReport = groupService.getTripDataQualityReport(trip.id) || {
-    critical: [],
-    warnings: [],
-    ok: [],
-    score: 0,
-    criticalCount: 0,
-    warningCount: 0,
-    status: "warning"
-  };
-  const profileWarnings = getTripProfileQualityWarnings(trip, userService);
-  const warnings = [
-    ...baseReport.warnings,
-    ...(profileWarnings.missingCity.length ? [`Не у всіх учасників заповнене місто профілю: ${profileWarnings.missingCity.length}.`] : []),
-    ...(profileWarnings.missingPhone.length ? [`Не у всіх учасників заповнений телефон: ${profileWarnings.missingPhone.length}.`] : []),
-    ...(profileWarnings.missingMedicalCore.length ? [`Не у всіх учасників заповнене медичне ядро профілю: ${profileWarnings.missingMedicalCore.length}.`] : [])
-  ];
-
-  const warningPenalty = Math.max(0, warnings.length - baseReport.warnings.length) * 6;
-  const score = Math.max(0, Number(baseReport.score || 0) - warningPenalty);
-
-  return {
-    ...baseReport,
-    warnings,
-    warningCount: warnings.length,
-    score,
-    profileWarnings,
-    status: baseReport.critical.length ? "critical" : warnings.length ? "warning" : "ok"
-  };
-}
-
-function buildTripDataQualitySummaryLines(report) {
-  if (!report.criticalCount && !report.warningCount) {
-    return ["• Дані походу виглядають узгодженими."];
-  }
-
-  return [
-    report.criticalCount ? `• Критично: ${report.criticalCount}` : null,
-    report.warningCount ? `• Варто доповнити: ${report.warningCount}` : null
-  ].filter(Boolean);
-}
-
-function formatTripDataQualityReport(trip, report, userService, viewerCanManage = false) {
-  const lines = [
-    ...formatCardHeader("🧪 ПЕРЕВІРКА ДАНИХ", trip.name),
-    "",
-    `Оцінка узгодженості: ${report.score}/100`,
-    `Критично: ${report.criticalCount}`,
-    `Варто доповнити: ${report.warningCount}`
-  ];
-
-  if (report.critical.length) {
-    lines.push("", formatSectionHeader("🔴", "Потрібно Закрити"));
-    lines.push(...report.critical.map((item) => `• ${item}`));
-  }
-
-  if (report.warnings.length) {
-    lines.push("", formatSectionHeader("🟡", "Варто Доповнити"));
-    lines.push(...report.warnings.map((item) => `• ${item}`));
-  }
-
-  const okLines = truncateListForMessage(report.ok, 5);
-  if (okLines.length) {
-    lines.push("", formatSectionHeader("🟢", "Вже Узгоджено"));
-    lines.push(...okLines.map((item) => `• ${item}`));
-  }
-
-  if (viewerCanManage && report.profileWarnings?.missingMedicalCore?.length) {
-    lines.push("", formatSectionHeader("🩺", "Медичні Дані Учасників"));
-    lines.push(`• Без повного медичного ядра: ${report.profileWarnings.missingMedicalCore.join(" • ")}`);
-  }
-
-  lines.push("", "⚠️ Це не формальний чекліст, а швидка перевірка того, де похід ще просідає по даних.");
-  return joinRichLines(lines);
-}
-
 function formatTripPhotoAlbumSummary(trip, album) {
   const lines = [
     ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
@@ -2535,7 +2428,6 @@ function buildTripMeetingPointLines(trip, userService, safety) {
 
 function formatTripPassport(trip, groupService, userService, userId = "") {
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
-  const qualityReport = getTripDataQualityOverview(trip, groupService, userService);
   const safety = resolveSafetyProfile(trip);
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
   const members = trip.members.map((member) => {
@@ -2571,9 +2463,6 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     ...members,
     "",
     ...buildTripMeetingPointLines(trip, userService, safety),
-    "",
-    formatSectionHeader("🧪", "Автоперевірка Даних"),
-    ...buildTripDataQualitySummaryLines(qualityReport),
     "",
     formatSectionHeader("🆘", "Безпека"),
     `• Регіон рятувальників: ${safety.title}`,

@@ -151,7 +151,6 @@ const TRIP_PHOTOS_LABEL = "📸 Фото походу";
 const TRIP_PHOTOS_ADD_LABEL = "📷 Поділитися фото";
 const TRIP_PHOTO_ALBUM_LABEL = "🖼 Фотоальбом";
 const TRIP_SOS_LABEL = "🚨 SOS пакет";
-const TRIP_DATA_QUALITY_LABEL = "🧪 Перевірка даних";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
 const GEAR_EDIT_ACTION_LABEL = "✏️ Редагувати";
 const GEAR_EDIT_DELETE_LABEL = "🗑 Видалити";
@@ -646,7 +645,7 @@ function getTripDetailsKeyboard(trip, userId = "") {
   }
 
   return buildKeyboard([
-    ["✏️ Редагувати дані походу", TRIP_DATA_QUALITY_LABEL],
+    ["✏️ Редагувати дані походу"],
     [TRIP_DETAILS_BACK_LABEL]
   ]);
 }
@@ -2571,7 +2570,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     "",
     ...buildTripMeetingPointLines(trip, userService, safety),
     "",
-    formatSectionHeader("🧪", "Якість Даних"),
+    formatSectionHeader("🧪", "Автоперевірка Даних"),
     ...buildTripDataQualitySummaryLines(qualityReport),
     "",
     formatSectionHeader("🆘", "Безпека"),
@@ -3495,20 +3494,6 @@ function showTripReminders(ctx, groupService) {
   }
 
   return replyRichText(ctx, formatReminderPlan(trip), { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) });
-}
-
-function showTripDataQualityReport(ctx, groupService, userService) {
-  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
-  if (!trip) {
-    return null;
-  }
-
-  const report = getTripDataQualityOverview(trip, groupService, userService);
-  return replyRichText(
-    ctx,
-    formatTripDataQualityReport(trip, report, userService, canManageTrip(trip, String(ctx.from.id))),
-    { parse_mode: "HTML", ...(getTripDetailsKeyboard(trip, String(ctx.from.id)) || getTripKeyboard(trip, String(ctx.from.id))) }
-  );
 }
 
 function showTripPhotosMenu(ctx, groupService) {
@@ -11553,7 +11538,6 @@ export function createBot(store) {
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
   bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
-  bot.hears(TRIP_DATA_QUALITY_LABEL, (ctx) => showTripDataQualityReport(ctx, groupService, userService));
   bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
   bot.hears(TRIP_SOS_LABEL, (ctx) => showTripSosPackage(ctx, groupService, userService));

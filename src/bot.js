@@ -3856,7 +3856,9 @@ function getProfileTripAlbumItems(groupService, userId) {
     });
   };
 
-  pushTrip(activeTrip);
+  if (activeTrip && isMemberIncludedInCalculations(getTripMember(activeTrip, userId))) {
+    pushTrip(activeTrip);
+  }
   for (const trip of groupService.getGroupHistoryByMember(userId)) {
     pushTrip(trip);
   }
@@ -11230,14 +11232,16 @@ async function finishTrip(ctx, groupService, userService, telegram = null) {
   }
 
   const completed = completionResult.group;
-  const awardResults = completed.members.map((member) => ({
-    member,
-    awards: userService.grantTripAwards({
-      trip: completed,
-      memberId: member.id,
-      userName: member.name
-    })
-  }));
+  const awardResults = completed.members
+    .filter(isMemberIncludedInCalculations)
+    .map((member) => ({
+      member,
+      awards: userService.grantTripAwards({
+        trip: completed,
+        memberId: member.id,
+        userName: member.name
+      })
+    }));
   const hasTrackableRoute = Boolean(
     completed?.routePlan &&
     (

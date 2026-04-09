@@ -245,7 +245,8 @@ function buildFinalSummary(group) {
       id: member.id,
       name: member.name,
       role: member.role,
-      canManage: member.canManage
+      canManage: member.canManage,
+      attendanceStatus: member.attendanceStatus || ""
     })),
     routeName: routeName || "маршрут не задано",
     gearReadinessStatus: group.tripCard?.gearReadinessStatus || calculateReadiness(group),
@@ -272,6 +273,29 @@ function groupHasMember(group, memberId) {
 
   return Array.isArray(group?.finalSummary?.members)
     && group.finalSummary.members.some((member) => String(member?.id || "") === normalizedMemberId);
+}
+
+function groupHasParticipatingMember(group, memberId) {
+  const normalizedMemberId = String(memberId || "");
+  if (!normalizedMemberId) {
+    return false;
+  }
+
+  if (
+    Array.isArray(group?.members) &&
+    group.members.some((member) =>
+      String(member?.id || "") === normalizedMemberId &&
+      isMemberIncludedInCalculations(member)
+    )
+  ) {
+    return true;
+  }
+
+  return Array.isArray(group?.finalSummary?.members)
+    && group.finalSummary.members.some((member) =>
+      String(member?.id || "") === normalizedMemberId &&
+      isMemberIncludedInCalculations(member)
+    );
 }
 
 function isMemberIncludedInCalculations(member) {
@@ -643,7 +667,7 @@ export class GroupService {
       .filter(
         (item) =>
           (item.status === "completed" || item.status === "archived") &&
-          groupHasMember(item, memberId)
+          groupHasParticipatingMember(item, memberId)
       )
       .sort((left, right) =>
         String(right.archivedAt || right.completedAt).localeCompare(String(left.archivedAt || left.completedAt))

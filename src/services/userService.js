@@ -133,6 +133,29 @@ function tripHasMember(trip, userId) {
     && trip.finalSummary.members.some((member) => String(member?.id || "") === normalizedUserId);
 }
 
+function tripHasParticipatingMember(trip, userId) {
+  const normalizedUserId = String(userId || "");
+  if (!normalizedUserId) {
+    return false;
+  }
+
+  if (
+    Array.isArray(trip?.members) &&
+    trip.members.some((member) =>
+      String(member?.id || "") === normalizedUserId &&
+      String(member?.attendanceStatus || "") !== "not_going"
+    )
+  ) {
+    return true;
+  }
+
+  return Array.isArray(trip?.finalSummary?.members)
+    && trip.finalSummary.members.some((member) =>
+      String(member?.id || "") === normalizedUserId &&
+      String(member?.attendanceStatus || "") !== "not_going"
+    );
+}
+
 function getRouteAscent(routePlan) {
   return Number(routePlan?.meta?.ascentGain) || 0;
 }
@@ -182,7 +205,7 @@ function getCompletedTrips(groups, userId) {
   return groups.filter((trip) =>
     hasTrackableRoute(trip) &&
     (trip.status === "completed" || trip.status === "archived") &&
-    tripHasMember(trip, userId)
+    tripHasParticipatingMember(trip, userId)
   );
 }
 
@@ -663,7 +686,7 @@ export class UserService {
     const user = ensureUser(data.users, userId, userName);
     const groups = Array.isArray(data.groups) ? data.groups : [];
     const visibleAwards = getVisibleAwardsList(user);
-    const relatedTrips = groups.filter((trip) => tripHasMember(trip, userId));
+    const relatedTrips = groups.filter((trip) => tripHasParticipatingMember(trip, userId));
     const stats = getLifetimeStats(groups, userId);
 
     return {
@@ -734,6 +757,19 @@ export class UserService {
     const member = Array.isArray(trip.members)
       ? trip.members.find((item) => String(item?.id || "") === String(memberId || ""))
       : null;
+    if (member && String(member.attendanceStatus || "") === "not_going") {
+      this.store.write(data);
+      return {
+        fullName: user.profile.fullName || user.name || userName || "Мандрівник",
+        newAwards: [],
+        allAwards: getVisibleAwardsList(user),
+        stats,
+        currentTitle: getCurrentTitle(stats),
+        xp: buildXpSummary(stats, user, 0, []),
+        latestAwards: getVisibleAwardsList(user).slice(0, 5),
+        formattedNewAwards: []
+      };
+    }
     const profile = this.getProfile(memberId, userName).profile;
     const personalGearCount = user.personalGear.length;
     const preparedLevel = getPreparedProfileLevel(user, profile, personalGearCount);

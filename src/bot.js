@@ -1448,7 +1448,9 @@ function getTripSafetyKeyboard() {
 }
 
 function getTripSafetyInlineKeyboard({ includeBack = false } = {}) {
-  const rows = [[Markup.button.callback(TRIP_SOS_LABEL, "trip_sos_package")]];
+  const rows = includeBack
+    ? []
+    : [[Markup.button.callback(TRIP_SOS_LABEL, "trip_sos_package")]];
 
   if (includeBack) {
     rows.push([Markup.button.callback(TRIP_SAFETY_INLINE_BACK_LABEL, "trip_safety_screen")]);

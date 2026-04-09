@@ -1823,6 +1823,41 @@ function buildAttendanceAutoDeclinedMessage(trip, member, userService) {
   ]);
 }
 
+function buildOwnerPendingAttendanceMessage(trip, members, userService) {
+  const lines = [
+    `🔔 Підтвердження участі в поході "${trip.name}"`,
+    "",
+    "До старту залишилось 8 днів.",
+    "Ці учасники ще не підтвердили участь або залишились у статусі `🤔 Думаю`:",
+    ""
+  ];
+
+  for (const [index, member] of members.entries()) {
+    lines.push(`${index + 1}. ${getMemberDisplayName(userService, member)} — ${formatAttendanceStatusText(member.attendanceStatus)}`);
+  }
+
+  lines.push("");
+  lines.push("Їх уже окремо попросили підтвердити участь у розділі `👥 Учасники походу`.");
+  return joinRichLines(lines);
+}
+
+function buildOwnerAutoDeclinedAttendanceMessage(trip, members, userService) {
+  const lines = [
+    `⚠️ Автопереведення статусів у поході "${trip.name}"`,
+    "",
+    "До старту залишилось 7 днів, і бот автоматично перевів у `👎 Не йду` таких учасників:",
+    ""
+  ];
+
+  for (const [index, member] of members.entries()) {
+    lines.push(`${index + 1}. ${getMemberDisplayName(userService, member)}`);
+  }
+
+  lines.push("");
+  lines.push("Ці учасники більше не можуть самі змінити свій статус. Якщо потрібно, ти або редактор можете змінити його вручну.");
+  return joinRichLines(lines);
+}
+
 function buildAttendanceStatusChangedNotification(trip, member, actorLabel, previousStatus, nextStatus, { automatic = false } = {}) {
   const lines = [
     `👥 Оновлення статусу участі в поході "${trip.name}"`,
@@ -11285,6 +11320,9 @@ function startTripReminderLoop(bot, groupService, userService) {
         continue;
       }
 
+      const ownerMember = getTripOwnerMember(trip);
+      let currentTrip = trip;
+
       const startDate = trip.tripCard?.startDate;
       const daysUntil = calculateDaysUntil(startDate);
 
@@ -11308,7 +11346,7 @@ function startTripReminderLoop(bot, groupService, userService) {
           }
         }
 
-        for (const member of trip.members || []) {
+        for (const member of currentTrip.members || []) {
           const memberId = String(member.id || "");
           if (!memberId) {
             continue;
@@ -11324,7 +11362,7 @@ function startTripReminderLoop(bot, groupService, userService) {
                   buildAttendanceReminderMessage(trip, member, userService),
                   getTripKeyboard(trip, memberId)
                 );
-                groupService.markReminderSent({ groupId: trip.id, reminderKey: attendanceReminderKey });
+                currentTrip = groupService.markReminderSent({ groupId: currentTrip.id, reminderKey: attendanceReminderKey });
               } catch {
                 // Ignore users who haven't opened the bot or blocked it.
               }
@@ -11335,7 +11373,7 @@ function startTripReminderLoop(bot, groupService, userService) {
             const attendanceAutoDeclineKey = `attendance_d7:${memberId}`;
             if (!trip.reminderState?.[attendanceAutoDeclineKey]) {
               const result = groupService.setMemberAttendanceStatusSystem({
-                groupId: trip.id,
+                groupId: currentTrip.id,
                 targetMemberId: memberId,
                 status: "not_going",
                 lockSelfChange: true
@@ -11343,6 +11381,7 @@ function startTripReminderLoop(bot, groupService, userService) {
 
               if (result.ok) {
                 const updatedTrip = result.group;
+                currentTrip = updatedTrip;
                 const updatedMember = updatedTrip.members.find((item) => String(item.id) === memberId) || member;
 
                 try {
@@ -11371,8 +11410,57 @@ function startTripReminderLoop(bot, groupService, userService) {
                   );
                 }
 
-                groupService.markReminderSent({ groupId: trip.id, reminderKey: attendanceAutoDeclineKey });
+                currentTrip = groupService.markReminderSent({ groupId: currentTrip.id, reminderKey: attendanceAutoDeclineKey });
               }
+            }
+          }
+        }
+
+        if (daysUntil === 8 && ownerMember?.id && !currentTrip.reminderState?.attendance_d8_owner) {
+          const pendingMembersForOwner = (currentTrip.members || []).filter(
+            (member) => member.role !== "owner" && isAttendanceStatusPending(member.attendanceStatus)
+          );
+
+          if (pendingMembersForOwner.length) {
+            try {
+              await sendRichText(
+                bot.telegram,
+                ownerMember.id,
+                buildOwnerPendingAttendanceMessage(currentTrip, pendingMembersForOwner, userService),
+                getTripKeyboard(currentTrip, ownerMember.id)
+              );
+              currentTrip = groupService.markReminderSent({
+                groupId: currentTrip.id,
+                reminderKey: "attendance_d8_owner"
+              });
+            } catch {
+              // Ignore users who haven't opened the bot or blocked it.
+            }
+          }
+        }
+
+        if (daysUntil === 7 && ownerMember?.id && !currentTrip.reminderState?.attendance_d7_owner) {
+          const autoDeclinedMembersForOwner = (currentTrip.members || []).filter(
+            (member) =>
+              member.role !== "owner" &&
+              member.attendanceStatus === "not_going" &&
+              member.attendanceSelfLocked === true
+          );
+
+          if (autoDeclinedMembersForOwner.length) {
+            try {
+              await sendRichText(
+                bot.telegram,
+                ownerMember.id,
+                buildOwnerAutoDeclinedAttendanceMessage(currentTrip, autoDeclinedMembersForOwner, userService),
+                getTripKeyboard(currentTrip, ownerMember.id)
+              );
+              currentTrip = groupService.markReminderSent({
+                groupId: currentTrip.id,
+                reminderKey: "attendance_d7_owner"
+              });
+            } catch {
+              // Ignore users who haven't opened the bot or blocked it.
             }
           }
         }

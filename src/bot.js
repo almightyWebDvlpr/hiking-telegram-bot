@@ -355,7 +355,7 @@ function getMainKeyboard(ctxOrUser = null) {
 }
 
 function getAuthorizationKeyboard(authState = { contactVerified: false }) {
-  const rows = [[PROFILE_LABEL]];
+  const rows = [];
   if (!authState.contactVerified) {
     rows.push([Markup.button.contactRequest(AUTH_CONTACT_LABEL)]);
   }
@@ -3391,15 +3391,14 @@ function showAuthorizationRequired(ctx, userService, extraNotice = "") {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("🔐", "ПІДТВЕРДИ ПРОФІЛЬ"),
+      ...formatCardHeader("🔐", "ПІДТВЕРДИ НОМЕР"),
       "",
-      "Щоб користуватися ботом далі, потрібно завершити базову реєстрацію.",
+      "Щоб користуватися ботом далі, потрібно підтвердити свій номер телефону.",
       "",
-      "Що обовʼязково потрібно:",
+      "Що потрібно:",
       ...formatAuthorizationMissingList(authState),
       "",
       "Що зробити:",
-      "• відкрий `🙍 Мій профіль` і заповни базові дані",
       authState.contactVerified ? null : "• натисни `📱 Підтвердити свій номер` і надішли саме свій Telegram-контакт",
       extraNotice || null
     ].filter(Boolean)),
@@ -6336,21 +6335,6 @@ function formatProfileMedicalCard(userService, userId, userName) {
 function showProfileMenu(ctx, userService) {
   setMenuContext(ctx.from?.id, "profile");
   const profile = userService.getProfile(String(ctx.from.id), getUserLabel(ctx));
-  const authState = userService.getAuthorizationState(String(ctx.from.id), getUserLabel(ctx));
-  if (!authState.isAuthorized) {
-    return ctx.reply(
-      joinRichLines([
-        ...formatCardHeader("🙍 МІЙ ПРОФІЛЬ", profile.profile.fullName || profile.name || getUserLabel(ctx)),
-        "",
-        "Профіль ще не завершено.",
-        "",
-        "Що залишилось:",
-        ...formatAuthorizationMissingList(authState)
-      ]),
-      { parse_mode: "HTML", ...getAuthorizationKeyboard(authState) }
-    );
-  }
-
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("🙍 МІЙ ПРОФІЛЬ", profile.profile.fullName || profile.name || getUserLabel(ctx)),
@@ -9515,24 +9499,18 @@ async function handleProfileEditFlow(ctx, flow, userService) {
         ...formatCardHeader("✅ ПРОФІЛЬ ОНОВЛЕНО", getUserLabel(ctx)),
         "",
         authState.isAuthorized
-          ? "Анкету збережено. Реєстрацію завершено, тепер можна повноцінно користуватися ботом."
-          : "Анкету збережено. Тепер залишилось підтягнути відсутні дані або підтвердити номер."
+          ? "Анкету збережено. Номер підтверджено, тож можна повноцінно користуватися ботом."
+          : "Анкету збережено. Якщо хочеш повний доступ до бота, підтвердь свій номер."
       ]),
       {
         parse_mode: "HTML",
-        ...(authState.isAuthorized ? getProfileKeyboard() : getAuthorizationKeyboard(authState))
+        ...(authState.isAuthorized ? getProfileKeyboard() : getProfileKeyboard())
       }
     );
     if (authState.isAuthorized) {
       return showProfileAbout(ctx, userService);
     }
-    return showAuthorizationRequired(
-      ctx,
-      userService,
-      updatedProfile.profile.phone && !authState.contactVerified
-        ? "• номер у профілі вже є, але його ще потрібно підтвердити кнопкою `📱 Підтвердити свій номер`"
-        : ""
-    );
+    return showProfileAbout(ctx, userService);
   }
 
   flow.step = nextStep;
@@ -11708,7 +11686,7 @@ export function createBot(store) {
       return showAuthorizationRequired(
         ctx,
         userService,
-        inviteCode ? `• після завершення реєстрації знову відкрий запрошення або введи код походу: \`${inviteCode}\`` : ""
+        inviteCode ? `• після підтвердження номера знову відкрий запрошення або введи код походу: \`${inviteCode}\`` : ""
       );
     }
     if (inviteCode) {
@@ -11749,18 +11727,14 @@ export function createBot(store) {
         joinRichLines([
           ...formatCardHeader("✅", "КОНТАКТ ПІДТВЕРДЖЕНО"),
           "",
-          "Номер підтверджено. Реєстрацію завершено, доступ до бота відкрито."
+          "Номер підтверджено, доступ до бота відкрито."
         ]),
         { parse_mode: "HTML", ...getMainKeyboard(ctx) }
       );
       return sendHome(ctx, userService);
     }
 
-    return showAuthorizationRequired(
-      ctx,
-      userService,
-      "• номер уже підтверджено, тепер залишилось завершити базову анкету"
-    );
+    return showAuthorizationRequired(ctx, userService);
   });
 
   bot.use(async (ctx, next) => {
@@ -11797,7 +11771,7 @@ export function createBot(store) {
     }
 
     if (ctx.callbackQuery) {
-      await ctx.answerCbQuery("Спочатку заверши реєстрацію.", { show_alert: true });
+      await ctx.answerCbQuery("Спочатку підтвердь свій номер.", { show_alert: true });
     }
 
     return showAuthorizationRequired(ctx, userService);

@@ -114,10 +114,12 @@ const PROFILE_DASHBOARD_LABEL = "📊 Дашборд";
 const PROFILE_ABOUT_LABEL = "👤 Про мене";
 const PROFILE_MEDICAL_LABEL = "🩺 Медична картка";
 const PROFILE_EDIT_LABEL = "✏️ Редагувати профіль";
+const PROFILE_PHOTO_ALBUMS_LABEL = "🖼 Фотоальбоми";
 const PROFILE_BACK_LABEL = "⬅️ До профілю";
 const PROFILE_SKIP_LABEL = "⏭ Пропустити";
 const TRIP_MEMBERS_BACK_LABEL = "⬅️ Назад";
 const TRIP_HISTORY_BACK_LABEL = "⬅️ До історії";
+const PROFILE_PHOTO_ALBUMS_BACK_LABEL = "⬅️ До фотоальбомів";
 const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
 const HELP_SECTIONS = [
@@ -561,6 +563,7 @@ function getProfileKeyboard() {
   return buildKeyboard([
     [PROFILE_DASHBOARD_LABEL, PROFILE_AWARDS_LABEL],
     [PROFILE_ABOUT_LABEL, "🎒 Моє спорядження"],
+    [PROFILE_PHOTO_ALBUMS_LABEL],
     ["⬅️ Головне меню"]
   ]);
 }
@@ -2608,6 +2611,21 @@ function getTripHistoryDetailsKeyboard(items) {
   return getTripHistoryKeyboard(items, { includeHistoryBack: true });
 }
 
+function getProfilePhotoAlbumKeyboard(items, { includeAlbumsBack = false } = {}) {
+  const rows = [];
+  for (let index = 0; index < items.length; index += 2) {
+    rows.push(items.slice(index, index + 2).map((item) => item.label));
+  }
+
+  if (includeAlbumsBack) {
+    rows.push([PROFILE_PHOTO_ALBUMS_BACK_LABEL, "⬅️ Головне меню"]);
+  } else {
+    rows.push([PROFILE_BACK_LABEL, "⬅️ Головне меню"]);
+  }
+
+  return buildKeyboard(rows);
+}
+
 function buildMatchedNeedsSummaryLines(needs, userService, { availableQuantity = null } = {}) {
   return needs.map((need) => {
     const requester = need.memberId
@@ -3567,6 +3585,129 @@ async function showTripPhotoAlbum(ctx, groupService, telegram) {
   }
 
   await replyRichText(ctx, formatTripPhotoAlbumSummary(trip, album), { parse_mode: "HTML", ...getTripPhotosKeyboard() });
+  await sendTripPhotoAlbumPreview(telegram, ctx.chat.id, album.items);
+  return null;
+}
+
+function getProfileTripAlbumItems(groupService, userId) {
+  const items = [];
+  const seen = new Set();
+  const activeTrip = groupService.findGroupByMember(userId);
+
+  const pushTrip = (trip) => {
+    if (!trip?.id || seen.has(trip.id)) {
+      return;
+    }
+    const album = groupService.getTripPhotoAlbum(trip.id, { limit: 10 });
+    if (!album?.totalCount) {
+      return;
+    }
+
+    seen.add(trip.id);
+    items.push({
+      id: trip.id,
+      label: getTripHistoryButtonLabel(trip, items.length),
+      trip
+    });
+  };
+
+  pushTrip(activeTrip);
+  for (const trip of groupService.getGroupHistoryByMember(userId)) {
+    pushTrip(trip);
+  }
+
+  return items;
+}
+
+function showProfilePhotoAlbumsMenu(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "profile");
+  const userId = String(ctx.from.id);
+  const items = getProfileTripAlbumItems(groupService, userId);
+
+  if (!items.length) {
+    clearFlow(userId);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🖼 МОЇ ФОТОАЛЬБОМИ", getUserLabel(ctx)),
+        "",
+        "У твоїх походах поки ще немає фотоальбомів.",
+        "",
+        "Коли в поході з'являться фото, вони автоматично збиратимуться тут по кожному походу окремо."
+      ]),
+      { parse_mode: "HTML", ...getProfileKeyboard() }
+    );
+  }
+
+  setFlow(userId, {
+    type: "profile_photo_album",
+    step: "list",
+    data: {
+      items
+    }
+  });
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("🖼 МОЇ ФОТОАЛЬБОМИ", getUserLabel(ctx)),
+      "",
+      "Обери похід кнопкою нижче, щоб відкрити його фотоальбом.",
+      "",
+      "⚠️ Зверни увагу:",
+      "• тут показані тільки ті походи, де є фото",
+      "• відкриється коротка картка походу і сам альбом"
+    ]),
+    { parse_mode: "HTML", ...getProfilePhotoAlbumKeyboard(items) }
+  );
+}
+
+async function handleProfilePhotoAlbumFlow(ctx, flow, groupService, userService, telegram) {
+  const message = String(ctx.message?.text || "").trim();
+
+  if (message === PROFILE_BACK_LABEL) {
+    clearFlow(String(ctx.from.id));
+    return showProfileMenu(ctx, userService);
+  }
+
+  if (message === PROFILE_PHOTO_ALBUMS_BACK_LABEL) {
+    return showProfilePhotoAlbumsMenu(ctx, groupService);
+  }
+
+  if (message === "⬅️ Головне меню") {
+    clearFlow(String(ctx.from.id));
+    return sendHome(ctx);
+  }
+
+  const items = flow.data?.items || [];
+  const selected = items.find((item) => item.label === message);
+  if (!selected) {
+    return ctx.reply(
+      "Обери похід кнопкою нижче.",
+      flow.step === "detail"
+        ? getProfilePhotoAlbumKeyboard(items, { includeAlbumsBack: true })
+        : getProfilePhotoAlbumKeyboard(items)
+    );
+  }
+
+  const album = groupService.getTripPhotoAlbum(selected.id, { limit: 10 });
+  if (!album?.totalCount) {
+    return ctx.reply(
+      "У цьому поході фотоальбом поки порожній.",
+      getProfilePhotoAlbumKeyboard(items)
+    );
+  }
+
+  flow.step = "detail";
+  flow.data = {
+    ...flow.data,
+    selectedId: selected.id
+  };
+  setFlow(String(ctx.from.id), flow);
+
+  await replyRichText(
+    ctx,
+    formatTripPhotoAlbumSummary(selected.trip, album),
+    { parse_mode: "HTML", ...getProfilePhotoAlbumKeyboard(items, { includeAlbumsBack: true }) }
+  );
   await sendTripPhotoAlbumPreview(telegram, ctx.chat.id, album.items);
   return null;
 }
@@ -9903,6 +10044,11 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     return true;
   }
 
+  if (flow.type === "profile_photo_album") {
+    await handleProfilePhotoAlbumFlow(ctx, flow, groupService, userService, telegram);
+    return true;
+  }
+
   if (flow.type === "expense_add") {
     await handleExpenseAddFlow(ctx, flow, groupService, userService);
     return true;
@@ -11291,6 +11437,7 @@ export function createBot(store) {
   bot.hears(PROFILE_MEDICAL_LABEL, (ctx) => showProfileMedicalCard(ctx, userService));
   bot.hears(PROFILE_AWARDS_LABEL, (ctx) => showProfileAwards(ctx, userService));
   bot.hears(PROFILE_EDIT_LABEL, (ctx) => startProfileEditWizard(ctx, userService));
+  bot.hears(PROFILE_PHOTO_ALBUMS_LABEL, (ctx) => showProfilePhotoAlbumsMenu(ctx, groupService));
   bot.hears(PROFILE_BACK_LABEL, (ctx) => showProfileMenu(ctx, userService));
   bot.hears("🎒 Моє спорядження", (ctx) => showMyGearMenu(ctx));
   bot.hears(FAQ_LABEL, (ctx) => showFaqMenu(ctx, advisorService));

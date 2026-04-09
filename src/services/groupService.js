@@ -260,6 +260,28 @@ function buildFinalSummary(group) {
   };
 }
 
+function groupHasMember(group, memberId) {
+  const normalizedMemberId = String(memberId || "");
+  if (!normalizedMemberId) {
+    return false;
+  }
+
+  if (Array.isArray(group?.members) && group.members.some((member) => String(member?.id || "") === normalizedMemberId)) {
+    return true;
+  }
+
+  return Array.isArray(group?.finalSummary?.members)
+    && group.finalSummary.members.some((member) => String(member?.id || "") === normalizedMemberId);
+}
+
+function isMemberIncludedInCalculations(member) {
+  return String(member?.attendanceStatus || "") !== "not_going";
+}
+
+function getMembersIncludedInCalculations(members = []) {
+  return (Array.isArray(members) ? members : []).filter(isMemberIncludedInCalculations);
+}
+
 function createEmptyGroupFields(group) {
   return {
     ...group,
@@ -410,7 +432,7 @@ export class GroupService {
       .find(
         (item) =>
           item.status === "active" &&
-          item.members.some((member) => member.id === memberId)
+          groupHasMember(item, memberId)
       );
     return group ? createEmptyGroupFields(group) : null;
   }
@@ -437,7 +459,7 @@ export class GroupService {
     }
 
     const preparedGroup = createEmptyGroupFields(group);
-    return preparedGroup.members.find((member) => member.id === memberId) || null;
+    return preparedGroup.members.find((member) => String(member?.id || "") === String(memberId || "")) || null;
   }
 
   canManageGroup(groupId, memberId) {
@@ -621,7 +643,7 @@ export class GroupService {
       .filter(
         (item) =>
           (item.status === "completed" || item.status === "archived") &&
-          item.members.some((member) => member.id === memberId)
+          groupHasMember(item, memberId)
       )
       .sort((left, right) =>
         String(right.archivedAt || right.completedAt).localeCompare(String(left.archivedAt || left.completedAt))
@@ -1861,7 +1883,7 @@ export class GroupService {
     }
 
     const preparedGroup = createEmptyGroupFields(group);
-    const members = preparedGroup.members || [];
+    const members = getMembersIncludedInCalculations(preparedGroup.members || []);
     const memberCount = Math.max(1, members.length);
     const gearItems = preparedGroup.gear.map((item) => enrichGearItem(item));
     const foodItems = preparedGroup.food.map((item) => ({

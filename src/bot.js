@@ -12135,6 +12135,12 @@ export function createBot(store) {
     if (activeFlow?.type === "my_gear_edit") {
       return handleMyGearEditFlow(ctx, activeFlow, userService);
     }
+    if (activeFlow?.type === "borrowed_gear_manage") {
+      return handleBorrowedGearManageFlow(ctx, activeFlow, groupService, userService, bot.telegram);
+    }
+    if (activeFlow?.type === "loaned_gear_manage") {
+      return handleLoanedGearManageFlow(ctx, activeFlow, groupService, userService, bot.telegram);
+    }
     if (activeFlow?.type === "trip_member_list") {
       clearFlow(String(ctx.from.id));
       return showTripMembersMenu(ctx, groupService, userService);
@@ -12143,6 +12149,14 @@ export function createBot(store) {
       return showTripSettings(ctx, groupService);
     }
     if (getMenuContext(ctx.from?.id) === "trip-settings") {
+      return showTripMenu(ctx, groupService);
+    }
+    if (getMenuContext(ctx.from?.id) === "trip-gear-accounting") {
+      clearFlow(String(ctx.from.id));
+      return showTripGearMenu(ctx, groupService, advisorService);
+    }
+    if (getMenuContext(ctx.from?.id) === "trip-gear") {
+      clearFlow(String(ctx.from.id));
       return showTripMenu(ctx, groupService);
     }
     if (getMenuContext(ctx.from?.id) === "trip_details") {

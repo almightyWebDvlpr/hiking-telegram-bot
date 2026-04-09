@@ -2914,6 +2914,72 @@ function formatTripHistoryDetails(trip, userService = null) {
     `Разом витрат: ${formatMoney(finalSummary.totalCost || 0)}`
   );
 
+  const directExpenseItems = Array.isArray(trip.expenses) ? trip.expenses : [];
+  const foodItems = Array.isArray(trip.food) ? trip.food : [];
+  const directExpensesTotal = directExpenseItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const foodTotal = foodItems.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
+  const hasExpenseReport = directExpenseItems.length > 0 || foodItems.length > 0;
+
+  if (hasExpenseReport) {
+    const formatTotalLine = (label, value) => {
+      const money = formatMoney(value);
+      const dotsCount = Math.max(3, 28 - label.length - money.length);
+      return `${label} ${".".repeat(dotsCount)} ${money}`;
+    };
+
+    const directExpenseLines = directExpenseItems.length
+      ? directExpenseItems.map((item, index) =>
+          `${index + 1}. ${item.title}\n   ${Number(item.quantity) || 1} × ${formatMoney(item.price)} = ${formatMoney(item.amount)}\n   платить: ${resolveMemberDisplayName(userService, item.memberId, item.memberName)}`
+        )
+      : ["немає"];
+
+    const foodLines = foodItems.length
+      ? foodItems.map((item, index) => {
+          const quantity = Number(item.quantity) || 1;
+          const weightLabel = Number(item.weight) > 0 ? ` | вага: ${formatWeightGrams(item.weight)}` : "";
+          return `${index + 1}. ${item.name}\n   ${quantity} × ${formatMoney(item.price)} = ${formatMoney(item.cost)}${weightLabel}\n   платить: ${resolveMemberDisplayName(userService, item.memberId, item.memberName)}`;
+        })
+      : ["немає"];
+
+    const combinedByMemberMap = new Map();
+    for (const item of directExpenseItems) {
+      const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
+      const current = combinedByMemberMap.get(memberName) || 0;
+      combinedByMemberMap.set(memberName, current + (Number(item.amount) || 0));
+    }
+    for (const item of foodItems) {
+      const memberName = resolveMemberDisplayName(userService, item.memberId, item.memberName);
+      const current = combinedByMemberMap.get(memberName) || 0;
+      combinedByMemberMap.set(memberName, current + (Number(item.cost) || 0));
+    }
+
+    const byMemberLines = [...combinedByMemberMap.entries()]
+      .map(([memberName, totalCost]) => formatTotalLine(memberName, totalCost));
+
+    const grandTotal = directExpensesTotal + foodTotal;
+    const settlements = calculateSettlements(getTripMembersIncludedInCalculations(trip), combinedByMemberMap, grandTotal);
+
+    lines.push(
+      "",
+      formatSectionHeader("💸", "Повний Звіт По Витратах"),
+      "",
+      formatSectionHeader("🧾", "Інші Витрати"),
+      ...directExpenseLines,
+      "",
+      formatSectionHeader("🍲", "Продукти І Харчування"),
+      ...foodLines,
+      "",
+      formatSectionHeader("👥", "По Учасниках"),
+      ...(byMemberLines.length ? byMemberLines : ["немає"]),
+      "",
+      formatSectionHeader("📌", "Фінальний Підсумок"),
+      formatTotalLine("Інші витрати", directExpensesTotal),
+      formatTotalLine("Продукти", foodTotal),
+      formatTotalLine("ВСЬОГО", grandTotal),
+      formatTotalLine("З кожного порівну", settlements.perPerson)
+    );
+  }
+
   return joinRichLines(lines);
 }
 

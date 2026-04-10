@@ -604,6 +604,14 @@ function isTripMemberNotGoing(trip, userId) {
   return String(getTripMember(trip, userId)?.attendanceStatus || "") === "not_going";
 }
 
+function isTripMemberAutoExcluded(trip, userId) {
+  const member = getTripMember(trip, userId);
+  return (
+    String(member?.attendanceStatus || "") === "not_going"
+    && member?.attendanceSelfLocked === true
+  );
+}
+
 function canManageTrip(trip, userId) {
   return Boolean(getTripMember(trip, userId)?.canManage);
 }
@@ -698,14 +706,14 @@ function getTripExchangeAvailability(trip, groupService, userId = "") {
 }
 
 function canTripMemberAccessPhotos(trip, userId) {
-  return !isTripMemberNotGoing(trip, userId);
+  return !isTripMemberAutoExcluded(trip, userId);
 }
 
 function getRestrictedTripSectionMessage(trip) {
   return joinRichLines([
     ...formatCardHeader("👎 ОБМЕЖЕНИЙ ДОСТУП", trip.name),
     "",
-    "У тебе статус `👎 Не йду`, тому основні розділи походу зараз заблоковані.",
+    "Бот автоматично зафіксував тобі статус `👎 Не йду`, тому основні розділи походу зараз заблоковані.",
     "",
     "Що тобі лишається доступним:",
     "• `🎒 Спорядження походу` — тільки для обміну речами",
@@ -762,7 +770,7 @@ function getTripKeyboard(trip, userId = "") {
     ]);
   }
 
-  if (isTripMemberNotGoing(trip, userId)) {
+  if (isTripMemberAutoExcluded(trip, userId)) {
     const rows = [
       ["🎒 Спорядження походу"]
     ];
@@ -1398,6 +1406,13 @@ function hasEditableTripGear(trip, groupService, userId = "") {
 }
 
 function getTripGearKeyboard(trip = null, groupService = null, userId = "") {
+  if (trip && isTripMemberAutoExcluded(trip, userId)) {
+    return buildKeyboard([
+      [TRIP_GEAR_ACCOUNTING_LABEL],
+      ["⬅️ До походу"]
+    ]);
+  }
+
   const rows = [[TRIP_GEAR_ADD_LABEL, TRIP_GEAR_VIEW_ALL_LABEL]];
 
   if (hasEditableTripGear(trip, groupService, userId)) {
@@ -1418,12 +1433,12 @@ function getCurrentTripGearKeyboard(ctx, groupService) {
 
 function getTripGearAccountingKeyboard(trip = null, groupService = null, userId = "") {
   const exchange = getTripExchangeAvailability(trip, groupService, userId);
-  const isNotGoing = Boolean(trip && isTripMemberNotGoing(trip, userId));
+  const isRestricted = Boolean(trip && isTripMemberAutoExcluded(trip, userId));
   const rows = [];
 
-  if (!isNotGoing) {
+  if (!isRestricted) {
     rows.push([GEAR_NEED_CREATE_LABEL, GEAR_MY_REQUESTS_LABEL]);
-  } else if (exchange.hasExchangeActivity) {
+  } else if (exchange.hasBorrowed || exchange.hasLoaned) {
     rows.push([GEAR_MY_REQUESTS_LABEL]);
   }
 
@@ -1925,6 +1940,7 @@ function buildAttendanceAutoDeclinedMessage(trip, member, userService) {
     `Новий статус: ${formatAttendanceStatusText("not_going")}`,
     "",
     "До старту залишилось 7 днів, а участь не була підтверджена, тому бот автоматично перевів тебе в статус `Не йду`.",
+    "Активні запити на спорядження, якщо вони були, бот теж скасував.",
     "Самостійно змінити цей статус тепер не можна.",
     `Якщо це помилка або плани змінились, зв'яжися з організатором: ${ownerName}.`
   ]);
@@ -2842,7 +2858,7 @@ function getGearCoverageStatusLabel(match) {
 
 function getGearNeedMatchState(groupService, tripId, need, memberId) {
   const trip = groupService.getGroup(tripId);
-  const requesterBlocked = isTripMemberNotGoing(trip, String(memberId));
+  const requesterBlocked = isTripMemberAutoExcluded(trip, String(memberId));
   const matches = groupService.findGearCoverage(tripId, need.name, {
     excludeMemberId: String(memberId),
     requestedQuantity: need.quantity
@@ -3934,7 +3950,7 @@ function showTripMenu(ctx, groupService) {
   }
 
   const snapshot = groupService.getGearSnapshot(trip.id);
-  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
+  const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
   const role = isTripOwner(trip, String(ctx.from.id)) ? "організатор" : canManageTrip(trip, String(ctx.from.id)) ? "редактор" : "учасник";
   const route = formatRouteStatus(trip.routePlan);
   const period = trip.tripCard
@@ -3943,12 +3959,12 @@ function showTripMenu(ctx, groupService) {
   const readiness = trip.tripCard
     ? trip.tripCard.gearReadinessStatus
     : snapshot.readiness;
-  const hintLines = isNotGoing
+  const hintLines = isRestricted
     ? [
         "Що зараз доступно:",
         "• Спорядження походу — тільки обмін речами та повернення",
-        "• нові запити на позичання, фото й робочі розділи походу для тебе заблоковані",
-        "• якщо статус змінився помилково, звернись до організатора або редактора"
+        "• фото, робочі розділи й нові позики для тебе заблоковані",
+        "• якщо це сталося помилково, звернись до організатора або редактора"
       ]
     : [
         "Що де шукати:",
@@ -3960,7 +3976,7 @@ function showTripMenu(ctx, groupService) {
         "• Фото походу — кадри з маршруту, короткі підписи і фотоальбом"
       ];
 
-  if (!isNotGoing && canManageTrip(trip, String(ctx.from.id))) {
+  if (!isRestricted && canManageTrip(trip, String(ctx.from.id))) {
     hintLines.push("• У Деталях походу можна редагувати назву, дати і готовність");
     hintLines.push("• У Налаштуваннях зібрані нагадування і службові дії по походу");
   }
@@ -3989,7 +4005,7 @@ function showTripSafety(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -4030,7 +4046,7 @@ function showTripSosPackage(ctx, groupService, userService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -4094,7 +4110,7 @@ function showTripPhotosMenu(ctx, groupService) {
       joinRichLines([
         ...formatCardHeader("📸 ФОТО ПОХОДУ", trip.name),
         "",
-        "У тебе статус `👎 Не йду`, тому фото походу й фотоальбом для тебе недоступні.",
+        "Бот уже зафіксував тобі статус `👎 Не йду`, тому фото походу й фотоальбом для тебе недоступні.",
         "",
         "Якщо статус треба змінити, звернись до організатора або редактора."
       ]),
@@ -4175,7 +4191,7 @@ async function showTripPhotoAlbum(ctx, groupService, telegram) {
       joinRichLines([
         ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
         "",
-        "Фотоальбом недоступний, бо ти зараз у статусі `👎 Не йду`."
+        "Фотоальбом недоступний, бо бот уже зафіксував тобі статус `👎 Не йду`."
       ]),
       { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
     );
@@ -4222,7 +4238,7 @@ function getProfileTripAlbumItems(groupService, userId) {
     });
   };
 
-  if (activeTrip && isMemberIncludedInCalculations(getTripMember(activeTrip, userId))) {
+  if (activeTrip && canTripMemberAccessPhotos(activeTrip, userId)) {
     pushTrip(activeTrip);
   }
   for (const trip of groupService.getGroupHistoryByMember(userId)) {
@@ -4336,7 +4352,7 @@ function startTripPhotoAddWizard(ctx, groupService) {
       joinRichLines([
         ...formatCardHeader("📷 ДОДАТИ ФОТО", trip.name),
         "",
-        "У тебе статус `👎 Не йду`, тому додавання фото для цього походу вимкнене."
+        "Бот уже зафіксував тобі статус `👎 Не йду`, тому додавання фото для цього походу вимкнене."
       ]),
       { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
     );
@@ -4375,7 +4391,7 @@ async function showTripPassport(ctx, groupService, userService, advisorService =
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -4402,7 +4418,7 @@ function showTripMembersMenu(ctx, groupService, userService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -4437,7 +4453,7 @@ function showTripMembers(ctx, groupService, userService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -4687,15 +4703,16 @@ function startGearAddWizard(ctx, groupService, mode) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id)) && mode === "personal") {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return ctx.reply(
       joinRichLines([
-        ...formatCardHeader("🎒 ОСОБИСТЕ СПОРЯДЖЕННЯ", trip.name),
+        ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
         "",
-        "У статусі `👎 Не йду` не можна додавати особисте спорядження в похід.",
-        "Залиш доступними тільки спільні або запасні речі, якими можна поділитися."
+        "Бот уже зафіксував тобі статус `👎 Не йду`, тому додавання нового спорядження в похід вимкнене.",
+        "",
+        "Залишається доступним тільки обмін речами: повернення, підтвердження повернення і твої вже видані речі."
       ]),
-      { parse_mode: "HTML", ...getTripGearAddTypeKeyboard({ allowPersonal: false }) }
+      { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
     );
   }
 
@@ -4725,7 +4742,20 @@ function showTripGearAddMenu(ctx, groupService) {
     return null;
   }
 
-  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
+  const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
+
+  if (isRestricted) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
+        "",
+        "Бот уже зафіксував тобі статус `👎 Не йду`, тому додавання нового спорядження в похід вимкнене.",
+        "",
+        "Залишається доступним тільки `🧾 Запити та облік спорядження` для повернення речей і чинного обміну."
+      ]),
+      { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
+    );
+  }
 
   return ctx.reply(
     joinRichLines([
@@ -4733,7 +4763,7 @@ function showTripGearAddMenu(ctx, groupService) {
       "",
       "Обери тип спорядження, яке хочеш додати:",
       "• спільне — для всієї групи",
-      !isNotGoing ? "• особисте — твоя індивідуальна річ у межах походу" : "• особисте спорядження вимкнене, бо ти зараз `👎 Не йду`",
+      "• особисте — твоя індивідуальна річ у межах походу",
       "• запасне / позичу — те, чим ти можеш поділитися",
       "",
       "Після вибору типу бот продовжить звичний сценарій додавання."
@@ -4748,12 +4778,12 @@ function startGearNeedWizard(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("🆘 ЗАПИТ НА СПОРЯДЖЕННЯ", trip.name),
         "",
-        "У статусі `👎 Не йду` нові запити на позичання речей недоступні.",
+        "Бот уже зафіксував тобі статус `👎 Не йду`, тому нові запити на позичання речей недоступні.",
         "Ти можеш тільки повернути вже позичене або дати свої речі іншим."
       ]),
       { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
@@ -4782,14 +4812,14 @@ function startMyNeedsWizard(ctx, groupService) {
   setMenuContext(ctx.from?.id, "trip-gear-accounting");
 
   const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
-  if (isTripMemberNotGoing(trip, String(ctx.from.id)) && !exchange.hasExchangeActivity) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id)) && !(exchange.hasBorrowed || exchange.hasLoaned)) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", trip.name),
         "",
         "У тебе немає активного обміну спорядженням.",
         "",
-        "У статусі `👎 Не йду` цей розділ відкривається лише тоді, коли ти вже користуєшся чиїмось спорядженням, хтось користується твоїм або є попередні запити."
+        "Після автопереведення в `👎 Не йду` цей розділ відкривається лише тоді, коли ти вже користуєшся чиїмось спорядженням або хтось користується твоїм."
       ]),
       { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
@@ -5286,6 +5316,19 @@ function startGearEditWizard(ctx, groupService) {
     return null;
   }
 
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
+        "",
+        "Бот уже зафіксував тобі статус `👎 Не йду`, тому редагування спорядження в поході вимкнене.",
+        "",
+        "Залишається доступним тільки `🧾 Запити та облік спорядження` для повернення та підтвердження повернення речей."
+      ]),
+      { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
+    );
+  }
+
   const items = getEditableTripGearItems(trip, groupService, String(ctx.from.id));
   if (!items.length) {
     return ctx.reply(
@@ -5360,7 +5403,7 @@ function startFoodAddWizard(ctx, groupService, mode) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -5383,7 +5426,7 @@ function startFoodDeleteWizard(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -5439,7 +5482,7 @@ function startExpenseAddWizard(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -5462,7 +5505,7 @@ function startExpenseDeleteWizard(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -5557,7 +5600,7 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -5596,7 +5639,7 @@ function startTripWeatherSelection(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -5822,7 +5865,7 @@ async function showRouteReport(ctx, groupService, routeService, vpohidLiveServic
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -5916,6 +5959,10 @@ async function sendRouteExport(ctx, groupService, routeService, format) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const routeMeta = trip.routePlan?.meta;
@@ -7100,7 +7147,7 @@ function startRouteWizard(ctx, groupService, mode) {
       return null;
     }
 
-    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
       return replyRestrictedTripSection(ctx, trip);
     }
 
@@ -11086,22 +11133,28 @@ async function showTripGearMenu(ctx, groupService, advisorService = null) {
     return null;
   }
 
-  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
+  const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
 
   const response = await ctx.reply(
     joinRichLines([
       ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
       "",
       formatSectionHeader("🧭", "Що Тут Можна Зробити"),
-      "• `➕ Додати спорядження` — спочатку обрати тип, а далі додати річ у похід",
-      `• \`${TRIP_GEAR_VIEW_ALL_LABEL}\` — побачити всю картину по спорядженню походу`,
-      "• `✏️ Редагувати спорядження` — змінити свої позиції, а з правами редагування — будь-які",
-      `• \`${TRIP_GEAR_ACCOUNTING_LABEL}\` — запити, речі в користуванні та хто користується спорядженням`,
+      ...(!isRestricted
+        ? [
+            "• `➕ Додати спорядження` — спочатку обрати тип, а далі додати річ у похід",
+            `• \`${TRIP_GEAR_VIEW_ALL_LABEL}\` — побачити всю картину по спорядженню походу`,
+            "• `✏️ Редагувати спорядження` — змінити свої позиції, а з правами редагування — будь-які",
+            `• \`${TRIP_GEAR_ACCOUNTING_LABEL}\` — запити, речі в користуванні та хто користується спорядженням`
+          ]
+        : [
+            `• \`${TRIP_GEAR_ACCOUNTING_LABEL}\` — повернення речей, підтвердження повернення і чинний обмін`
+          ]),
       "",
       "⚠️ Зверни увагу:",
-      !isNotGoing
+      !isRestricted
         ? "• після натискання `➕ Додати спорядження` бот запропонує тип: спільне, особисте або запасне"
-        : "• у статусі `👎 Не йду` особисте спорядження і нові позики вимкнені, лишається тільки обмін речами",
+        : "• після автопереведення в `👎 Не йду` доступним лишається тільки обмін речами",
       "• запит на позичання проходить через згоду власника речі, а не закривається односторонньо"
     ]),
     { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
@@ -11122,7 +11175,7 @@ function showTripGearAccountingMenu(ctx, groupService) {
     return null;
   }
 
-  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
+  const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
   const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
 
   return ctx.reply(
@@ -11130,8 +11183,8 @@ function showTripGearAccountingMenu(ctx, groupService) {
       ...formatCardHeader("🧾 ОБЛІК ТА ЗАПИТИ СПОРЯДЖЕННЯ", trip.name),
       "",
       "Тут можна:",
-      !isNotGoing ? `• \`${GEAR_NEED_CREATE_LABEL}\` — створити запит на потрібну річ` : "• нові запити на позичання вимкнені, бо ти зараз `👎 Не йду`",
-      !isNotGoing || exchange.hasExchangeActivity ? `• \`${GEAR_MY_REQUESTS_LABEL}\` — переглянути свої активні запити` : "• `Мої запити` відкриються, якщо в тебе вже є обмін спорядженням",
+      !isRestricted ? `• \`${GEAR_NEED_CREATE_LABEL}\` — створити запит на потрібну річ` : "• нові запити на позичання вимкнені, бо бот уже зафіксував тобі `👎 Не йду`",
+      !isRestricted || exchange.hasBorrowed || exchange.hasLoaned ? `• \`${GEAR_MY_REQUESTS_LABEL}\` — переглянути свої активні запити` : "• `Мої запити` відкриються тільки тоді, коли вже є фактичний обмін речами",
       `• \`${GEAR_BORROWED_LABEL}\` — подивитися, чиїми речами ти зараз користуєшся`,
       `• \`${GEAR_LOANED_LABEL}\` — подивитися, хто зараз користується твоїми речами`,
       "",
@@ -11229,7 +11282,7 @@ function showTripFoodMenu(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -11262,6 +11315,19 @@ function showTripGear(ctx, groupService) {
     return null;
   }
 
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
+        "",
+        "Бот уже зафіксував тобі статус `👎 Не йду`, тому загальний список спорядження для тебе заблокований.",
+        "",
+        "Відкрий `🧾 Запити та облік спорядження`, щоб повернути позичені речі або підтвердити повернення своїх."
+      ]),
+      { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
+    );
+  }
+
   const snapshot = groupService.getGearSnapshot(trip.id);
   const shouldHideOwnerItems = (item) => {
     const ownerId = String(item?.memberId || "");
@@ -11270,12 +11336,12 @@ function showTripGear(ctx, groupService) {
     }
 
     const owner = getTripMember(trip, ownerId);
-    return String(owner?.attendanceStatus || "") === "not_going" && Math.max(0, Number(item?.inUseQuantity) || 0) <= 0;
+    return isTripMemberAutoExcluded(trip, ownerId) && Math.max(0, Number(item?.inUseQuantity) || 0) <= 0;
   };
   const visibleSharedGear = snapshot.sharedGear.filter((item) => !shouldHideOwnerItems(item));
   const visiblePersonalGear = snapshot.personalGear.filter((item) => !shouldHideOwnerItems(item));
   const visibleSpareGear = snapshot.spareGear.filter((item) => !shouldHideOwnerItems(item));
-  const visibleNeeds = snapshot.gearNeeds.filter((item) => !isTripMemberNotGoing(trip, String(item.memberId || "")));
+  const visibleNeeds = snapshot.gearNeeds.filter((item) => !isTripMemberAutoExcluded(trip, String(item.memberId || "")));
   if (
     !visibleSharedGear.length &&
     !visiblePersonalGear.length &&
@@ -11331,12 +11397,12 @@ function showMyNeeds(ctx, groupService) {
   }
 
   const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
-  if (isTripMemberNotGoing(trip, String(ctx.from.id)) && !exchange.hasExchangeActivity) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id)) && !(exchange.hasBorrowed || exchange.hasLoaned)) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("📋 МОЇ ЗАПИТИ", trip.name),
         "",
-        "У статусі `👎 Не йду` цей розділ доступний тільки для вже існуючого обміну спорядженням."
+        "Після автопереведення в `👎 Не йду` цей розділ доступний тільки для вже чинного обміну спорядженням."
       ]),
       { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
     );
@@ -11394,7 +11460,7 @@ function showTripFood(ctx, groupService, userService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -11444,6 +11510,10 @@ function showBackpackWeight(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const snapshot = groupService.getBackpackWeightSnapshot(trip.id);
@@ -11547,7 +11617,7 @@ function showTripExpensesMenu(ctx, groupService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -11579,7 +11649,7 @@ function showTripExpenses(ctx, groupService, userService) {
     return null;
   }
 
-  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
@@ -12020,8 +12090,12 @@ function startTripReminderLoop(bot, groupService, userService) {
 
               if (result.ok) {
                 const updatedTrip = result.group;
-                currentTrip = updatedTrip;
-                const updatedMember = updatedTrip.members.find((item) => String(item.id) === memberId) || member;
+                groupService.cancelActiveGearNeedsForMember({
+                  groupId: updatedTrip.id,
+                  memberId
+                });
+                currentTrip = groupService.getGroup(updatedTrip.id) || updatedTrip;
+                const updatedMember = currentTrip.members.find((item) => String(item.id) === memberId) || member;
 
                 try {
                   await sendRichText(
@@ -12465,6 +12539,12 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
+    if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+      return ctx.reply(
+        "Після автопереведення в `👎 Не йду` нові запити на спорядження вимкнені.",
+        { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
+      );
+    }
     const [name, quantityRaw, note] = ctx.message.text.replace("/needgear", "").trim().split(";").map((part) => part?.trim());
     const nameValidation = validateGearItemName(name);
     const quantityValidation = validatePositiveInteger(quantityRaw);
@@ -12492,6 +12572,12 @@ export function createBot(store) {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
     if (!trip) {
       return null;
+    }
+    if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+      return ctx.reply(
+        "Після автопереведення в `👎 Не йду` нові запити на позичання речей вимкнені.",
+        { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
+      );
     }
     const gearNameValidation = validateGearItemName(ctx.message.text.replace("/requestgear", "").trim());
     if (!gearNameValidation.ok) {
@@ -12535,7 +12621,7 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
-    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
       return replyRestrictedTripSection(ctx, trip);
     }
     const [rawName, amountRaw, quantity, costRaw] = ctx.message.text.replace("/addfood", "").trim().split(";").map((part) => part?.trim());
@@ -12582,7 +12668,7 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
-    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
       return replyRestrictedTripSection(ctx, trip);
     }
     const [rawTitle, quantityRaw, priceRaw] = ctx.message.text.replace("/addexpense", "").trim().split(";").map((part) => part?.trim());
@@ -12747,7 +12833,7 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
-    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
       return replyRestrictedTripSection(ctx, trip);
     }
     const settlements = getTripWeatherSettlements(trip);

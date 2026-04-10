@@ -302,6 +302,13 @@ function isMemberIncludedInCalculations(member) {
   return String(member?.attendanceStatus || "") !== "not_going";
 }
 
+function isMemberAutoExcluded(member) {
+  return (
+    String(member?.attendanceStatus || "") === "not_going"
+    && member?.attendanceSelfLocked === true
+  );
+}
+
 function getMembersIncludedInCalculations(members = []) {
   return (Array.isArray(members) ? members : []).filter(isMemberIncludedInCalculations);
 }
@@ -1319,6 +1326,55 @@ export class GroupService {
     });
   }
 
+  cancelActiveGearNeedsForMember({ groupId, memberId }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const normalizedMemberId = String(memberId || "");
+    const cancelledNeeds = [];
+
+    group.gearNeeds = group.gearNeeds.map((item) => {
+      const current = normalizeGearNeed(item);
+      if (
+        String(current.memberId || "") !== normalizedMemberId ||
+        (current.status !== "open" && current.status !== "matched")
+      ) {
+        return current;
+      }
+
+      const cancelledNeed = normalizeGearNeed({
+        ...current,
+        status: "cancelled",
+        matchedByMemberId: "",
+        matchedByMemberName: "",
+        matchedGearId: "",
+        matchedGearName: "",
+        matchedAt: null,
+        loanRequestStatus: "",
+        loanRequestedAt: null,
+        loanApprovedAt: null,
+        cancelledAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      cancelledNeeds.push(cancelledNeed);
+      return cancelledNeed;
+    });
+
+    if (!cancelledNeeds.length) {
+      return [];
+    }
+
+    this.store.write(data);
+    return cancelledNeeds;
+  }
+
   requestGearLoan({ groupId, needId, lenderMemberId, lenderMemberName, gearId }) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);
@@ -1337,7 +1393,7 @@ export class GroupService {
 
     const currentNeed = normalizeGearNeed(group.gearNeeds[needIndex]);
     const borrower = (group.members || []).find((item) => String(item.id || "") === String(currentNeed.memberId || ""));
-    if (borrower && !isMemberIncludedInCalculations(borrower)) {
+    if (borrower && isMemberAutoExcluded(borrower)) {
       return null;
     }
 
@@ -1405,7 +1461,7 @@ export class GroupService {
     }
 
     const borrower = (group.members || []).find((item) => String(item.id || "") === String(need.memberId || ""));
-    if (borrower && !isMemberIncludedInCalculations(borrower)) {
+    if (borrower && isMemberAutoExcluded(borrower)) {
       return { ok: false, message: "Учасник уже має статус `Не йду`, тому нову позику більше не можна оформити." };
     }
 

@@ -600,6 +600,10 @@ function getTripMember(trip, userId) {
   return trip?.members?.find((member) => member.id === userId) || null;
 }
 
+function isTripMemberNotGoing(trip, userId) {
+  return String(getTripMember(trip, userId)?.attendanceStatus || "") === "not_going";
+}
+
 function canManageTrip(trip, userId) {
   return Boolean(getTripMember(trip, userId)?.canManage);
 }
@@ -665,6 +669,62 @@ function isTripMemberAttendanceSelfLocked(trip, memberId) {
   return member?.attendanceSelfLocked === true;
 }
 
+function getTripExchangeAvailability(trip, groupService, userId = "") {
+  if (!trip || !groupService || !userId) {
+    return {
+      borrowedCount: 0,
+      loanedCount: 0,
+      requestCount: 0,
+      hasBorrowed: false,
+      hasLoaned: false,
+      hasRequests: false,
+      hasExchangeActivity: false
+    };
+  }
+
+  const borrowedCount = groupService.getBorrowedGearForMember(trip.id, userId).length;
+  const loanedCount = groupService.getLoanedOutGearForMember(trip.id, userId).length;
+  const requestCount = groupService.getMemberGearNeeds(trip.id, userId, { includeResolved: true }).length;
+
+  return {
+    borrowedCount,
+    loanedCount,
+    requestCount,
+    hasBorrowed: borrowedCount > 0,
+    hasLoaned: loanedCount > 0,
+    hasRequests: requestCount > 0,
+    hasExchangeActivity: borrowedCount > 0 || loanedCount > 0 || requestCount > 0
+  };
+}
+
+function canTripMemberAccessPhotos(trip, userId) {
+  return !isTripMemberNotGoing(trip, userId);
+}
+
+function getRestrictedTripSectionMessage(trip) {
+  return joinRichLines([
+    ...formatCardHeader("👎 ОБМЕЖЕНИЙ ДОСТУП", trip.name),
+    "",
+    "У тебе статус `👎 Не йду`, тому основні розділи походу зараз заблоковані.",
+    "",
+    "Що тобі лишається доступним:",
+    "• `🎒 Спорядження походу` — тільки для обміну речами",
+    "• повернення позичених речей",
+    "• підтвердження повернення речей, якими користуються інші",
+    "",
+    "⚠️ Зверни увагу:",
+    "• нові запити на позичання і фотоальбом для тебе недоступні",
+    "• якщо статус змінився помилково, звернись до організатора або редактора"
+  ]);
+}
+
+function replyRestrictedTripSection(ctx, trip) {
+  return ctx.reply(
+    getRestrictedTripSectionMessage(trip),
+    { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from?.id || "")) }
+  );
+}
+
 function canUpdateTripMemberStatus(trip, viewerId, memberId) {
   if (canManageTrip(trip, viewerId)) {
     return true;
@@ -700,6 +760,19 @@ function getTripKeyboard(trip, userId = "") {
       ["➕ Створити похід"],
       ["⬅️ Головне меню"]
     ]);
+  }
+
+  if (isTripMemberNotGoing(trip, userId)) {
+    const rows = [
+      ["🎒 Спорядження походу"]
+    ];
+
+    if (canManageTrip(trip, userId)) {
+      rows.push([TRIP_SETTINGS_LABEL]);
+    }
+
+    rows.push(["⬅️ Головне меню"]);
+    return buildKeyboard(rows);
   }
 
   const rows = [
@@ -1344,22 +1417,21 @@ function getCurrentTripGearKeyboard(ctx, groupService) {
 }
 
 function getTripGearAccountingKeyboard(trip = null, groupService = null, userId = "") {
-  const rows = [
-    [GEAR_NEED_CREATE_LABEL, GEAR_MY_REQUESTS_LABEL]
-  ];
+  const exchange = getTripExchangeAvailability(trip, groupService, userId);
+  const isNotGoing = Boolean(trip && isTripMemberNotGoing(trip, userId));
+  const rows = [];
 
-  const borrowedCount = trip && groupService && userId
-    ? groupService.getBorrowedGearForMember(trip.id, userId).length
-    : 0;
-  const loanedCount = trip && groupService && userId
-    ? groupService.getLoanedOutGearForMember(trip.id, userId).length
-    : 0;
+  if (!isNotGoing) {
+    rows.push([GEAR_NEED_CREATE_LABEL, GEAR_MY_REQUESTS_LABEL]);
+  } else if (exchange.hasExchangeActivity) {
+    rows.push([GEAR_MY_REQUESTS_LABEL]);
+  }
 
-  if (borrowedCount > 0 && loanedCount > 0) {
+  if (exchange.hasBorrowed && exchange.hasLoaned) {
     rows.push([GEAR_BORROWED_LABEL, GEAR_LOANED_LABEL]);
-  } else if (borrowedCount > 0) {
+  } else if (exchange.hasBorrowed) {
     rows.push([GEAR_BORROWED_LABEL]);
-  } else if (loanedCount > 0) {
+  } else if (exchange.hasLoaned) {
     rows.push([GEAR_LOANED_LABEL]);
   }
 
@@ -1520,12 +1592,21 @@ function getTripGearScopeKeyboard(allowKeep = false) {
   return buildKeyboard(rows);
 }
 
-function getTripGearAddTypeKeyboard() {
-  return buildKeyboard([
-    ["🫕 Додати спільне", "🎒 Додати особисте"],
-    ["🧰 Додати запасне / позичу"],
-    ["❌ Скасувати"]
-  ]);
+function getTripGearAddTypeKeyboard({ allowPersonal = true } = {}) {
+  const rows = [];
+
+  if (allowPersonal) {
+    rows.push(["🫕 Додати спільне", "🎒 Додати особисте"]);
+  } else {
+    rows.push(["🫕 Додати спільне", "🧰 Додати запасне / позичу"]);
+  }
+
+  if (allowPersonal) {
+    rows.push(["🧰 Додати запасне / позичу"]);
+  }
+
+  rows.push(["❌ Скасувати"]);
+  return buildKeyboard(rows);
 }
 
 function getTripFoodKeyboard({ hasItems = false } = {}) {
@@ -2760,6 +2841,8 @@ function getGearCoverageStatusLabel(match) {
 }
 
 function getGearNeedMatchState(groupService, tripId, need, memberId) {
+  const trip = groupService.getGroup(tripId);
+  const requesterBlocked = isTripMemberNotGoing(trip, String(memberId));
   const matches = groupService.findGearCoverage(tripId, need.name, {
     excludeMemberId: String(memberId),
     requestedQuantity: need.quantity
@@ -2773,8 +2856,8 @@ function getGearNeedMatchState(groupService, tripId, need, memberId) {
     matches,
     fullMatches,
     isPendingApproval,
-    showHelp: need?.status === "matched" || fullMatches.length > 0,
-    allowBorrowRequest: !isPendingApproval && (Boolean(matchedCandidate?.isEnough) || fullMatches.length > 0)
+    showHelp: !requesterBlocked && (need?.status === "matched" || fullMatches.length > 0),
+    allowBorrowRequest: !requesterBlocked && !isPendingApproval && (Boolean(matchedCandidate?.isEnough) || fullMatches.length > 0)
   };
 }
 
@@ -3851,6 +3934,7 @@ function showTripMenu(ctx, groupService) {
   }
 
   const snapshot = groupService.getGearSnapshot(trip.id);
+  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
   const role = isTripOwner(trip, String(ctx.from.id)) ? "організатор" : canManageTrip(trip, String(ctx.from.id)) ? "редактор" : "учасник";
   const route = formatRouteStatus(trip.routePlan);
   const period = trip.tripCard
@@ -3859,17 +3943,24 @@ function showTripMenu(ctx, groupService) {
   const readiness = trip.tripCard
     ? trip.tripCard.gearReadinessStatus
     : snapshot.readiness;
-  const hintLines = [
-    "Що де шукати:",
-    "• Деталі походу — головна зведена картка",
-    "• Маршрут походу — трек, GPX/KML і перегляд карти",
-    "• Учасники походу — список і запрошення",
-    "• Спорядження походу — речі, запити і облік",
-    "• Харчування / Витрати — робочі списки походу",
-    "• Фото походу — кадри з маршруту, короткі підписи і фотоальбом"
-  ];
+  const hintLines = isNotGoing
+    ? [
+        "Що зараз доступно:",
+        "• Спорядження походу — тільки обмін речами та повернення",
+        "• нові запити на позичання, фото й робочі розділи походу для тебе заблоковані",
+        "• якщо статус змінився помилково, звернись до організатора або редактора"
+      ]
+    : [
+        "Що де шукати:",
+        "• Деталі походу — головна зведена картка",
+        "• Маршрут походу — трек, GPX/KML і перегляд карти",
+        "• Учасники походу — список і запрошення",
+        "• Спорядження походу — речі, запити і облік",
+        "• Харчування / Витрати — робочі списки походу",
+        "• Фото походу — кадри з маршруту, короткі підписи і фотоальбом"
+      ];
 
-  if (canManageTrip(trip, String(ctx.from.id))) {
+  if (!isNotGoing && canManageTrip(trip, String(ctx.from.id))) {
     hintLines.push("• У Деталях походу можна редагувати назву, дати і готовність");
     hintLines.push("• У Налаштуваннях зібрані нагадування і службові дії по походу");
   }
@@ -3896,6 +3987,10 @@ function showTripSafety(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   return replyRichText(ctx, formatSafetySection(trip), {
@@ -3933,6 +4028,10 @@ function showTripSosPackage(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   return replyRichText(
@@ -3988,6 +4087,19 @@ function showTripPhotosMenu(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("📸 ФОТО ПОХОДУ", trip.name),
+        "",
+        "У тебе статус `👎 Не йду`, тому фото походу й фотоальбом для тебе недоступні.",
+        "",
+        "Якщо статус треба змінити, звернись до організатора або редактора."
+      ]),
+      { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+    );
   }
 
   return ctx.reply(
@@ -4056,6 +4168,17 @@ async function showTripPhotoAlbum(ctx, groupService, telegram) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
+        "",
+        "Фотоальбом недоступний, бо ти зараз у статусі `👎 Не йду`."
+      ]),
+      { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+    );
   }
 
   const album = groupService.getTripPhotoAlbum(trip.id, { limit: 10 });
@@ -4206,6 +4329,17 @@ function startTripPhotoAddWizard(ctx, groupService) {
     return null;
   }
 
+  if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("📷 ДОДАТИ ФОТО", trip.name),
+        "",
+        "У тебе статус `👎 Не йду`, тому додавання фото для цього походу вимкнене."
+      ]),
+      { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+    );
+  }
+
   setMenuContext(ctx.from?.id, "trip-photos");
   setFlow(String(ctx.from.id), {
     type: "trip_photo_add",
@@ -4239,6 +4373,10 @@ async function showTripPassport(ctx, groupService, userService, advisorService =
     return null;
   }
 
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
   const detailsKeyboard = getTripDetailsKeyboard(trip, String(ctx.from.id));
   const response = await replyRichText(
     ctx,
@@ -4260,6 +4398,10 @@ function showTripMembersMenu(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const body = [];
@@ -4291,6 +4433,10 @@ function showTripMembers(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const items = [];
@@ -4539,6 +4685,18 @@ function startGearAddWizard(ctx, groupService, mode) {
     return null;
   }
 
+  if (isTripMemberNotGoing(trip, String(ctx.from.id)) && mode === "personal") {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🎒 ОСОБИСТЕ СПОРЯДЖЕННЯ", trip.name),
+        "",
+        "У статусі `👎 Не йду` не можна додавати особисте спорядження в похід.",
+        "Залиш доступними тільки спільні або запасні речі, якими можна поділитися."
+      ]),
+      { parse_mode: "HTML", ...getTripGearAddTypeKeyboard({ allowPersonal: false }) }
+    );
+  }
+
   const labels = {
     shared: "спільне спорядження",
     personal: "особисте спорядження",
@@ -4565,18 +4723,20 @@ function showTripGearAddMenu(ctx, groupService) {
     return null;
   }
 
+  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("➕ ДОДАТИ СПОРЯДЖЕННЯ", trip.name),
       "",
       "Обери тип спорядження, яке хочеш додати:",
       "• спільне — для всієї групи",
-      "• особисте — твоя індивідуальна річ у межах походу",
+      !isNotGoing ? "• особисте — твоя індивідуальна річ у межах походу" : "• особисте спорядження вимкнене, бо ти зараз `👎 Не йду`",
       "• запасне / позичу — те, чим ти можеш поділитися",
       "",
       "Після вибору типу бот продовжить звичний сценарій додавання."
     ]),
-    { parse_mode: "HTML", ...getTripGearAddTypeKeyboard() }
+    { parse_mode: "HTML", ...getTripGearAddTypeKeyboard({ allowPersonal: !isNotGoing }) }
   );
 }
 
@@ -4584,6 +4744,18 @@ function startGearNeedWizard(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🆘 ЗАПИТ НА СПОРЯДЖЕННЯ", trip.name),
+        "",
+        "У статусі `👎 Не йду` нові запити на позичання речей недоступні.",
+        "Ти можеш тільки повернути вже позичене або дати свої речі іншим."
+      ]),
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
+    );
   }
   setMenuContext(ctx.from?.id, "trip-gear-accounting");
 
@@ -4606,6 +4778,20 @@ function startMyNeedsWizard(ctx, groupService) {
     return null;
   }
   setMenuContext(ctx.from?.id, "trip-gear-accounting");
+
+  const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
+  if (isTripMemberNotGoing(trip, String(ctx.from.id)) && !exchange.hasExchangeActivity) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("📋 МОЇ ЗАПИТИ", trip.name),
+        "",
+        "У тебе немає активного обміну спорядженням.",
+        "",
+        "У статусі `👎 Не йду` цей розділ відкривається лише тоді, коли ти вже користуєшся чиїмось спорядженням, хтось користується твоїм або є попередні запити."
+      ]),
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
+    );
+  }
 
   const needs = groupService.getMemberGearNeeds(trip.id, String(ctx.from.id));
   const historyNeeds = groupService
@@ -5172,6 +5358,10 @@ function startFoodAddWizard(ctx, groupService, mode) {
     return null;
   }
 
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
   setFlow(String(ctx.from.id), {
     type: "food_add",
     tripId: trip.id,
@@ -5189,6 +5379,10 @@ function startFoodDeleteWizard(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const snapshot = groupService.getFoodSnapshot(trip.id);
@@ -5243,6 +5437,10 @@ function startExpenseAddWizard(ctx, groupService) {
     return null;
   }
 
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
   setFlow(String(ctx.from.id), {
     type: "expense_add",
     tripId: trip.id,
@@ -5260,6 +5458,10 @@ function startExpenseDeleteWizard(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const snapshot = groupService.getExpenseSnapshot(trip.id);
@@ -5353,6 +5555,10 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
     return null;
   }
 
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
   const response = await ctx.reply(
     joinRichLines([
       ...formatCardHeader("📍 МАРШРУТ ПОХОДУ", trip.name),
@@ -5386,6 +5592,10 @@ function startTripWeatherSelection(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const settlements = getTripWeatherSettlements(trip);
@@ -5608,6 +5818,10 @@ async function showRouteReport(ctx, groupService, routeService, vpohidLiveServic
   let trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   if (!trip.routePlan) {
@@ -6884,6 +7098,10 @@ function startRouteWizard(ctx, groupService, mode) {
       return null;
     }
 
+    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+      return replyRestrictedTripSection(ctx, trip);
+    }
+
     if (mode === "create" && trip.routePlan) {
       return ctx.reply("У походу вже є маршрут. Можна лише редагувати його.", getTripRouteKeyboard(trip, true));
     }
@@ -7897,7 +8115,12 @@ async function shareTripPhotoWithMembers(telegram, trip, senderId, fileId, capti
   const seen = new Set();
   const recipients = (trip.members || []).filter((member) => {
     const memberId = String(member.id || "");
-    if (!memberId || memberId === String(senderId) || seen.has(memberId)) {
+    if (
+      !memberId ||
+      memberId === String(senderId) ||
+      seen.has(memberId) ||
+      !canTripMemberAccessPhotos(trip, memberId)
+    ) {
       return false;
     }
     seen.add(memberId);
@@ -7932,6 +8155,14 @@ async function handleTripPhotoMessage(ctx, flow, groupService, userService, tele
   if (!trip.members.some((member) => String(member.id) === senderId)) {
     clearFlow(String(ctx.from.id));
     return ctx.reply("Ти більше не є учасником цього походу, тому розсилку фото зупинено.", getTripKeyboard(groupService.findGroupByMember(senderId), senderId));
+  }
+
+  if (!canTripMemberAccessPhotos(trip, senderId)) {
+    clearFlow(String(ctx.from.id));
+    return ctx.reply(
+      "У тебе статус `👎 Не йду`, тому фото цього походу для тебе недоступні.",
+      getTripKeyboard(trip, senderId)
+    );
   }
 
   const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
@@ -10853,6 +11084,8 @@ async function showTripGearMenu(ctx, groupService, advisorService = null) {
     return null;
   }
 
+  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
+
   const response = await ctx.reply(
     joinRichLines([
       ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
@@ -10864,7 +11097,9 @@ async function showTripGearMenu(ctx, groupService, advisorService = null) {
       `• \`${TRIP_GEAR_ACCOUNTING_LABEL}\` — запити, речі в користуванні та хто користується спорядженням`,
       "",
       "⚠️ Зверни увагу:",
-      "• після натискання `➕ Додати спорядження` бот запропонує тип: спільне, особисте або запасне",
+      !isNotGoing
+        ? "• після натискання `➕ Додати спорядження` бот запропонує тип: спільне, особисте або запасне"
+        : "• у статусі `👎 Не йду` особисте спорядження і нові позики вимкнені, лишається тільки обмін речами",
       "• запит на позичання проходить через згоду власника речі, а не закривається односторонньо"
     ]),
     { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
@@ -10885,13 +11120,16 @@ function showTripGearAccountingMenu(ctx, groupService) {
     return null;
   }
 
+  const isNotGoing = isTripMemberNotGoing(trip, String(ctx.from.id));
+  const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("🧾 ОБЛІК ТА ЗАПИТИ СПОРЯДЖЕННЯ", trip.name),
       "",
       "Тут можна:",
-      `• \`${GEAR_NEED_CREATE_LABEL}\` — створити запит на потрібну річ`,
-      `• \`${GEAR_MY_REQUESTS_LABEL}\` — переглянути свої активні запити`,
+      !isNotGoing ? `• \`${GEAR_NEED_CREATE_LABEL}\` — створити запит на потрібну річ` : "• нові запити на позичання вимкнені, бо ти зараз `👎 Не йду`",
+      !isNotGoing || exchange.hasExchangeActivity ? `• \`${GEAR_MY_REQUESTS_LABEL}\` — переглянути свої активні запити` : "• `Мої запити` відкриються, якщо в тебе вже є обмін спорядженням",
       `• \`${GEAR_BORROWED_LABEL}\` — подивитися, чиїми речами ти зараз користуєшся`,
       `• \`${GEAR_LOANED_LABEL}\` — подивитися, хто зараз користується твоїми речами`,
       "",
@@ -10989,6 +11227,10 @@ function showTripFoodMenu(ctx, groupService) {
     return null;
   }
 
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
   const hasItems = Boolean(groupService.getFoodSnapshot(trip.id)?.items?.length);
   const actions = [
     "• `🥘 Додати продукт` — додати позицію в загальний список продуктів походу",
@@ -11019,11 +11261,24 @@ function showTripGear(ctx, groupService) {
   }
 
   const snapshot = groupService.getGearSnapshot(trip.id);
+  const shouldHideOwnerItems = (item) => {
+    const ownerId = String(item?.memberId || "");
+    if (!ownerId) {
+      return false;
+    }
+
+    const owner = getTripMember(trip, ownerId);
+    return String(owner?.attendanceStatus || "") === "not_going" && Math.max(0, Number(item?.inUseQuantity) || 0) <= 0;
+  };
+  const visibleSharedGear = snapshot.sharedGear.filter((item) => !shouldHideOwnerItems(item));
+  const visiblePersonalGear = snapshot.personalGear.filter((item) => !shouldHideOwnerItems(item));
+  const visibleSpareGear = snapshot.spareGear.filter((item) => !shouldHideOwnerItems(item));
+  const visibleNeeds = snapshot.gearNeeds.filter((item) => !isTripMemberNotGoing(trip, String(item.memberId || "")));
   if (
-    !snapshot.sharedGear.length &&
-    !snapshot.personalGear.length &&
-    !snapshot.spareGear.length &&
-    !snapshot.gearNeeds.length
+    !visibleSharedGear.length &&
+    !visiblePersonalGear.length &&
+    !visibleSpareGear.length &&
+    !visibleNeeds.length
   ) {
     return ctx.reply(
       joinRichLines([
@@ -11039,11 +11294,11 @@ function showTripGear(ctx, groupService) {
     );
   }
 
-  const shared = formatGearList(snapshot.sharedGear, { includeOwner: true });
-  const personal = formatGearList(snapshot.personalGear, { includeOwner: true });
-  const spare = formatGearList(snapshot.spareGear, { includeOwner: true });
-  const needs = snapshot.gearNeeds.length
-    ? snapshot.gearNeeds.map((item) => formatGearNeedListLine(item, { includeMember: true })).join("\n")
+  const shared = formatGearList(visibleSharedGear, { includeOwner: true });
+  const personal = formatGearList(visiblePersonalGear, { includeOwner: true });
+  const spare = formatGearList(visibleSpareGear, { includeOwner: true });
+  const needs = visibleNeeds.length
+    ? visibleNeeds.map((item) => formatGearNeedListLine(item, { includeMember: true })).join("\n")
     : "• немає";
 
   return replyRichText(
@@ -11071,6 +11326,18 @@ function showMyNeeds(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
+  }
+
+  const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
+  if (isTripMemberNotGoing(trip, String(ctx.from.id)) && !exchange.hasExchangeActivity) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("📋 МОЇ ЗАПИТИ", trip.name),
+        "",
+        "У статусі `👎 Не йду` цей розділ доступний тільки для вже існуючого обміну спорядженням."
+      ]),
+      { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
+    );
   }
 
   const allNeeds = groupService.getMemberGearNeeds(trip.id, String(ctx.from.id), { includeResolved: true });
@@ -11123,6 +11390,10 @@ function showTripFood(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const snapshot = groupService.getFoodSnapshot(trip.id);
@@ -11274,6 +11545,10 @@ function showTripExpensesMenu(ctx, groupService) {
     return null;
   }
 
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
   const hasItems = Boolean(groupService.getExpenseSnapshot(trip.id)?.items?.length);
   const actions = [
     "• `💸 Додати витрату` — ввести назву, кількість і ціну",
@@ -11300,6 +11575,10 @@ function showTripExpenses(ctx, groupService, userService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
   if (!trip) {
     return null;
+  }
+
+  if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
   }
 
   const expenseSnapshot = groupService.getExpenseSnapshot(trip.id);
@@ -12252,6 +12531,9 @@ export function createBot(store) {
     if (!trip) {
       return null;
     }
+    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+      return replyRestrictedTripSection(ctx, trip);
+    }
     const [rawName, amountRaw, quantity, costRaw] = ctx.message.text.replace("/addfood", "").trim().split(";").map((part) => part?.trim());
     const nameValidation = validateGearItemName(rawName);
     const name = nameValidation.ok ? canonicalizeFoodName(nameValidation.value) : "";
@@ -12295,6 +12577,9 @@ export function createBot(store) {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
     if (!trip) {
       return null;
+    }
+    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+      return replyRestrictedTripSection(ctx, trip);
     }
     const [rawTitle, quantityRaw, priceRaw] = ctx.message.text.replace("/addexpense", "").trim().split(";").map((part) => part?.trim());
     const titleValidation = validateGearItemName(rawTitle);
@@ -12457,6 +12742,9 @@ export function createBot(store) {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
     if (!trip) {
       return null;
+    }
+    if (isTripMemberNotGoing(trip, String(ctx.from.id))) {
+      return replyRestrictedTripSection(ctx, trip);
     }
     const settlements = getTripWeatherSettlements(trip);
     if (!settlements.length) {

@@ -1335,13 +1335,19 @@ export class GroupService {
       return null;
     }
 
+    const currentNeed = normalizeGearNeed(group.gearNeeds[needIndex]);
+    const borrower = (group.members || []).find((item) => String(item.id || "") === String(currentNeed.memberId || ""));
+    if (borrower && !isMemberIncludedInCalculations(borrower)) {
+      return null;
+    }
+
     const gearItem = group.gear.find((item) => item.id === gearId);
     if (!gearItem) {
       return null;
     }
 
     const updatedNeed = normalizeGearNeed({
-      ...group.gearNeeds[needIndex],
+      ...currentNeed,
       status: "matched",
       matchedByMemberId: lenderMemberId || gearItem.memberId || "",
       matchedByMemberName: lenderMemberName || gearItem.memberName || "",
@@ -1396,6 +1402,11 @@ export class GroupService {
     const need = normalizeGearNeed(group.gearNeeds[needIndex]);
     if (need.status === "fulfilled") {
       return { ok: false, message: "Цей запит уже позначено як отриманий." };
+    }
+
+    const borrower = (group.members || []).find((item) => String(item.id || "") === String(need.memberId || ""));
+    if (borrower && !isMemberIncludedInCalculations(borrower)) {
+      return { ok: false, message: "Учасник уже має статус `Не йду`, тому нову позику більше не можна оформити." };
     }
 
     if (!need.matchedGearId) {

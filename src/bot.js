@@ -127,6 +127,8 @@ const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
 const TRIP_SETTINGS_LABEL = "⚙️ Налаштування";
 const TRIP_SETTINGS_BACK_LABEL = "⬅️ До походу";
+const TRIP_TRANSFER_ORGANIZER_LABEL = "🔁 Передати похід";
+const TRIP_TRANSFER_BACK_LABEL = "⬅️ До налаштувань";
 const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
 const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
@@ -901,6 +903,14 @@ function formatTripHubDetailMessage(trip, userId, userService, primaryTrip = nul
   return joinRichLines(lines);
 }
 
+function formatTripDateRangeLabel(trip) {
+  if (!trip?.tripCard?.startDate || !trip?.tripCard?.endDate) {
+    return "дати ще не задані";
+  }
+
+  return `${trip.tripCard.startDate} → ${trip.tripCard.endDate}`;
+}
+
 function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) {
   setMenuContext(ctx.from?.id, fromHub ? "trip-linked" : "trip");
   const snapshot = groupService.getGearSnapshot(trip.id);
@@ -1014,10 +1024,32 @@ function getTripSettingsKeyboard(trip, userId = "") {
 
   const rows = [["🔔 Нагадування"]];
   if (isTripOwner(trip, userId)) {
+    rows.push([TRIP_TRANSFER_ORGANIZER_LABEL]);
     rows.push(["🛡 Права редагування"]);
   }
   rows.push([TRIP_SETTINGS_BACK_LABEL]);
   return buildKeyboard(rows);
+}
+
+function getTransferOrganizerKeyboard(items = [], { includeInvite = false } = {}) {
+  const rows = [];
+  for (const item of items) {
+    rows.push([item.label]);
+  }
+  if (includeInvite) {
+    rows.push(["➕ Запросити учасників"]);
+  }
+  rows.push([TRIP_TRANSFER_BACK_LABEL]);
+  return buildKeyboard(rows);
+}
+
+function buildOrganizerTransferInlineKeyboard(groupId, requestId) {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback("✅ Прийняти роль організатора", `towner|accept|${groupId}|${requestId}`),
+      Markup.button.callback("❌ Відмовитись", `towner|decline|${groupId}|${requestId}`)
+    ]
+  ]);
 }
 
 function getTripRemindersKeyboard(trip) {
@@ -3384,6 +3416,25 @@ function formatTripHistoryDetails(trip, userService = null) {
   return joinRichLines(lines);
 }
 
+function buildOrganizerTransferAcceptedNotification(trip, previousOwnerName, nextOwnerName) {
+  return joinRichLines([
+    ...formatCardHeader("🔁", "ОРГАНІЗАТОРА ЗМІНЕНО"),
+    "",
+    `У поході <b>${escapeHtml(trip.name)}</b> змінено організатора.`,
+    `Було: <b>${escapeHtml(previousOwnerName)}</b>`,
+    `Стало: <b>${escapeHtml(nextOwnerName)}</b>`
+  ]);
+}
+
+function buildOrganizerTransferDeclinedNotification(trip, targetName) {
+  return joinRichLines([
+    ...formatCardHeader("⚠️", "ПЕРЕДАЧУ ПОХОДУ ВІДХИЛЕНО"),
+    "",
+    `<b>${escapeHtml(targetName)}</b> відхилив(ла) передачу ролі організатора в поході <b>${escapeHtml(trip.name)}</b>.`,
+    "За потреби можна запросити іншу людину або надіслати новий запит пізніше."
+  ]);
+}
+
 function getVpohidLevelDifficulty(level, fallback = "середня") {
   const normalized = String(level || "").trim().toLowerCase();
   if (!normalized) {
@@ -4330,12 +4381,164 @@ function showTripSettings(ctx, groupService) {
   ];
 
   if (isTripOwner(trip, String(ctx.from.id))) {
+    lines.push("• `🔁 Передати похід` — передати роль організатора іншому учаснику з підтвердженням");
     lines.push("• `🛡 Права редагування` — кому з учасників дозволено керувати походом");
+  }
+
+  if (trip.pendingOrganizerTransfer) {
+    lines.push("");
+    lines.push(`⏳ Очікує підтвердження: <b>${escapeHtml(trip.pendingOrganizerTransfer.targetMemberName || "учасник")}</b>`);
   }
 
   return ctx.reply(
     joinRichLines(lines),
     { parse_mode: "HTML", ...getTripSettingsKeyboard(trip, String(ctx.from.id)) }
+  );
+}
+
+function startOrganizerTransferWizard(ctx, groupService, userService) {
+  const trip = requireOwnerTrip(ctx, groupService);
+  if (!trip) {
+    return null;
+  }
+
+  const items = [];
+  const blocked = [];
+
+  for (const member of trip.members.filter((item) => item.role !== "owner")) {
+    const eligibility = groupService.getOrganizerTransferEligibility({
+      groupId: trip.id,
+      targetMemberId: member.id
+    });
+    const label = getMemberDisplayName(userService, member);
+
+    if (eligibility.ok) {
+      items.push({
+        id: member.id,
+        label
+      });
+    } else {
+      blocked.push({
+        label,
+        reason: eligibility.message
+      });
+    }
+  }
+
+  setFlow(String(ctx.from.id), {
+    type: "transfer_organizer",
+    tripId: trip.id,
+    step: "member",
+    data: { items }
+  });
+
+  const lines = [
+    ...formatCardHeader("🔁 ПЕРЕДАТИ ПОХІД", trip.name),
+    "",
+    "Обери учасника, якому хочеш передати роль організатора.",
+    `Дати походу: ${formatTripDateRangeLabel(trip)}`,
+    "",
+    "Що відбудеться далі:",
+    "• бот надішле цій людині окремий запит",
+    "• роль зміниться тільки після її підтвердження",
+    "• новий організатор не повинен бути зайнятий в іншому активному поході на ті самі дати"
+  ];
+
+  if (!items.length) {
+    lines.push("");
+    lines.push("Зараз у поході немає жодного учасника, якому можна безпечно передати роль.");
+    lines.push("Якщо потрібної людини ще немає в поході, спочатку запроси її.");
+  }
+
+  if (blocked.length) {
+    lines.push("");
+    lines.push("Кому зараз передати не можна:");
+    for (const item of blocked) {
+      lines.push(`• ${escapeHtml(item.label)} — ${escapeHtml(item.reason)}`);
+    }
+  }
+
+  return ctx.reply(
+    joinRichLines(lines),
+    {
+      parse_mode: "HTML",
+      ...getTransferOrganizerKeyboard(items, { includeInvite: true })
+    }
+  );
+}
+
+async function handleOrganizerTransferFlow(ctx, flow, groupService, userService, telegram) {
+  const message = String(ctx.message?.text || "").trim();
+
+  if (message === TRIP_TRANSFER_BACK_LABEL || message === "❌ Скасувати") {
+    clearFlow(String(ctx.from.id));
+    return showTripSettings(ctx, groupService);
+  }
+
+  if (message === "➕ Запросити учасників") {
+    clearFlow(String(ctx.from.id));
+    return showInviteInfo(ctx, groupService);
+  }
+
+  const selected = (flow.data?.items || []).find((item) => item.label === message);
+  if (!selected) {
+    return ctx.reply(
+      "Обери учасника кнопкою нижче або запроси нового.",
+      getTransferOrganizerKeyboard(flow.data?.items || [], { includeInvite: true })
+    );
+  }
+
+  const result = groupService.startOrganizerTransfer({
+    groupId: flow.tripId,
+    actorId: String(ctx.from.id),
+    targetMemberId: selected.id
+  });
+
+  clearFlow(String(ctx.from.id));
+
+  if (!result.ok) {
+    return ctx.reply(result.message, getTripSettingsKeyboard(groupService.getGroup(flow.tripId), String(ctx.from.id)));
+  }
+
+  const targetLabel = getMemberDisplayName(userService, result.member);
+  const actorLabel = getMemberDisplayName(userService, result.actor);
+
+  if (telegram && result.request?.id) {
+    try {
+      await sendRichText(
+        telegram,
+        result.member.id,
+        joinRichLines([
+          ...formatCardHeader("🔁 ПЕРЕДАЧА ПОХОДУ", result.group.name),
+          "",
+          `${escapeHtml(actorLabel)} хоче передати тобі роль організатора.`,
+          `Дати походу: ${formatTripDateRangeLabel(result.group)}`,
+          `Маршрут: ${escapeHtml(formatRouteStatus(result.group.routePlan))}`,
+          "",
+          "Що це означає:",
+          "• ти станеш новим організатором цього походу",
+          "• зможеш редагувати похід, керувати учасниками і пізніше теж передати роль далі",
+          "",
+          "Підтвердь або відхили запит нижче."
+        ]),
+        {
+          parse_mode: "HTML",
+          ...buildOrganizerTransferInlineKeyboard(result.group.id, result.request.id)
+        }
+      );
+    } catch {
+      // Ignore delivery issues; owner still gets confirmation locally.
+    }
+  }
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("✅ ЗАПИТ НА ПЕРЕДАЧУ НАДСИЛАНО", result.group.name),
+      "",
+      `Кандидат: <b>${escapeHtml(targetLabel)}</b>`,
+      "Роль організатора зміниться тільки після підтвердження цією людиною."
+    ]),
+    { parse_mode: "HTML", ...getTripSettingsKeyboard(result.group, String(ctx.from.id)) }
   );
 }
 
@@ -4871,6 +5074,23 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
     return null;
   }
 
+  if (member.role === "owner" && status === "not_going") {
+    await ctx.answerCbQuery(
+      "Спочатку передай похід іншій людині через «⚙️ Налаштування → 🔁 Передати похід».",
+      { show_alert: true }
+    );
+    await ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🔁 ПЕРЕДАТИ ПОХІД", trip.name),
+        "",
+        "Поки ти організатор, статус `👎 Не йду` для себе поставити не можна.",
+        "Спочатку передай роль іншому учаснику через `⚙️ Налаштування`."
+      ]),
+      { parse_mode: "HTML", ...getTripSettingsKeyboard(trip, viewerId) }
+    );
+    return null;
+  }
+
   const actorMember = trip.members.find((item) => String(item.id) === viewerId) || null;
   const result = groupService.setMemberAttendanceStatus({
     groupId: trip.id,
@@ -4927,6 +5147,83 @@ async function handleTripMemberStatusBack(ctx, groupService, userService) {
     // Ignore delete failures and still show the list again.
   }
   return showTripMembers(ctx, groupService, userService);
+}
+
+async function handleOrganizerTransferAction(ctx, groupService, userService, action, groupId, requestId) {
+  const targetMemberId = String(ctx.from.id);
+  const result = groupService.resolveOrganizerTransfer({
+    groupId,
+    requestId,
+    targetMemberId,
+    accept: action === "accept"
+  });
+
+  if (!result.ok) {
+    await ctx.answerCbQuery(result.message || "Не вдалося обробити запит.", { show_alert: true });
+    return null;
+  }
+
+  if (!result.accepted) {
+    await ctx.answerCbQuery("Передачу ролі відхилено.");
+    try {
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    } catch {
+      // Ignore stale markup errors.
+    }
+
+    const trip = result.group;
+    const targetName = getMemberDisplayName(userService, result.member);
+    const ownerId = String(result.request?.initiatedById || "");
+    if (ownerId) {
+      try {
+        await sendRichText(
+          ctx.telegram,
+          ownerId,
+          buildOrganizerTransferDeclinedNotification(trip, targetName),
+          { parse_mode: "HTML", ...getTripSettingsKeyboard(trip, ownerId) }
+        );
+      } catch {
+        // Ignore delivery issues.
+      }
+    }
+
+    return null;
+  }
+
+  await ctx.answerCbQuery("Тепер ти організатор цього походу.");
+  try {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  } catch {
+    // Ignore stale markup errors.
+  }
+
+  const trip = result.group;
+  const previousOwnerName = getMemberDisplayName(userService, result.previousOwner);
+  const nextOwnerName = getMemberDisplayName(userService, result.member);
+
+  try {
+    await sendRichText(
+      ctx.telegram,
+      targetMemberId,
+      joinRichLines([
+        ...formatCardHeader("✅ ТЕПЕР ТИ ОРГАНІЗАТОР", trip.name),
+        "",
+        "Передачу ролі підтверджено.",
+        "Тепер саме ти керуєш цим походом."
+      ]),
+      { parse_mode: "HTML", ...getTripKeyboard(trip, targetMemberId) }
+    );
+  } catch {
+    // Ignore delivery issues.
+  }
+
+  void notifyTripMembers(
+    ctx.telegram,
+    trip,
+    buildOrganizerTransferAcceptedNotification(trip, previousOwnerName, nextOwnerName)
+  );
+
+  return null;
 }
 
 function showInviteInfo(ctx, groupService) {
@@ -11294,6 +11591,11 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     return true;
   }
 
+  if (flow.type === "transfer_organizer") {
+    await handleOrganizerTransferFlow(ctx, flow, groupService, userService, telegram);
+    return true;
+  }
+
   if (flow.type === "gear_add") {
     await handleGearAddFlow(ctx, flow, groupService, userService, telegram);
     return true;
@@ -13118,6 +13420,9 @@ export function createBot(store) {
     await ctx.answerCbQuery();
     return showTripSafety(ctx, groupService);
   });
+  bot.action(/^towner\|(accept|decline)\|([^|]+)\|([^|]+)$/, async (ctx) =>
+    handleOrganizerTransferAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "", ctx.match?.[3] || "")
+  );
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
   bot.action(/^mstatus\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
     handleTripMemberStatusAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
@@ -13213,6 +13518,7 @@ export function createBot(store) {
   bot.hears("👤 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("📋 Список учасників", (ctx) => showTripMembers(ctx, groupService, userService));
   bot.hears(TRIP_SETTINGS_LABEL, (ctx) => showTripSettings(ctx, groupService));
+  bot.hears(TRIP_TRANSFER_ORGANIZER_LABEL, (ctx) => startOrganizerTransferWizard(ctx, groupService, userService));
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
   bot.hears(TRIP_DETAILS_BACK_LABEL, (ctx) => {
     const activeFlow = getFlow(String(ctx.from?.id));
@@ -13473,6 +13779,10 @@ export function createBot(store) {
     }
 
     if (activeFlow?.type === "grant_access") {
+      return showTripSettings(ctx, groupService);
+    }
+
+    if (activeFlow?.type === "transfer_organizer") {
       return showTripSettings(ctx, groupService);
     }
 

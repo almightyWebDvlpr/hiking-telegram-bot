@@ -350,6 +350,55 @@ function doesGroupBlockAdditionalActiveCommitment(group, memberId) {
   return !isMemberAutoExcluded(group, member);
 }
 
+function normalizeOrganizerTransferRequest(request = {}) {
+  if (!request || typeof request !== "object" || !request.targetMemberId) {
+    return null;
+  }
+
+  return {
+    id: request.id || crypto.randomUUID(),
+    initiatedById: request.initiatedById || "",
+    initiatedByName: request.initiatedByName || "",
+    targetMemberId: request.targetMemberId || "",
+    targetMemberName: request.targetMemberName || "",
+    createdAt: request.createdAt || new Date().toISOString()
+  };
+}
+
+function parseGroupDateRange(group) {
+  const startDate = String(group?.tripCard?.startDate || "").trim();
+  const endDate = String(group?.tripCard?.endDate || "").trim() || startDate;
+
+  if (!startDate || !endDate) {
+    return null;
+  }
+
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return null;
+  }
+
+  return {
+    startDate,
+    endDate,
+    startMs: start.getTime(),
+    endMs: end.getTime()
+  };
+}
+
+function doGroupDateRangesOverlap(leftGroup, rightGroup) {
+  const leftRange = parseGroupDateRange(leftGroup);
+  const rightRange = parseGroupDateRange(rightGroup);
+
+  if (!leftRange || !rightRange) {
+    return null;
+  }
+
+  return leftRange.startMs <= rightRange.endMs && rightRange.startMs <= leftRange.endMs;
+}
+
 function createEmptyGroupFields(group) {
   return {
     ...group,
@@ -371,6 +420,7 @@ function createEmptyGroupFields(group) {
     archivedAt: group.archivedAt || null,
     closeReason: group.closeReason || "",
     finalSummary: group.finalSummary || null,
+    pendingOrganizerTransfer: normalizeOrganizerTransferRequest(group.pendingOrganizerTransfer),
     members: Array.isArray(group.members)
       ? group.members.map((member) => ({
           ...member,
@@ -446,7 +496,8 @@ export class GroupService {
       completedAt: null,
       archivedAt: null,
       closeReason: "",
-      finalSummary: null
+      finalSummary: null,
+      pendingOrganizerTransfer: null
     };
     data.groups.push(group);
     this.store.write(data);
@@ -496,6 +547,68 @@ export class GroupService {
     this.store.write(data);
 
     return { ok: true, group: createEmptyGroupFields(rawGroup) };
+  }
+
+  getOrganizerTransferEligibility({ groupId, targetMemberId }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return { ok: false, message: "Похід не знайдено." };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    const target = preparedGroup.members.find((member) => String(member.id) === String(targetMemberId || ""));
+    if (!target) {
+      return { ok: false, message: "Учасника не знайдено в цьому поході." };
+    }
+
+    if (target.role === "owner") {
+      return { ok: false, message: "Ця людина вже є організатором цього походу." };
+    }
+
+    if (String(target.attendanceStatus || "") === "not_going") {
+      return {
+        ok: false,
+        message: "Не можна передати роль організатора учаснику зі статусом «👎 Не йду»."
+      };
+    }
+
+    const otherActiveGroups = data.groups
+      .map((item) => createEmptyGroupFields(item))
+      .filter(
+        (item) =>
+          item.status === "active" &&
+          String(item.id) !== String(groupId) &&
+          doesGroupBlockAdditionalActiveCommitment(item, target.id)
+      );
+
+    for (const otherGroup of otherActiveGroups) {
+      const overlap = doGroupDateRangesOverlap(preparedGroup, otherGroup);
+      if (overlap === true) {
+        return {
+          ok: false,
+          message:
+            `Не можна передати роль: у ${target.name || "цього учасника"} вже є інший активний похід "${otherGroup.name}" на ті самі або пересічні дати.`,
+          conflictGroup: otherGroup
+        };
+      }
+
+      if (overlap === null) {
+        return {
+          ok: false,
+          message:
+            `Не можна безпечно передати роль, поки в цьому поході або в "${otherGroup.name}" не заповнені коректні дати.`,
+          conflictGroup: otherGroup
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      group: preparedGroup,
+      member: target
+    };
   }
 
   findGroupByMember(memberId) {
@@ -608,6 +721,115 @@ export class GroupService {
     return { ok: true, group: createEmptyGroupFields(group), member: target };
   }
 
+  startOrganizerTransfer({ groupId, actorId, targetMemberId }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return { ok: false, message: "Похід не знайдено." };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const actor = group.members.find((member) => String(member.id) === String(actorId || ""));
+    if (!actor || actor.role !== "owner") {
+      return { ok: false, message: "Лише організатор може передати похід іншій людині." };
+    }
+
+    const eligibility = this.getOrganizerTransferEligibility({ groupId, targetMemberId });
+    if (!eligibility.ok) {
+      return eligibility;
+    }
+
+    const target = group.members.find((member) => String(member.id) === String(targetMemberId || ""));
+    group.pendingOrganizerTransfer = {
+      id: crypto.randomUUID(),
+      initiatedById: actor.id,
+      initiatedByName: actor.name || "",
+      targetMemberId: target.id,
+      targetMemberName: target.name || ""
+    };
+    this.store.write(data);
+
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group),
+      actor: { ...actor },
+      member: { ...target },
+      request: normalizeOrganizerTransferRequest(group.pendingOrganizerTransfer)
+    };
+  }
+
+  resolveOrganizerTransfer({ groupId, requestId, targetMemberId, accept }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return { ok: false, message: "Похід не знайдено." };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const request = normalizeOrganizerTransferRequest(group.pendingOrganizerTransfer);
+    if (!request || String(request.id) !== String(requestId || "")) {
+      return { ok: false, message: "Запит на передачу ролі вже неактуальний." };
+    }
+
+    if (String(request.targetMemberId) !== String(targetMemberId || "")) {
+      return { ok: false, message: "Цей запит адресовано іншому учаснику." };
+    }
+
+    const target = group.members.find((member) => String(member.id) === String(targetMemberId || ""));
+    if (!target) {
+      group.pendingOrganizerTransfer = null;
+      this.store.write(data);
+      return { ok: false, message: "Учасника вже немає в цьому поході." };
+    }
+
+    if (!accept) {
+      group.pendingOrganizerTransfer = null;
+      this.store.write(data);
+      return {
+        ok: true,
+        group: createEmptyGroupFields(group),
+        accepted: false,
+        member: { ...target },
+        request
+      };
+    }
+
+    const eligibility = this.getOrganizerTransferEligibility({ groupId, targetMemberId });
+    if (!eligibility.ok) {
+      return eligibility;
+    }
+
+    const currentOwner = group.members.find((member) => member.role === "owner" || String(member.id) === String(group.ownerId || ""));
+    if (!currentOwner) {
+      return { ok: false, message: "Не вдалося знайти чинного організатора." };
+    }
+
+    currentOwner.role = "manager";
+    currentOwner.canManage = true;
+    target.role = "owner";
+    target.canManage = true;
+    target.attendanceStatus = "going";
+    target.attendanceSelfLocked = false;
+    group.ownerId = target.id;
+    group.pendingOrganizerTransfer = null;
+    this.store.write(data);
+
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group),
+      accepted: true,
+      previousOwner: { ...currentOwner },
+      member: { ...target },
+      request
+    };
+  }
+
   setMemberAttendanceStatus({
     groupId,
     actorId,
@@ -647,6 +869,22 @@ export class GroupService {
 
     if (!isSelfUpdate && !actorCanManage) {
       return { ok: false, message: "Ти можеш змінювати тільки свій статус участі." };
+    }
+
+    if (target.role === "owner" && !isSelfUpdate) {
+      return {
+        ok: false,
+        message:
+          "Статус організатора не можна змінювати напряму. Спочатку передай похід іншій людині через налаштування."
+      };
+    }
+
+    if (target.role === "owner" && isSelfUpdate && status === "not_going") {
+      return {
+        ok: false,
+        message:
+          "Організатор не може поставити собі «👎 Не йду», поки не передасть похід іншому учаснику."
+      };
     }
 
     if (isSelfUpdate && String(target.attendanceStatus || "") === "not_going" && deadlineLockActive && !actorCanManage) {

@@ -613,6 +613,20 @@ function hasTripAttendanceRestrictionWindow(trip) {
   return daysUntil !== null && daysUntil <= 7;
 }
 
+function hasTripStarted(trip) {
+  const daysUntil = calculateDaysUntil(trip?.tripCard?.startDate);
+  return daysUntil !== null && daysUntil <= 0;
+}
+
+function canTripBeCancelled(trip) {
+  const daysUntil = calculateDaysUntil(trip?.tripCard?.startDate);
+  return daysUntil !== null && daysUntil > 0;
+}
+
+function canTripBeFinished(trip) {
+  return hasTripStarted(trip);
+}
+
 function isTripMemberAutoExcluded(trip, userId) {
   const member = getTripMember(trip, userId);
   if (member?.role === "owner") {
@@ -1022,11 +1036,23 @@ function getTripDetailsKeyboard(trip, userId = "") {
     return null;
   }
 
+  const backLabel = getMenuContext(userId) === "trip_details_linked"
+    ? TRIP_LIST_BACK_LABEL
+    : TRIP_DETAILS_BACK_LABEL;
   const rows = [["✏️ Редагувати дані походу"]];
   if (isTripOwner(trip, userId)) {
-    rows.push(["✅ Завершити похід", CANCEL_TRIP_LABEL]);
+    const actionRow = [];
+    if (canTripBeFinished(trip)) {
+      actionRow.push("✅ Завершити похід");
+    }
+    if (canTripBeCancelled(trip)) {
+      actionRow.push(CANCEL_TRIP_LABEL);
+    }
+    if (actionRow.length) {
+      rows.push(actionRow);
+    }
   }
-  rows.push([TRIP_DETAILS_BACK_LABEL]);
+  rows.push([backLabel]);
   return buildKeyboard(rows);
 }
 
@@ -4658,7 +4684,10 @@ function startTripPhotoAddWizard(ctx, groupService) {
 }
 
 async function showTripPassport(ctx, groupService, userService, advisorService = null) {
-  setMenuContext(ctx.from?.id, "trip_details");
+  setMenuContext(
+    ctx.from?.id,
+    getMenuContext(ctx.from?.id) === "trip-linked" ? "trip_details_linked" : "trip_details"
+  );
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
     return null;
@@ -12142,6 +12171,13 @@ async function finishTrip(ctx, groupService, userService, telegram = null) {
     return null;
   }
 
+  if (!canTripBeFinished(trip)) {
+    return ctx.reply(
+      "Завершити похід можна тільки після його початку. До старту ця дія недоступна.",
+      { parse_mode: "HTML", ...getTripDetailsKeyboard(trip, String(ctx.from.id)) }
+    );
+  }
+
   const completionResult = groupService.completeGroup(trip.id);
   if (!completionResult?.ok) {
     return ctx.reply(
@@ -12213,6 +12249,13 @@ async function cancelTrip(ctx, groupService) {
     return null;
   }
 
+  if (!canTripBeCancelled(trip)) {
+    return ctx.reply(
+      "Скасувати похід можна тільки до його початку. Після старту ця дія недоступна.",
+      { parse_mode: "HTML", ...getTripDetailsKeyboard(trip, String(ctx.from.id)) }
+    );
+  }
+
   const cancelResult = groupService.cancelGroup(trip.id);
   if (!cancelResult?.ok) {
     return ctx.reply(
@@ -12245,6 +12288,20 @@ function startFinishTripConfirm(ctx, groupService, action = "complete") {
   const trip = requireOwnerTrip(ctx, groupService);
   if (!trip) {
     return null;
+  }
+
+  if (action === "complete" && !canTripBeFinished(trip)) {
+    return ctx.reply(
+      "Завершити похід можна тільки після його початку. До старту ця дія недоступна.",
+      { parse_mode: "HTML", ...getTripDetailsKeyboard(trip, String(ctx.from.id)) }
+    );
+  }
+
+  if (action === "cancel" && !canTripBeCancelled(trip)) {
+    return ctx.reply(
+      "Скасувати похід можна тільки до його початку. Під час або після походу ця дія недоступна.",
+      { parse_mode: "HTML", ...getTripDetailsKeyboard(trip, String(ctx.from.id)) }
+    );
   }
 
   const outstandingLoans = groupService.getOutstandingGearLoans(trip.id);
@@ -13194,6 +13251,9 @@ export function createBot(store) {
       return showTripMenu(ctx, groupService);
     }
     if (getMenuContext(ctx.from?.id) === "trip_details") {
+      return showTripMenu(ctx, groupService);
+    }
+    if (getMenuContext(ctx.from?.id) === "trip_details_linked") {
       return showTripMenu(ctx, groupService);
     }
     return null;

@@ -1828,23 +1828,40 @@ function buildTripCardChangedNotification(trip, actorName, previousTripCard = {}
     "",
     `У поході <b>${escapeHtml(trip.name)}</b> оновлено дані.`
   ];
+  const pushChangedBlock = (label, previousValue, nextValue) => {
+    lines.push(
+      "",
+      `<b>${escapeHtml(label)}</b>`,
+      `Було: <b>${escapeHtml(previousValue || "не вказано")}</b>`,
+      `Стало: <b>${escapeHtml(nextValue || "не вказано")}</b>`
+    );
+  };
 
   if (datesChanged) {
-    lines.push(`Дати: <b>${escapeHtml(formatTripDatesRange(previousTripCard))}</b> → <b>${escapeHtml(formatTripDatesRange(nextTripCard))}</b>`);
+    pushChangedBlock(
+      "Дати",
+      formatTripDatesRange(previousTripCard),
+      formatTripDatesRange(nextTripCard)
+    );
   }
 
   if (meetingPointChanged) {
-    lines.push(
-      `Точка збору: <b>${escapeHtml(normalizeLocationLabel(previousTripCard?.meetingPoint || "") || "не вказано")}</b> → <b>${escapeHtml(normalizeLocationLabel(nextTripCard?.meetingPoint || "") || "не вказано")}</b>`
+    pushChangedBlock(
+      "Точка збору",
+      normalizeLocationLabel(previousTripCard?.meetingPoint || ""),
+      normalizeLocationLabel(nextTripCard?.meetingPoint || "")
     );
   }
 
   if (meetingDateTimeChanged) {
-    lines.push(
-      `Дата та Час збору: <b>${escapeHtml(formatTripMeetingDateTime(previousTripCard || {}) || "не вказано")}</b> → <b>${escapeHtml(formatTripMeetingDateTime(nextTripCard || {}) || "не вказано")}</b>`
+    pushChangedBlock(
+      "Дата та Час збору",
+      formatTripMeetingDateTime(previousTripCard || {}),
+      formatTripMeetingDateTime(nextTripCard || {})
     );
   }
 
+  lines.push("");
   lines.push(`Змінив: <b>${escapeHtml(actorName)}</b>`);
   return joinRichLines(lines);
 }

@@ -345,6 +345,7 @@ function createEmptyGroupFields(group) {
     createdAt: group.createdAt || null,
     completedAt: group.completedAt || null,
     archivedAt: group.archivedAt || null,
+    closeReason: group.closeReason || "",
     finalSummary: group.finalSummary || null,
     members: Array.isArray(group.members)
       ? group.members.map((member) => ({
@@ -420,6 +421,7 @@ export class GroupService {
       createdAt: new Date().toISOString(),
       completedAt: null,
       archivedAt: null,
+      closeReason: "",
       finalSummary: null
     };
     data.groups.push(group);
@@ -780,6 +782,7 @@ export class GroupService {
     group.status = "completed";
     group.completedAt = new Date().toISOString();
     group.archivedAt = null;
+    group.closeReason = "completed";
     group.finalSummary = buildFinalSummary(group);
     this.store.write(data);
 
@@ -801,6 +804,7 @@ export class GroupService {
     Object.assign(group, preparedGroup);
     group.status = "archived";
     group.archivedAt = new Date().toISOString();
+    group.closeReason = group.closeReason || "archived";
     if (!group.finalSummary) {
       group.finalSummary = buildFinalSummary(group);
     }
@@ -828,6 +832,7 @@ export class GroupService {
 
       rawGroup.status = "archived";
       rawGroup.archivedAt = rawGroup.archivedAt || new Date().toISOString();
+      rawGroup.closeReason = rawGroup.closeReason || "completed";
       rawGroup.finalSummary = rawGroup.finalSummary || buildFinalSummary(group);
       changed = true;
     }
@@ -835,6 +840,38 @@ export class GroupService {
     if (changed) {
       this.store.write(data);
     }
+  }
+
+  cancelGroup(groupId) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      throw new Error("Group not found");
+    }
+
+    const outstandingLoans = this.getOutstandingGearLoans(groupId);
+    if (outstandingLoans.length > 0) {
+      return {
+        ok: false,
+        message: "Похід не можна скасувати, поки учасники не повернуть позичене спорядження.",
+        outstandingLoans
+      };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+    group.status = "archived";
+    group.completedAt = null;
+    group.archivedAt = new Date().toISOString();
+    group.closeReason = "cancelled";
+    group.finalSummary = buildFinalSummary(group);
+    this.store.write(data);
+
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group)
+    };
   }
 
   addGear({ groupId, memberId, memberName, gear }) {

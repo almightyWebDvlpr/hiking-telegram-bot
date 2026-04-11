@@ -127,6 +127,7 @@ const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
 const TRIP_SETTINGS_LABEL = "⚙️ Налаштування";
 const TRIP_SETTINGS_BACK_LABEL = "⬅️ До походу";
+const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
 const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
 const HELP_SECTIONS = [
@@ -211,6 +212,7 @@ const VPOHID_NEXT_PAGE_LABEL = "➡️ Наступні 10";
 const ROUTE_CHANGE_LABEL = "🔁 Змінити маршрут походу";
 const FINISH_TRIP_YES_LABEL = "✅ Так";
 const FINISH_TRIP_NO_LABEL = "❌ Ні";
+const CANCEL_TRIP_LABEL = "🚫 Скасувати похід";
 const FLOW_GEAR_STATUS_KEYBOARD = Markup.keyboard([
   ["🟢 Готово", "🟡 Частково готово"],
   ["🔴 Збираємо", "❌ Скасувати"]
@@ -885,8 +887,8 @@ function formatTripHubDetailMessage(trip, userId, userService, primaryTrip = nul
   return joinRichLines(lines);
 }
 
-function showTripMenuForTrip(ctx, groupService, trip) {
-  setMenuContext(ctx.from?.id, "trip");
+function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) {
+  setMenuContext(ctx.from?.id, fromHub ? "trip-linked" : "trip");
   const snapshot = groupService.getGearSnapshot(trip.id);
   const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
   const role = isTripOwner(trip, String(ctx.from.id)) ? "організатор" : canManageTrip(trip, String(ctx.from.id)) ? "редактор" : "учасник";
@@ -962,6 +964,10 @@ function getTripKeyboard(trip, userId = "") {
     ]);
   }
 
+  const backLabel = getMenuContext(userId) === "trip-linked"
+    ? TRIP_LIST_BACK_LABEL
+    : "⬅️ Головне меню";
+
   if (isTripMemberAutoExcluded(trip, userId)) {
     const rows = [];
     if (canRestrictedTripMemberAccessGearSection(trip, null, userId)) {
@@ -972,7 +978,7 @@ function getTripKeyboard(trip, userId = "") {
       rows.push([TRIP_SETTINGS_LABEL]);
     }
 
-    rows.push(["⬅️ Головне меню"]);
+    rows.push([backLabel]);
     return buildKeyboard(rows);
   }
 
@@ -981,8 +987,7 @@ function getTripKeyboard(trip, userId = "") {
     ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"],
     ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
     ["🌦 Погода походу", "💸 Витрати походу"],
-    [isTripOwner(trip, userId) ? "✅ Завершити похід" : KEYBOARD_PLACEHOLDER],
-    ["⬅️ Головне меню"]
+    [backLabel]
   ];
 
   return buildKeyboard(rows);
@@ -1017,10 +1022,12 @@ function getTripDetailsKeyboard(trip, userId = "") {
     return null;
   }
 
-  return buildKeyboard([
-    ["✏️ Редагувати дані походу"],
-    [TRIP_DETAILS_BACK_LABEL]
-  ]);
+  const rows = [["✏️ Редагувати дані походу"]];
+  if (isTripOwner(trip, userId)) {
+    rows.push(["✅ Завершити похід", CANCEL_TRIP_LABEL]);
+  }
+  rows.push([TRIP_DETAILS_BACK_LABEL]);
+  return buildKeyboard(rows);
 }
 
 function formatVpohidSearchResults(query, matches) {
@@ -4249,7 +4256,7 @@ async function handleTripHubFlow(ctx, flow, groupService, userService) {
     if (!trip) {
       return ctx.reply("Похід більше не знайдено.", getMainKeyboard(ctx));
     }
-    return showTripMenuForTrip(ctx, groupService, trip);
+    return showTripMenuForTrip(ctx, groupService, trip, { fromHub: true });
   }
 
   const trip = groupService.getGroup(selected.id);
@@ -12200,7 +12207,41 @@ async function finishTrip(ctx, groupService, userService, telegram = null) {
   );
 }
 
-function startFinishTripConfirm(ctx, groupService) {
+async function cancelTrip(ctx, groupService) {
+  const trip = requireOwnerTrip(ctx, groupService);
+  if (!trip) {
+    return null;
+  }
+
+  const cancelResult = groupService.cancelGroup(trip.id);
+  if (!cancelResult?.ok) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("⚠️ ПОХІД ПОКИ НЕ МОЖНА СКАСУВАТИ", trip.name),
+        "",
+        cancelResult?.message || "Спочатку потрібно закрити всі активні позики спорядження.",
+        "",
+        "Що ще потрібно повернути:",
+        ...buildOutstandingLoansSummaryLines(cancelResult?.outstandingLoans || [])
+      ]),
+      { parse_mode: "HTML", ...getTripDetailsKeyboard(trip, String(ctx.from.id)) }
+    );
+  }
+
+  clearFlow(String(ctx.from.id));
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("🚫 ПОХІД СКАСОВАНО", cancelResult.group.name),
+      "",
+      "Похід перенесено в історію без нарахування досягнень і нагород.",
+      "Фінальний звіт по витратах та спорядженню збережено."
+    ]),
+    { parse_mode: "HTML", ...getMainKeyboard(ctx) }
+  );
+}
+
+function startFinishTripConfirm(ctx, groupService, action = "complete") {
   const trip = requireOwnerTrip(ctx, groupService);
   if (!trip) {
     return null;
@@ -12210,9 +12251,14 @@ function startFinishTripConfirm(ctx, groupService) {
   if (outstandingLoans.length > 0) {
     return ctx.reply(
       joinRichLines([
-        ...formatCardHeader("⚠️ ПОХІД ПОКИ НЕ МОЖНА ЗАВЕРШИТИ", trip.name),
+        ...formatCardHeader(
+          action === "cancel" ? "⚠️ ПОХІД ПОКИ НЕ МОЖНА СКАСУВАТИ" : "⚠️ ПОХІД ПОКИ НЕ МОЖНА ЗАВЕРШИТИ",
+          trip.name
+        ),
         "",
-        "Поки в поході є позичене спорядження, завершення недоступне.",
+        action === "cancel"
+          ? "Поки в поході є позичене спорядження, скасування недоступне."
+          : "Поки в поході є позичене спорядження, завершення недоступне.",
         "",
         "Що ще не повернули:",
         ...buildOutstandingLoansSummaryLines(outstandingLoans),
@@ -12227,20 +12273,31 @@ function startFinishTripConfirm(ctx, groupService) {
     type: "finish_trip_confirm",
     tripId: trip.id,
     step: "confirm",
-    data: {}
+    data: { action }
   });
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("✅ ЗАВЕРШЕННЯ ПОХОДУ", trip.name),
+      ...formatCardHeader(action === "cancel" ? "🚫 СКАСУВАННЯ ПОХОДУ" : "✅ ЗАВЕРШЕННЯ ПОХОДУ", trip.name),
       "",
-      "Після підтвердження похід:",
-      "• отримає статус `завершений`",
-      "• перестане бути активним",
-      "• перейде в історію з фінальним підсумком",
+      ...(action === "cancel"
+        ? [
+            "Після підтвердження похід:",
+            "• перестане бути активним",
+            "• перейде в історію з фінальним підсумком по витратах і спорядженню",
+            "• не дасть досягнень, XP і нагород"
+          ]
+        : [
+            "Після підтвердження похід:",
+            "• отримає статус `завершений`",
+            "• перестане бути активним",
+            "• перейде в історію з фінальним підсумком"
+          ]),
       "",
       "⚠️ Зверни увагу:",
-      "• ця дія має сенс, коли маршрут уже завершено"
+      action === "cancel"
+        ? "• цю дію використовуй, якщо похід не відбувся"
+        : "• ця дія має сенс, коли маршрут уже завершено"
     ]),
     { parse_mode: "HTML", ...FINISH_TRIP_CONFIRM_KEYBOARD }
   );
@@ -12248,14 +12305,17 @@ function startFinishTripConfirm(ctx, groupService) {
 
 async function handleFinishTripConfirmFlow(ctx, flow, groupService, userService, telegram = null) {
   const message = ctx.message.text.trim();
+  const action = flow?.data?.action === "cancel" ? "cancel" : "complete";
 
   if (message === FINISH_TRIP_NO_LABEL) {
     clearFlow(String(ctx.from.id));
-    return showTripMenu(ctx, groupService);
+    return showTripPassport(ctx, groupService, userService, telegram?.advisorService || null);
   }
 
   if (message === FINISH_TRIP_YES_LABEL) {
-    return finishTrip(ctx, groupService, userService, telegram);
+    return action === "cancel"
+      ? cancelTrip(ctx, groupService)
+      : finishTrip(ctx, groupService, userService, telegram);
   }
 
   return ctx.reply("Обери одну з кнопок нижче: Так або Ні.", FINISH_TRIP_CONFIRM_KEYBOARD);
@@ -13189,6 +13249,7 @@ export function createBot(store) {
     return showWeather(ctx, weatherService, settlements[0], getTripKeyboard(trip, String(ctx.from.id)), advisorService, { trip });
   });
   bot.hears("✅ Завершити похід", (ctx) => startFinishTripConfirm(ctx, groupService));
+  bot.hears(CANCEL_TRIP_LABEL, (ctx) => startFinishTripConfirm(ctx, groupService, "cancel"));
   bot.hears(FINISH_TRIP_YES_LABEL, (ctx) => handleFinishTripConfirmFlow(ctx, getFlow(String(ctx.from.id)) || { type: "finish_trip_confirm" }, groupService, userService, bot.telegram));
   bot.hears(FINISH_TRIP_NO_LABEL, (ctx) => handleFinishTripConfirmFlow(ctx, getFlow(String(ctx.from.id)) || { type: "finish_trip_confirm" }, groupService, userService, bot.telegram));
   bot.hears("📌 Задати маршрут походу", (ctx) => startRouteWizard(ctx, groupService, "create"));
@@ -13227,6 +13288,7 @@ export function createBot(store) {
   bot.hears("🗑 Видалити витрату", (ctx) => startExpenseDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути всі витрати", (ctx) => showTripExpenses(ctx, groupService, userService));
   bot.hears("⬅️ До походу", (ctx) => showTripMenu(ctx, groupService));
+  bot.hears(TRIP_LIST_BACK_LABEL, (ctx) => showTripMenu(ctx, groupService));
   bot.hears("⬅️ Головне меню", (ctx) => {
     clearFlow(String(ctx.from.id));
     return sendHome(ctx, userService);

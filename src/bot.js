@@ -129,6 +129,7 @@ const TRIP_SETTINGS_LABEL = "⚙️ Налаштування";
 const TRIP_SETTINGS_BACK_LABEL = "⬅️ До походу";
 const TRIP_TRANSFER_ORGANIZER_LABEL = "🔁 Передати похід";
 const TRIP_TRANSFER_BACK_LABEL = "⬅️ До налаштувань";
+const TRIP_TRANSFER_INVITE_LABEL = "➕ Запросити нового організатора";
 const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
 const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
@@ -1037,7 +1038,7 @@ function getTransferOrganizerKeyboard(items = [], { includeInvite = false } = {}
     rows.push([item.label]);
   }
   if (includeInvite) {
-    rows.push(["➕ Запросити учасників"]);
+    rows.push([TRIP_TRANSFER_INVITE_LABEL]);
   }
   rows.push([TRIP_TRANSFER_BACK_LABEL]);
   return buildKeyboard(rows);
@@ -4478,14 +4479,19 @@ function startOrganizerTransferWizard(ctx, groupService, userService) {
 async function handleOrganizerTransferFlow(ctx, flow, groupService, userService, telegram) {
   const message = String(ctx.message?.text || "").trim();
 
+  if (message === TRIP_TRANSFER_BACK_LABEL && flow.step === "invite_info") {
+    return startOrganizerTransferWizard(ctx, groupService, userService);
+  }
+
   if (message === TRIP_TRANSFER_BACK_LABEL || message === "❌ Скасувати") {
     clearFlow(String(ctx.from.id));
     return showTripSettings(ctx, groupService);
   }
 
-  if (message === "➕ Запросити учасників") {
-    clearFlow(String(ctx.from.id));
-    return showInviteInfo(ctx, groupService);
+  if (message === TRIP_TRANSFER_INVITE_LABEL) {
+    flow.step = "invite_info";
+    setFlow(String(ctx.from.id), flow);
+    return showInviteInfo(ctx, groupService, { mode: "transfer_organizer" });
   }
 
   const selected = (flow.data?.items || []).find((item) => item.label === message);
@@ -5225,7 +5231,7 @@ async function handleOrganizerTransferAction(ctx, groupService, userService, act
   return null;
 }
 
-function showInviteInfo(ctx, groupService) {
+function showInviteInfo(ctx, groupService, options = {}) {
   const trip = requireManageTrip(ctx, groupService);
   if (!trip) {
     return null;
@@ -5239,20 +5245,39 @@ function showInviteInfo(ctx, groupService) {
   const inviteInfo = groupService.getInviteInfo(trip.id, botUsername);
   const botLink = botUsername ? `https://t.me/${botUsername}` : null;
 
-  const shareText = [
-    `Запрошення в похід "${trip.name}"`,
-    `Код: ${inviteInfo.inviteCode}`,
-    "Як приєднатися:",
-    botLink ? `1. Відкрий бота: ${botLink}` : "1. Відкрий бота",
-    "2. Натисни `🔑 Приєднатися до походу`",
-    `3. Введи код: \`${inviteInfo.inviteCode}\``
-  ];
+  const isTransferMode = options.mode === "transfer_organizer";
+  const shareText = isTransferMode
+    ? [
+        ...formatCardHeader("🔁 ЗАПРОСИТИ НОВОГО ОРГАНІЗАТОРА", trip.name),
+        "",
+        "Якщо потрібної людини ще немає в поході, спочатку запроси її цим кодом.",
+        `Код походу: ${inviteInfo.inviteCode}`,
+        "",
+        "Як приєднатися:",
+        botLink ? `1. Відкрити бота: ${botLink}` : "1. Відкрити бота",
+        "2. Натиснути `🔑 Приєднатися до походу`",
+        `3. Ввести код: \`${inviteInfo.inviteCode}\``,
+        "",
+        "Після того як людина приєднається до походу, повернись у `🔁 Передати похід` і заверши передачу ролі."
+      ]
+    : [
+        `Запрошення в похід "${trip.name}"`,
+        `Код: ${inviteInfo.inviteCode}`,
+        "Як приєднатися:",
+        botLink ? `1. Відкрий бота: ${botLink}` : "1. Відкрий бота",
+        "2. Натисни `🔑 Приєднатися до походу`",
+        `3. Введи код: \`${inviteInfo.inviteCode}\``
+      ];
 
   if (inviteInfo.deepLink) {
     shareText.push("", `Швидке посилання: ${inviteInfo.deepLink}`);
   }
 
-  return ctx.reply(shareText.join("\n"), getTripMembersKeyboard(trip, String(ctx.from.id)));
+  const keyboard = isTransferMode
+    ? buildKeyboard([[TRIP_TRANSFER_BACK_LABEL]])
+    : getTripMembersKeyboard(trip, String(ctx.from.id));
+
+  return ctx.reply(shareText.join("\n"), keyboard);
 }
 
 function startJoinTripWizard(ctx) {

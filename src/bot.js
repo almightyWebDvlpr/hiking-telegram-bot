@@ -4519,8 +4519,7 @@ async function handleOrganizerTransferFlow(ctx, flow, groupService, userService,
 
   if (telegram && result.request?.id) {
     try {
-      await sendRichText(
-        telegram,
+      await telegram.sendMessage(
         result.member.id,
         joinRichLines([
           ...formatCardHeader("🔁 ПЕРЕДАЧА ПОХОДУ", result.group.name),
@@ -5171,9 +5170,20 @@ async function handleOrganizerTransferAction(ctx, groupService, userService, act
   if (!result.accepted) {
     await ctx.answerCbQuery("Передачу ролі відхилено.");
     try {
-      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+      await ctx.editMessageText(
+        joinRichLines([
+          ...formatCardHeader("❌ ПЕРЕДАЧУ РОЛІ ВІДХИЛЕНО", result.group.name),
+          "",
+          "Ти відхилив(ла) запит на роль організатора."
+        ]),
+        { parse_mode: "HTML" }
+      );
     } catch {
-      // Ignore stale markup errors.
+      try {
+        await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+      } catch {
+        // Ignore stale markup errors.
+      }
     }
 
     const trip = result.group;
@@ -5197,9 +5207,20 @@ async function handleOrganizerTransferAction(ctx, groupService, userService, act
 
   await ctx.answerCbQuery("Тепер ти організатор цього походу.");
   try {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    await ctx.editMessageText(
+      joinRichLines([
+        ...formatCardHeader("✅ РОЛЬ ПІДТВЕРДЖЕНО", result.group.name),
+        "",
+        "Ти прийняв(ла) роль організатора цього походу."
+      ]),
+      { parse_mode: "HTML" }
+    );
   } catch {
-    // Ignore stale markup errors.
+    try {
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    } catch {
+      // Ignore stale markup errors.
+    }
   }
 
   const trip = result.group;

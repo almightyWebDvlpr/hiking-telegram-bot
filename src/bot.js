@@ -2320,6 +2320,10 @@ function getRouteFlowBackLabel(mode = "search") {
 }
 
 function getRouteFlowKeyboard(mode = "search") {
+  if (mode === "edit" || mode === "create") {
+    return buildKeyboard([["❌ Скасувати"]]);
+  }
+
   return buildKeyboard([["❌ Скасувати", getRouteFlowBackLabel(mode)]]);
 }
 
@@ -2337,7 +2341,11 @@ function getRouteStopsKeyboard(suggestions = [], selectedStops = [], mode = "sea
     rows.push(["⏭ Без зупинок"]);
   }
 
-  rows.push(["❌ Скасувати", getRouteFlowBackLabel(mode)]);
+  if (mode === "edit" || mode === "create") {
+    rows.push(["❌ Скасувати"]);
+  } else {
+    rows.push(["❌ Скасувати", getRouteFlowBackLabel(mode)]);
+  }
   return buildKeyboard(rows);
 }
 
@@ -5079,16 +5087,7 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
       "Спочатку передай похід іншій людині через «⚙️ Налаштування → 🔁 Передати похід».",
       { show_alert: true }
     );
-    await ctx.reply(
-      joinRichLines([
-        ...formatCardHeader("🔁 ПЕРЕДАТИ ПОХІД", trip.name),
-        "",
-        "Поки ти організатор, статус `👎 Не йду` для себе поставити не можна.",
-        "Спочатку передай роль іншому учаснику через `⚙️ Налаштування`."
-      ]),
-      { parse_mode: "HTML", ...getTripSettingsKeyboard(trip, viewerId) }
-    );
-    return null;
+    return startOrganizerTransferWizard(ctx, groupService, userService);
   }
 
   const actorMember = trip.members.find((item) => String(item.id) === viewerId) || null;
@@ -7837,6 +7836,36 @@ async function handleRouteFlow(ctx, flow, groupService, routeService, userServic
   const advisorService = routeService?.advisorService || null;
 
   if (message === "❌ Скасувати") {
+    const previousStep = getRoutePreviousStep(flow.step);
+
+    if (previousStep !== flow.step) {
+      flow.step = previousStep;
+      setFlow(String(ctx.from.id), flow);
+
+      if (flow.step === "from") {
+        return ctx.reply(
+          buildRoutePrompt("from", flow.mode),
+          { parse_mode: "Markdown", ...getRouteFlowKeyboard(flow.mode) }
+        );
+      }
+
+      if (flow.step === "to") {
+        return ctx.reply(
+          buildRoutePrompt("to", flow.mode),
+          { parse_mode: "Markdown", ...getRouteFlowKeyboard(flow.mode) }
+        );
+      }
+
+      if (flow.step === "stops") {
+        return ctx.reply(
+          (flow.data.stopSuggestions || []).length
+            ? `Обери проміжні точки з перевіреного списку.\nМожна натиснути кілька точок по черзі, а потім \`${FLOW_STOPS_DONE_LABEL}\`.`
+            : "Для цього маршруту немає перевірених проміжних точок у бібліотеці.\nЯкщо зупинок немає, натисни `⏭ Без зупинок`.",
+          { parse_mode: "Markdown", ...getRouteStopsKeyboard(flow.data.stopSuggestions || [], flow.data.stops || [], flow.mode) }
+        );
+      }
+    }
+
     clearFlow(String(ctx.from.id));
     return showParentMenuByContext(ctx, groupService, parentContext, advisorService)
       || (flow.mode === "search" ? showRoutesMenu(ctx) : showRouteMenu(ctx, groupService, advisorService));

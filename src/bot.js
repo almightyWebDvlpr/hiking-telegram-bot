@@ -2952,9 +2952,15 @@ function formatTripCompletionSummary(trip, userService = null) {
     ? `${trip.tripCard.startDate} -> ${trip.tripCard.endDate} | Ночівлі: ${trip.tripCard.nights}`
     : "не задано";
   const routeName = finalSummary.routeName || formatRouteStatus(trip.routePlan) || "маршрут не задано";
-  const members = Array.isArray(finalSummary.members) && finalSummary.members.length
-    ? finalSummary.members.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ")
-    : trip.members.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ");
+  const summaryMembers = Array.isArray(finalSummary.members)
+    ? finalSummary.members.filter(isMemberIncludedInCalculations)
+    : [];
+  const liveMembers = Array.isArray(trip.members)
+    ? trip.members.filter(isMemberIncludedInCalculations)
+    : [];
+  const members = summaryMembers.length
+    ? summaryMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ")
+    : liveMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ");
 
   return joinRichLines([
     `✅ Похід "${trip.name}" завершено.`,
@@ -2984,9 +2990,15 @@ function formatTripHistoryDetails(trip, userService = null) {
     ? `${trip.tripCard.startDate} -> ${trip.tripCard.endDate} | Ночівлі: ${trip.tripCard.nights}`
     : "не задано";
   const routeName = finalSummary.routeName || formatRouteStatus(trip.routePlan) || "маршрут не задано";
-  const members = Array.isArray(finalSummary.members) && finalSummary.members.length
-    ? finalSummary.members.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ")
-    : trip.members.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ");
+  const summaryMembers = Array.isArray(finalSummary.members)
+    ? finalSummary.members.filter(isMemberIncludedInCalculations)
+    : [];
+  const liveMembers = Array.isArray(trip.members)
+    ? trip.members.filter(isMemberIncludedInCalculations)
+    : [];
+  const members = summaryMembers.length
+    ? summaryMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ")
+    : liveMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ");
 
   const lines = [
     ...formatCardHeader("🕓 ІСТОРІЯ ПОХОДУ", trip.name || routeName),

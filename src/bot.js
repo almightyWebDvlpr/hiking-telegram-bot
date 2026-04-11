@@ -604,11 +604,19 @@ function isTripMemberNotGoing(trip, userId) {
   return String(getTripMember(trip, userId)?.attendanceStatus || "") === "not_going";
 }
 
+function hasTripAttendanceRestrictionWindow(trip) {
+  const daysUntil = calculateDaysUntil(trip?.tripCard?.startDate);
+  return daysUntil !== null && daysUntil <= 7;
+}
+
 function isTripMemberAutoExcluded(trip, userId) {
   const member = getTripMember(trip, userId);
   return (
     String(member?.attendanceStatus || "") === "not_going"
-    && member?.attendanceSelfLocked === true
+    && (
+      member?.attendanceSelfLocked === true ||
+      hasTripAttendanceRestrictionWindow(trip)
+    )
   );
 }
 
@@ -12037,10 +12045,6 @@ function startTripReminderLoop(bot, groupService, userService) {
     const activeTrips = groupService.getActiveGroups();
 
     for (const trip of activeTrips) {
-      if (trip.remindersEnabled !== true) {
-        continue;
-      }
-
       const ownerMember = getTripOwnerMember(trip);
       let currentTrip = trip;
 
@@ -12048,22 +12052,24 @@ function startTripReminderLoop(bot, groupService, userService) {
       const daysUntil = calculateDaysUntil(startDate);
 
       if (daysUntil !== null) {
-        const reminderKey = daysUntil === 3 ? "d3" : daysUntil === 1 ? "d1" : daysUntil === 0 ? "d0" : null;
-        if (reminderKey && !trip.reminderState?.[reminderKey]) {
-          const text = buildAutoReminderMessage(trip, reminderKey);
+        if (trip.remindersEnabled === true) {
+          const reminderKey = daysUntil === 3 ? "d3" : daysUntil === 1 ? "d1" : daysUntil === 0 ? "d0" : null;
+          if (reminderKey && !trip.reminderState?.[reminderKey]) {
+            const text = buildAutoReminderMessage(trip, reminderKey);
 
-          let delivered = false;
-          for (const member of trip.members || []) {
-            try {
-              await sendRichText(bot.telegram, member.id, text, getTripKeyboard(trip, member.id));
-              delivered = true;
-            } catch {
-              // Ignore users who haven't opened the bot or blocked it.
+            let delivered = false;
+            for (const member of trip.members || []) {
+              try {
+                await sendRichText(bot.telegram, member.id, text, getTripKeyboard(trip, member.id));
+                delivered = true;
+              } catch {
+                // Ignore users who haven't opened the bot or blocked it.
+              }
             }
-          }
 
-          if (delivered) {
-            groupService.markReminderSent({ groupId: trip.id, reminderKey });
+            if (delivered) {
+              groupService.markReminderSent({ groupId: trip.id, reminderKey });
+            }
           }
         }
 
@@ -12090,9 +12096,9 @@ function startTripReminderLoop(bot, groupService, userService) {
             }
           }
 
-          if (daysUntil === 7 && isAttendanceStatusPending(member.attendanceStatus)) {
+          if (daysUntil <= 7 && isAttendanceStatusPending(member.attendanceStatus)) {
             const attendanceAutoDeclineKey = `attendance_d7:${memberId}`;
-            if (!trip.reminderState?.[attendanceAutoDeclineKey]) {
+            if (!currentTrip.reminderState?.[attendanceAutoDeclineKey]) {
               const result = groupService.setMemberAttendanceStatusSystem({
                 groupId: currentTrip.id,
                 targetMemberId: memberId,
@@ -12164,7 +12170,7 @@ function startTripReminderLoop(bot, groupService, userService) {
           }
         }
 
-        if (daysUntil === 7 && ownerMember?.id && !currentTrip.reminderState?.attendance_d7_owner) {
+        if (daysUntil <= 7 && ownerMember?.id && !currentTrip.reminderState?.attendance_d7_owner) {
           const autoDeclinedMembersForOwner = (currentTrip.members || []).filter(
             (member) =>
               member.role !== "owner" &&
@@ -12189,6 +12195,10 @@ function startTripReminderLoop(bot, groupService, userService) {
             }
           }
         }
+      }
+
+      if (trip.remindersEnabled !== true) {
+        continue;
       }
 
       const endDate = trip.tripCard?.endDate;

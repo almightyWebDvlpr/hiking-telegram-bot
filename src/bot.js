@@ -828,7 +828,7 @@ function getTripHubKeyboard(items, options = {}) {
   const rows = items.map((item) => [item.label]);
 
   if (options.canCreate) {
-    rows.push(["➕ Створити похід", "🔑 Приєднатися до походу"]);
+    rows.push(["➕ Створити похід"]);
   }
 
   rows.push(["⬅️ Головне меню"]);
@@ -839,7 +839,7 @@ function getTripHubDetailKeyboard(options = {}) {
   const rows = [[TRIP_DETAILS_BACK_LABEL]];
 
   if (options.canCreate) {
-    rows.push(["➕ Створити похід", "🔑 Приєднатися до походу"]);
+    rows.push(["➕ Створити похід"]);
   }
 
   rows.push(["⬅️ Головне меню"]);
@@ -4252,13 +4252,9 @@ async function handleTripHubFlow(ctx, flow, groupService, userService) {
   }
 
   const primaryTrip = groupService.findBlockingActiveGroupByMember(userId, { excludeGroupId: trip.id });
-  flow.step = "detail";
-  flow.data.selectedId = selected.id;
-  setFlow(userId, flow);
-
   return ctx.reply(
     formatTripHubDetailMessage(trip, userId, userService, primaryTrip),
-    { parse_mode: "HTML", ...getTripHubDetailKeyboard({ canCreate }) }
+    { parse_mode: "HTML", ...getTripHubKeyboard(items, { canCreate }) }
   );
 }
 

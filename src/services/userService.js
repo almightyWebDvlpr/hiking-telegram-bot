@@ -205,6 +205,7 @@ function getCompletedTrips(groups, userId) {
   return groups.filter((trip) =>
     hasTrackableRoute(trip) &&
     (trip.status === "completed" || trip.status === "archived") &&
+    String(trip.closeReason || "") !== "cancelled" &&
     tripHasParticipatingMember(trip, userId)
   );
 }

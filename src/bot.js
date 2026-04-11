@@ -611,6 +611,9 @@ function hasTripAttendanceRestrictionWindow(trip) {
 
 function isTripMemberAutoExcluded(trip, userId) {
   const member = getTripMember(trip, userId);
+  if (member?.role === "owner") {
+    return false;
+  }
   return (
     String(member?.attendanceStatus || "") === "not_going"
     && (
@@ -12076,6 +12079,10 @@ function startTripReminderLoop(bot, groupService, userService) {
         for (const member of currentTrip.members || []) {
           const memberId = String(member.id || "");
           if (!memberId) {
+            continue;
+          }
+
+          if (member.role === "owner") {
             continue;
           }
 

@@ -324,6 +324,9 @@ function hasGroupAttendanceRestrictionWindow(group) {
 }
 
 function isMemberAutoExcluded(group, member) {
+  if (member?.role === "owner") {
+    return false;
+  }
   return (
     String(member?.attendanceStatus || "") === "not_going"
     && (

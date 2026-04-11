@@ -616,7 +616,6 @@ function isTripMemberAutoExcluded(trip, userId) {
   }
   return (
     String(member?.attendanceStatus || "") === "not_going"
-    && member?.attendanceSelfLocked === true
     && hasTripAttendanceRestrictionWindow(trip)
   );
 }
@@ -686,7 +685,7 @@ function isTripMemberAttendanceSelfLocked(trip, memberId) {
   if (member?.role === "owner") {
     return false;
   }
-  return member?.attendanceSelfLocked === true && hasTripAttendanceRestrictionWindow(trip);
+  return String(member?.attendanceStatus || "") === "not_going" && hasTripAttendanceRestrictionWindow(trip);
 }
 
 function getTripExchangeAvailability(trip, groupService, userId = "") {
@@ -725,7 +724,7 @@ function getRestrictedTripSectionMessage(trip) {
   return joinRichLines([
     ...formatCardHeader("👎 ОБМЕЖЕНИЙ ДОСТУП", trip.name),
     "",
-    "Бот автоматично зафіксував тобі статус `👎 Не йду`, тому основні розділи походу зараз заблоковані.",
+    "У тебе зараз статус `👎 Не йду`, а до старту залишилось 7 днів або менше, тому основні розділи походу тимчасово заблоковані.",
     "",
     "Що тобі лишається доступним:",
     "• `🎒 Спорядження походу` — тільки для обміну речами",

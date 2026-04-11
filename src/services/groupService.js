@@ -305,7 +305,6 @@ function isMemberAutoExcluded(group, member) {
   }
   return (
     String(member?.attendanceStatus || "") === "not_going"
-    && member?.attendanceSelfLocked === true
     && hasGroupAttendanceRestrictionWindow(group)
   );
 }
@@ -591,7 +590,7 @@ export class GroupService {
       return { ok: false, message: "Ти можеш змінювати тільки свій статус участі." };
     }
 
-    if (isSelfUpdate && target.attendanceSelfLocked === true && deadlineLockActive && !actorCanManage) {
+    if (isSelfUpdate && String(target.attendanceStatus || "") === "not_going" && deadlineLockActive && !actorCanManage) {
       return {
         ok: false,
         message:

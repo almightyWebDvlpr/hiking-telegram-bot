@@ -278,10 +278,34 @@ function isMemberIncludedInCalculations(member) {
   return String(member?.attendanceStatus || "") !== "not_going";
 }
 
-function isMemberAutoExcluded(member) {
+function calculateDaysUntil(dateString) {
+  if (!dateString) {
+    return null;
+  }
+
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const target = new Date(`${dateString}T00:00:00Z`);
+
+  if (Number.isNaN(target.getTime())) {
+    return null;
+  }
+
+  return Math.round((target.getTime() - todayUtc) / (24 * 60 * 60 * 1000));
+}
+
+function hasGroupAttendanceRestrictionWindow(group) {
+  const daysUntil = calculateDaysUntil(group?.tripCard?.startDate);
+  return daysUntil !== null && daysUntil <= 7;
+}
+
+function isMemberAutoExcluded(group, member) {
   return (
     String(member?.attendanceStatus || "") === "not_going"
-    && member?.attendanceSelfLocked === true
+    && (
+      member?.attendanceSelfLocked === true ||
+      hasGroupAttendanceRestrictionWindow(group)
+    )
   );
 }
 
@@ -1369,7 +1393,7 @@ export class GroupService {
 
     const currentNeed = normalizeGearNeed(group.gearNeeds[needIndex]);
     const borrower = (group.members || []).find((item) => String(item.id || "") === String(currentNeed.memberId || ""));
-    if (borrower && isMemberAutoExcluded(borrower)) {
+    if (borrower && isMemberAutoExcluded(group, borrower)) {
       return null;
     }
 
@@ -1437,7 +1461,7 @@ export class GroupService {
     }
 
     const borrower = (group.members || []).find((item) => String(item.id || "") === String(need.memberId || ""));
-    if (borrower && isMemberAutoExcluded(borrower)) {
+    if (borrower && isMemberAutoExcluded(group, borrower)) {
       return { ok: false, message: "Учасник уже має статус `Не йду`, тому нову позику більше не можна оформити." };
     }
 

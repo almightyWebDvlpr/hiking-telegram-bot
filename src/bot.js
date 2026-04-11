@@ -616,10 +616,8 @@ function isTripMemberAutoExcluded(trip, userId) {
   }
   return (
     String(member?.attendanceStatus || "") === "not_going"
-    && (
-      member?.attendanceSelfLocked === true ||
-      hasTripAttendanceRestrictionWindow(trip)
-    )
+    && member?.attendanceSelfLocked === true
+    && hasTripAttendanceRestrictionWindow(trip)
   );
 }
 
@@ -685,7 +683,10 @@ function isAttendanceStatusPending(status) {
 
 function isTripMemberAttendanceSelfLocked(trip, memberId) {
   const member = trip?.members?.find((item) => String(item.id) === String(memberId));
-  return member?.attendanceSelfLocked === true;
+  if (member?.role === "owner") {
+    return false;
+  }
+  return member?.attendanceSelfLocked === true && hasTripAttendanceRestrictionWindow(trip);
 }
 
 function getTripExchangeAvailability(trip, groupService, userId = "") {
@@ -4541,7 +4542,7 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
     memberView.title,
     `Роль: ${role}`,
     `Статус: ${formatAttendanceStatusText(member.attendanceStatus)}`,
-    member.attendanceSelfLocked === true
+    isTripMemberAttendanceSelfLocked(trip, member.id)
       ? "Самозміна статусу вимкнена. Для оновлення звернись до організатора або редактора."
       : null,
     "",
@@ -4582,7 +4583,7 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
   }
 
   if (!canUpdateTripMemberStatus(trip, viewerId, member.id)) {
-    const selfLocked = String(viewerId) === String(member.id) && member.attendanceSelfLocked === true;
+    const selfLocked = String(viewerId) === String(member.id) && isTripMemberAttendanceSelfLocked(trip, member.id);
     await ctx.answerCbQuery(
       selfLocked
         ? "Твій статус уже зафіксовано як «Не йду». Для зміни звернися до організатора або редактора."

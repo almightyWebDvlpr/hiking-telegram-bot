@@ -329,10 +329,8 @@ function isMemberAutoExcluded(group, member) {
   }
   return (
     String(member?.attendanceStatus || "") === "not_going"
-    && (
-      member?.attendanceSelfLocked === true ||
-      hasGroupAttendanceRestrictionWindow(group)
-    )
+    && member?.attendanceSelfLocked === true
+    && hasGroupAttendanceRestrictionWindow(group)
   );
 }
 
@@ -611,12 +609,13 @@ export class GroupService {
 
     const actorCanManage = actor.canManage === true || actor.role === "owner";
     const isSelfUpdate = actor.id === target.id;
+    const deadlineLockActive = hasGroupAttendanceRestrictionWindow(group);
 
     if (!isSelfUpdate && !actorCanManage) {
       return { ok: false, message: "Ти можеш змінювати тільки свій статус участі." };
     }
 
-    if (isSelfUpdate && target.attendanceSelfLocked === true && !actorCanManage) {
+    if (isSelfUpdate && target.attendanceSelfLocked === true && deadlineLockActive && !actorCanManage) {
       return {
         ok: false,
         message:
@@ -629,7 +628,7 @@ export class GroupService {
     target.attendanceStatus = status;
     if (lockSelfChange) {
       target.attendanceSelfLocked = true;
-    } else if (clearSelfLock || actorCanManage) {
+    } else if (clearSelfLock || actorCanManage || !deadlineLockActive) {
       target.attendanceSelfLocked = false;
     }
     this.store.write(data);
@@ -672,12 +671,13 @@ export class GroupService {
       return { ok: false, message: "Учасника не знайдено в цьому поході." };
     }
 
+    const deadlineLockActive = hasGroupAttendanceRestrictionWindow(group);
     const previousStatus = target.attendanceStatus || "";
     const previousLock = target.attendanceSelfLocked === true;
     target.attendanceStatus = status;
     if (lockSelfChange) {
       target.attendanceSelfLocked = true;
-    } else if (clearSelfLock) {
+    } else if (clearSelfLock || !deadlineLockActive) {
       target.attendanceSelfLocked = false;
     }
     this.store.write(data);

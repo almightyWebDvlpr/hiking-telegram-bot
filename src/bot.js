@@ -776,6 +776,160 @@ function canUpdateTripMemberStatus(trip, viewerId, memberId) {
   );
 }
 
+function getActiveTripsForUser(groupService, userId) {
+  if (!groupService || !userId) {
+    return [];
+  }
+
+  if (typeof groupService.getActiveGroupsByMember === "function") {
+    return groupService.getActiveGroupsByMember(userId);
+  }
+
+  const trip = groupService.findGroupByMember(userId);
+  return trip ? [trip] : [];
+}
+
+function getTripHubItems(groupService, userId) {
+  const trips = getActiveTripsForUser(groupService, userId);
+  const items = [];
+  const labelCounts = new Map();
+
+  for (const trip of trips) {
+    const member = getTripMember(trip, userId);
+    if (!member) {
+      continue;
+    }
+
+    const isRestricted = isTripMemberAutoExcluded(trip, userId);
+    const prefix = isRestricted
+      ? "👎"
+      : member.role === "owner"
+        ? "🧭"
+        : getAttendanceStatusEmoji(member.attendanceStatus) || "🟢";
+    const suffix = isRestricted ? " (Не йду)" : "";
+    const baseLabel = `${prefix} ${trip.name}${suffix}`;
+    const count = (labelCounts.get(baseLabel) || 0) + 1;
+    labelCounts.set(baseLabel, count);
+    const label = count > 1 ? `${baseLabel} (${count})` : baseLabel;
+
+    items.push({
+      id: trip.id,
+      label,
+      trip,
+      isRestricted,
+      isPrimary: !isRestricted
+    });
+  }
+
+  return items;
+}
+
+function getTripHubKeyboard(items, options = {}) {
+  const rows = items.map((item) => [item.label]);
+
+  if (options.canCreate) {
+    rows.push(["➕ Створити похід", "🔑 Приєднатися до походу"]);
+  }
+
+  rows.push(["⬅️ Головне меню"]);
+  return buildKeyboard(rows);
+}
+
+function getTripHubDetailKeyboard(options = {}) {
+  const rows = [[TRIP_DETAILS_BACK_LABEL]];
+
+  if (options.canCreate) {
+    rows.push(["➕ Створити похід", "🔑 Приєднатися до походу"]);
+  }
+
+  rows.push(["⬅️ Головне меню"]);
+  return buildKeyboard(rows);
+}
+
+function formatTripHubDetailMessage(trip, userId, userService, primaryTrip = null) {
+  const member = getTripMember(trip, userId);
+  const role = member?.role === "owner" ? "організатор" : member?.canManage ? "редактор" : "учасник";
+  const period = trip.tripCard
+    ? `${trip.tripCard.startDate} -> ${trip.tripCard.endDate} | Ночівлі: ${trip.tripCard.nights}`
+    : "ще не заповнено";
+  const readiness = trip.tripCard?.gearReadinessStatus || "ще не задано";
+  const route = formatRouteStatus(trip.routePlan);
+  const lines = [
+    ...formatCardHeader("👥 ПОХІД", trip.name),
+    "",
+    `Твоя роль: ${role}`,
+    `Твій статус: ${formatAttendanceStatusText(member?.attendanceStatus)}`,
+    `Статус походу: ${getTripLifecycleLabel(trip.status)}`,
+    `Маршрут: ${route}`,
+    `Регіон: ${trip.region || "ще не задано"}`,
+    `Дати походу: ${period}`,
+    `Готовність спорядження: ${readiness}`
+  ];
+
+  if (isTripMemberAutoExcluded(trip, userId)) {
+    lines.push("");
+    lines.push("⚠️ У цьому поході бот уже зафіксував тобі `👎 Не йду`, тому це лише короткий перегляд.");
+  }
+
+  if (primaryTrip && String(primaryTrip.id) !== String(trip.id)) {
+    lines.push("");
+    lines.push(`Активний похід, у якому ти зараз береш участь: ${escapeHtml(primaryTrip.name)}`);
+  }
+
+  return joinRichLines(lines);
+}
+
+function showTripMenuForTrip(ctx, groupService, trip) {
+  setMenuContext(ctx.from?.id, "trip");
+  const snapshot = groupService.getGearSnapshot(trip.id);
+  const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
+  const role = isTripOwner(trip, String(ctx.from.id)) ? "організатор" : canManageTrip(trip, String(ctx.from.id)) ? "редактор" : "учасник";
+  const route = formatRouteStatus(trip.routePlan);
+  const period = trip.tripCard
+    ? `${trip.tripCard.startDate} -> ${trip.tripCard.endDate} | Ночівлі: ${trip.tripCard.nights}`
+    : "ще не заповнено";
+  const readiness = trip.tripCard
+    ? trip.tripCard.gearReadinessStatus
+    : snapshot.readiness;
+  const hintLines = isRestricted
+    ? [
+        "Що зараз доступно:",
+        "• Спорядження походу — тільки обмін речами та повернення",
+        "• фото, робочі розділи й нові позики для тебе заблоковані",
+        "• якщо це сталося помилково, звернись до організатора або редактора"
+      ]
+    : [
+        "Що де шукати:",
+        "• Деталі походу — головна зведена картка",
+        "• Маршрут походу — трек, GPX/KML і перегляд карти",
+        "• Учасники походу — список і запрошення",
+        "• Спорядження походу — речі, запити і облік",
+        "• Харчування / Витрати — робочі списки походу",
+        "• Фото походу — кадри з маршруту, короткі підписи і фотоальбом"
+      ];
+
+  if (!isRestricted && canManageTrip(trip, String(ctx.from.id))) {
+    hintLines.push("• У Деталях походу можна редагувати назву, дати і готовність");
+    hintLines.push("• У Налаштуваннях зібрані нагадування і службові дії по походу");
+  }
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("👥 ПОХІД", trip.name),
+      "",
+      `Твоя роль: ${role}`,
+      `Статус походу: ${getTripLifecycleLabel(trip.status)}`,
+      `Маршрут: ${route}`,
+      `Регіон погоди: ${trip.region || "ще не задано"}`,
+      `Дати походу: ${period}`,
+      `Готовність спорядження: ${readiness}`,
+      "",
+      ...hintLines
+    ]),
+    { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+  );
+}
+
 function isValidTelegramUsername(value) {
   return /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(String(value || ""));
 }
@@ -4000,9 +4154,13 @@ async function handleTripHistoryFlow(ctx, flow, groupService, userService) {
 
 function showTripMenu(ctx, groupService) {
   setMenuContext(ctx.from?.id, "trip");
-  const trip = groupService.findGroupByMember(String(ctx.from.id));
+  const userId = String(ctx.from.id);
+  const activeTrips = getActiveTripsForUser(groupService, userId);
+  const primaryTrip = groupService.findGroupByMember(userId);
+  const blockedTrips = activeTrips.filter((trip) => isTripMemberAutoExcluded(trip, userId));
+  const canCreateAnotherTrip = !groupService.findBlockingActiveGroupByMember(userId);
 
-  if (!trip) {
+  if (!activeTrips.length) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("👥 ПОХІД", "Активного походу немає"),
@@ -4011,57 +4169,96 @@ function showTripMenu(ctx, groupService) {
       ]),
       {
         parse_mode: "HTML",
-        ...getTripKeyboard(null, String(ctx.from.id))
+        ...getTripKeyboard(null, userId)
       }
     );
   }
 
-  const snapshot = groupService.getGearSnapshot(trip.id);
-  const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
-  const role = isTripOwner(trip, String(ctx.from.id)) ? "організатор" : canManageTrip(trip, String(ctx.from.id)) ? "редактор" : "учасник";
-  const route = formatRouteStatus(trip.routePlan);
-  const period = trip.tripCard
-    ? `${trip.tripCard.startDate} -> ${trip.tripCard.endDate} | Ночівлі: ${trip.tripCard.nights}`
-    : "ще не заповнено";
-  const readiness = trip.tripCard
-    ? trip.tripCard.gearReadinessStatus
-    : snapshot.readiness;
-  const hintLines = isRestricted
-    ? [
-        "Що зараз доступно:",
-        "• Спорядження походу — тільки обмін речами та повернення",
-        "• фото, робочі розділи й нові позики для тебе заблоковані",
-        "• якщо це сталося помилково, звернись до організатора або редактора"
-      ]
-    : [
-        "Що де шукати:",
-        "• Деталі походу — головна зведена картка",
-        "• Маршрут походу — трек, GPX/KML і перегляд карти",
-        "• Учасники походу — список і запрошення",
-        "• Спорядження походу — речі, запити і облік",
-        "• Харчування / Витрати — робочі списки походу",
-        "• Фото походу — кадри з маршруту, короткі підписи і фотоальбом"
-      ];
+  if (blockedTrips.length > 0 || activeTrips.length > 1) {
+    const items = getTripHubItems(groupService, userId);
+    setFlow(userId, {
+      type: "trip_hub",
+      step: "pick",
+      data: {
+        items,
+        canCreate: canCreateAnotherTrip
+      }
+    });
 
-  if (!isRestricted && canManageTrip(trip, String(ctx.from.id))) {
-    hintLines.push("• У Деталях походу можна редагувати назву, дати і готовність");
-    hintLines.push("• У Налаштуваннях зібрані нагадування і службові дії по походу");
+    const lines = [
+      ...formatCardHeader("👥 МОЇ ПОХОДИ", `${activeTrips.length} активн.`),
+      "",
+      "Обери похід кнопкою нижче."
+    ];
+
+    if (blockedTrips.length > 0) {
+      lines.push("");
+      lines.push("⚠️ Похід із позначкою `👎` зараз доступний лише для короткого перегляду.");
+    }
+
+    if (canCreateAnotherTrip) {
+      lines.push("");
+      lines.push("Можеш приєднатися до іншого походу або створити свій, бо зараз у тебе немає іншого активного походу, який блокує нову участь.");
+    }
+
+    return ctx.reply(
+      joinRichLines(lines),
+      { parse_mode: "HTML", ...getTripHubKeyboard(items, { canCreate: canCreateAnotherTrip }) }
+    );
   }
 
+  return showTripMenuForTrip(ctx, groupService, primaryTrip);
+}
+
+async function handleTripHubFlow(ctx, flow, groupService, userService) {
+  const message = String(ctx.message?.text || "").trim();
+  const userId = String(ctx.from.id);
+  const items = Array.isArray(flow.data?.items) ? flow.data.items : [];
+  const canCreate = flow.data?.canCreate === true;
+
+  if (message === TRIP_DETAILS_BACK_LABEL) {
+    flow.step = "pick";
+    setFlow(userId, flow);
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("👥 МОЇ ПОХОДИ", `${items.length} активн.`),
+        "",
+        "Обери похід кнопкою нижче."
+      ]),
+      { parse_mode: "HTML", ...getTripHubKeyboard(items, { canCreate }) }
+    );
+  }
+
+  const selected = items.find((item) => item.label === message);
+  if (!selected) {
+    return ctx.reply(
+      "Обери похід кнопкою нижче.",
+      getTripHubKeyboard(items, { canCreate })
+    );
+  }
+
+  if (!selected.isRestricted) {
+    clearFlow(userId);
+    const trip = groupService.getGroup(selected.id);
+    if (!trip) {
+      return ctx.reply("Похід більше не знайдено.", getMainKeyboard(ctx));
+    }
+    return showTripMenuForTrip(ctx, groupService, trip);
+  }
+
+  const trip = groupService.getGroup(selected.id);
+  if (!trip) {
+    return ctx.reply("Похід більше не знайдено.", getMainKeyboard(ctx));
+  }
+
+  const primaryTrip = groupService.findBlockingActiveGroupByMember(userId, { excludeGroupId: trip.id });
+  flow.step = "detail";
+  flow.data.selectedId = selected.id;
+  setFlow(userId, flow);
+
   return ctx.reply(
-    joinRichLines([
-      ...formatCardHeader("👥 ПОХІД", trip.name),
-      "",
-      `Твоя роль: ${role}`,
-      `Статус походу: ${getTripLifecycleLabel(trip.status)}`,
-      `Маршрут: ${route}`,
-      `Регіон погоди: ${trip.region || "ще не задано"}`,
-      `Дати походу: ${period}`,
-      `Готовність спорядження: ${readiness}`,
-      "",
-      ...hintLines
-    ]),
-    { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+    formatTripHubDetailMessage(trip, userId, userService, primaryTrip),
+    { parse_mode: "HTML", ...getTripHubDetailKeyboard({ canCreate }) }
   );
 }
 
@@ -11066,6 +11263,11 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     return true;
   }
 
+  if (flow.type === "trip_hub") {
+    await handleTripHubFlow(ctx, flow, groupService, userService);
+    return true;
+  }
+
   if (flow.type === "profile_photo_album") {
     await handleProfilePhotoAlbumFlow(ctx, flow, groupService, userService, telegram);
     return true;
@@ -12494,7 +12696,7 @@ export function createBot(store) {
 
   bot.command("newgroup", (ctx) => {
     const name = ctx.message.text.replace("/newgroup", "").trim();
-    const activeTrip = groupService.findGroupByMember(String(ctx.from.id));
+    const activeTrip = groupService.findBlockingActiveGroupByMember(String(ctx.from.id));
     if (activeTrip) {
       return ctx.reply(
         `У тебе вже є активний похід "${activeTrip.name}". Спочатку заверш його, а потім створюй новий.`,
@@ -12857,6 +13059,9 @@ export function createBot(store) {
     if (activeFlow?.type === "trip_history") {
       return handleTripHistoryFlow(ctx, activeFlow, groupService, userService);
     }
+    if (activeFlow?.type === "trip_hub") {
+      return handleTripHubFlow(ctx, activeFlow, groupService, userService);
+    }
     if (activeFlow?.type === "trip_member_list") {
       clearFlow(String(ctx.from.id));
       return showTripMembersMenu(ctx, groupService, userService);
@@ -12881,7 +13086,7 @@ export function createBot(store) {
     return null;
   });
   bot.hears("➕ Створити похід", (ctx) => {
-    const activeTrip = groupService.findGroupByMember(String(ctx.from.id));
+    const activeTrip = groupService.findBlockingActiveGroupByMember(String(ctx.from.id));
     if (activeTrip) {
       return ctx.reply(
         `У тебе вже є активний похід "${activeTrip.name}". Спочатку заверш його, а потім створюй новий.`,

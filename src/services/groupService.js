@@ -337,6 +337,19 @@ function getMembersIncludedInCalculations(members = []) {
   return (Array.isArray(members) ? members : []).filter(isMemberIncludedInCalculations);
 }
 
+function findGroupMember(group, memberId) {
+  return (group?.members || []).find((member) => String(member?.id || "") === String(memberId || "")) || null;
+}
+
+function doesGroupBlockAdditionalActiveCommitment(group, memberId) {
+  const member = findGroupMember(group, memberId);
+  if (!member) {
+    return false;
+  }
+
+  return !isMemberAutoExcluded(group, member);
+}
+
 function createEmptyGroupFields(group) {
   return {
     ...group,
@@ -391,7 +404,7 @@ export class GroupService {
       .find(
         (group) =>
           group.status === "active" &&
-          group.members.some((member) => member.id === ownerId)
+          doesGroupBlockAdditionalActiveCommitment(group, ownerId)
       );
 
     if (activeGroup) {
@@ -441,21 +454,6 @@ export class GroupService {
 
   joinGroup(inviteCode, member) {
     const data = this.store.read();
-    const activeGroup = data.groups
-      .map((group) => createEmptyGroupFields(group))
-      .find(
-        (group) =>
-          group.status === "active" &&
-          group.members.some((existingMember) => existingMember.id === member.id)
-      );
-
-    if (activeGroup) {
-      return {
-        ok: false,
-        message: `Ти вже береш участь в активній групі "${activeGroup.name}". Спочатку заверш поточний похід.`
-      };
-    }
-
     const group = data.groups
       .map((item) => createEmptyGroupFields(item))
       .find((item) => item.inviteCode === inviteCode && item.status === "active");
@@ -466,30 +464,46 @@ export class GroupService {
 
     const rawGroup = data.groups.find((item) => item.id === group.id);
     const alreadyMember = rawGroup.members.some((item) => item.id === member.id);
-    if (!alreadyMember) {
-      rawGroup.members.push({
-        ...member,
-        attendanceStatus: "",
-        attendanceSelfLocked: false,
-        role: "member",
-        canManage: false
-      });
-      this.store.write(data);
+    if (alreadyMember) {
+      return { ok: true, group: createEmptyGroupFields(rawGroup) };
     }
+
+    const activeGroup = data.groups
+      .map((item) => createEmptyGroupFields(item))
+      .find(
+        (item) =>
+          item.id !== group.id &&
+          item.status === "active" &&
+          doesGroupBlockAdditionalActiveCommitment(item, member.id)
+      );
+
+    if (activeGroup) {
+      return {
+        ok: false,
+        message: `Ти вже береш участь в активній групі "${activeGroup.name}". Спочатку заверш поточний похід.`
+      };
+    }
+
+    rawGroup.members.push({
+      ...member,
+      attendanceStatus: "",
+      attendanceSelfLocked: false,
+      role: "member",
+      canManage: false
+    });
+    this.store.write(data);
 
     return { ok: true, group: createEmptyGroupFields(rawGroup) };
   }
 
   findGroupByMember(memberId) {
-    const data = this.store.read();
-    const group = data.groups
-      .map((item) => createEmptyGroupFields(item))
-      .find(
-        (item) =>
-          item.status === "active" &&
-          groupHasMember(item, memberId)
-      );
-    return group ? createEmptyGroupFields(group) : null;
+    const groups = this.getActiveGroupsByMember(memberId);
+    if (!groups.length) {
+      return null;
+    }
+
+    const primaryGroup = groups.find((group) => doesGroupBlockAdditionalActiveCommitment(group, memberId));
+    return primaryGroup || groups[0] || null;
   }
 
   getGroup(groupId) {
@@ -503,6 +517,25 @@ export class GroupService {
     return data.groups
       .map((item) => createEmptyGroupFields(item))
       .filter((item) => item.status === "active");
+  }
+
+  getActiveGroupsByMember(memberId) {
+    const data = this.store.read();
+    return data.groups
+      .map((item) => createEmptyGroupFields(item))
+      .filter(
+        (item) =>
+          item.status === "active" &&
+          groupHasMember(item, memberId)
+      );
+  }
+
+  findBlockingActiveGroupByMember(memberId, { excludeGroupId = "" } = {}) {
+    return this.getActiveGroupsByMember(memberId).find(
+      (group) =>
+        String(group.id) !== String(excludeGroupId || "") &&
+        doesGroupBlockAdditionalActiveCommitment(group, memberId)
+    ) || null;
   }
 
   getMember(groupId, memberId) {
@@ -620,6 +653,23 @@ export class GroupService {
         message:
           "Твій статус уже зафіксовано як «Не йду». Якщо це помилка, звернися до організатора або редактора походу."
       };
+    }
+
+    if (
+      !isSelfUpdate &&
+      actorCanManage &&
+      deadlineLockActive &&
+      String(target.attendanceStatus || "") === "not_going" &&
+      status !== "not_going"
+    ) {
+      const blockingGroup = this.findBlockingActiveGroupByMember(target.id, { excludeGroupId: group.id });
+      if (blockingGroup) {
+        return {
+          ok: false,
+          message:
+            `Цьому учаснику вже підтверджено інший активний похід "${blockingGroup.name}", тому змінити статус у цьому поході більше не можна.`
+        };
+      }
     }
 
     const previousStatus = target.attendanceStatus || "";

@@ -241,7 +241,7 @@ function buildFinalSummary(group) {
       : [group.routePlan?.from, group.routePlan?.to].filter(Boolean).join(" -> ");
 
   return {
-    members: group.members.map((member) => ({
+    members: getMembersIncludedInCalculations(group.members).map((member) => ({
       id: member.id,
       name: member.name,
       role: member.role,

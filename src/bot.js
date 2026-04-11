@@ -2443,6 +2443,94 @@ function formatReminderPlan(trip) {
   return joinRichLines(lines);
 }
 
+async function applyImmediateAttendanceDeadlineRules(telegram, groupService, userService, trip) {
+  if (!trip?.id || !trip?.tripCard?.startDate) {
+    return trip;
+  }
+
+  const daysUntil = calculateDaysUntil(trip.tripCard.startDate);
+  if (daysUntil === null || daysUntil > 7) {
+    return trip;
+  }
+
+  let currentTrip = trip;
+  const autoDeclinedMembers = [];
+
+  for (const member of currentTrip.members || []) {
+    const memberId = String(member?.id || "");
+    if (!memberId || member.role === "owner" || !isAttendanceStatusPending(member.attendanceStatus)) {
+      continue;
+    }
+
+    const result = groupService.setMemberAttendanceStatusSystem({
+      groupId: currentTrip.id,
+      targetMemberId: memberId,
+      status: "not_going",
+      lockSelfChange: true
+    });
+
+    if (!result.ok) {
+      continue;
+    }
+
+    groupService.cancelActiveGearNeedsForMember({
+      groupId: currentTrip.id,
+      memberId
+    });
+
+    currentTrip = groupService.getGroup(currentTrip.id) || result.group;
+    const updatedMember = currentTrip.members.find((item) => String(item.id) === memberId) || member;
+
+    if (result.previousStatus !== updatedMember.attendanceStatus) {
+      autoDeclinedMembers.push(updatedMember);
+
+      if (telegram) {
+        try {
+          await sendRichText(
+            telegram,
+            memberId,
+            buildAttendanceAutoDeclinedMessage(currentTrip, member, userService),
+            getTripKeyboard(currentTrip, memberId)
+          );
+        } catch {
+          // Ignore users who haven't opened the bot or blocked it.
+        }
+      }
+
+      void notifyTripMembers(
+        telegram,
+        currentTrip,
+        buildAttendanceStatusChangedNotification(
+          currentTrip,
+          getMemberDisplayName(userService, updatedMember),
+          "",
+          result.previousStatus,
+          updatedMember.attendanceStatus,
+          { automatic: true }
+        )
+      );
+    }
+  }
+
+  if (autoDeclinedMembers.length) {
+    const ownerMember = getTripOwnerMember(currentTrip);
+    if (telegram && ownerMember?.id) {
+      try {
+        await sendRichText(
+          telegram,
+          ownerMember.id,
+          buildOwnerAutoDeclinedAttendanceMessage(currentTrip, autoDeclinedMembers, userService),
+          getTripKeyboard(currentTrip, ownerMember.id)
+        );
+      } catch {
+        // Ignore users who haven't opened the bot or blocked it.
+      }
+    }
+  }
+
+  return currentTrip;
+}
+
 function normalizeLocationKey(value) {
   return String(value || "")
     .toLowerCase()
@@ -8345,7 +8433,7 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
     }
 
     const previousTrip = groupService.findGroupByMember(String(ctx.from.id));
-    const updatedTrip = groupService.setTripCard({
+    let updatedTrip = groupService.setTripCard({
       groupId: flow.tripId,
       tripName: flow.data.name,
       tripCard: {
@@ -8358,6 +8446,12 @@ async function handleTripCardFlow(ctx, flow, groupService, userService, telegram
         meetingTime: flow.data.meetingTime || ""
       }
     });
+    updatedTrip = await applyImmediateAttendanceDeadlineRules(
+      telegram,
+      groupService,
+      userService,
+      updatedTrip
+    );
     const snapshot = groupService.getGearSnapshot(updatedTrip.id);
     const actorName = userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx));
     const tripCardChanged = Boolean(

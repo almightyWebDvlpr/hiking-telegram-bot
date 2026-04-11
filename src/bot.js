@@ -744,6 +744,27 @@ function replyRestrictedTripSection(ctx, trip) {
   );
 }
 
+function canRestrictedTripMemberAccessGearSection(trip, groupService, userId = "") {
+  if (!trip || !userId) {
+    return false;
+  }
+
+  if (groupService) {
+    const exchange = getTripExchangeAvailability(trip, groupService, userId);
+    return exchange.hasBorrowed || exchange.hasLoaned;
+  }
+
+  const normalizedUserId = String(userId);
+  const hasBorrowed = Array.isArray(trip.gear) && trip.gear.some((item) =>
+    Array.isArray(item?.loans) && item.loans.some((loan) => String(loan?.borrowerMemberId || "") === normalizedUserId)
+  );
+  const hasLoaned = Array.isArray(trip.gear) && trip.gear.some((item) =>
+    String(item?.memberId || "") === normalizedUserId && Array.isArray(item?.loans) && item.loans.length > 0
+  );
+
+  return hasBorrowed || hasLoaned;
+}
+
 function canUpdateTripMemberStatus(trip, viewerId, memberId) {
   if (canManageTrip(trip, viewerId)) {
     return true;
@@ -782,9 +803,10 @@ function getTripKeyboard(trip, userId = "") {
   }
 
   if (isTripMemberAutoExcluded(trip, userId)) {
-    const rows = [
-      ["🎒 Спорядження походу"]
-    ];
+    const rows = [];
+    if (canRestrictedTripMemberAccessGearSection(trip, null, userId)) {
+      rows.push(["🎒 Спорядження походу"]);
+    }
 
     if (canManageTrip(trip, userId)) {
       rows.push([TRIP_SETTINGS_LABEL]);
@@ -1418,6 +1440,11 @@ function hasEditableTripGear(trip, groupService, userId = "") {
 
 function getTripGearKeyboard(trip = null, groupService = null, userId = "") {
   if (trip && isTripMemberAutoExcluded(trip, userId)) {
+    if (!canRestrictedTripMemberAccessGearSection(trip, groupService, userId)) {
+      return buildKeyboard([
+        ["⬅️ До походу"]
+      ]);
+    }
     return buildKeyboard([
       [TRIP_GEAR_ACCOUNTING_LABEL],
       ["⬅️ До походу"]
@@ -11174,6 +11201,18 @@ async function showTripGearMenu(ctx, groupService, advisorService = null) {
   }
 
   const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
+  if (isRestricted && !canRestrictedTripMemberAccessGearSection(trip, groupService, String(ctx.from.id))) {
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
+        "",
+        "У тебе зараз немає позичених речей і ніхто не користується твоїм спорядженням.",
+        "",
+        "Тому розділ спорядження для тебе зараз приховано."
+      ]),
+      { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
+    );
+  }
 
   const response = await ctx.reply(
     joinRichLines([

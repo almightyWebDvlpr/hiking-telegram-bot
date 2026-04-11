@@ -23,3 +23,15 @@ export function getTripCreateNextStep(step = "name") {
   const snapshot = getNextSnapshot(tripCreateMachine, getSnapshot(step), { type: "NEXT" });
   return String(snapshot.value || step);
 }
+
+const PREVIOUS_STEP_MAP = {
+  name: "name",
+  startDate: "name",
+  endDate: "startDate",
+  gearStatus: "endDate",
+  confirm: "gearStatus"
+};
+
+export function getTripCreatePreviousStep(step = "name") {
+  return PREVIOUS_STEP_MAP[String(step || "name")] || "name";
+}

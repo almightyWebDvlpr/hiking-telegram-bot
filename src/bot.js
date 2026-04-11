@@ -96,7 +96,7 @@ import {
   getRouteNextStep,
   getRoutePreviousStep
 } from "./state/routeMachine.js";
-import { getTripCreateNextStep } from "./state/tripCreateMachine.js";
+import { getTripCreateNextStep, getTripCreatePreviousStep } from "./state/tripCreateMachine.js";
 import { getTripCardNextStep, getTripCardPreviousStep } from "./state/tripCardMachine.js";
 
 
@@ -215,6 +215,8 @@ const FLOW_GEAR_STATUS_KEYBOARD = Markup.keyboard([
   ["🟢 Готово", "🟡 Частково готово"],
   ["🔴 Збираємо", "❌ Скасувати"]
 ]).resize().persistent();
+
+const TRIP_CREATE_KEYBOARD = Markup.keyboard([["❌ Скасувати"]]).resize().persistent();
 const FLOW_GEAR_STATUS_WITH_SKIP_KEYBOARD = Markup.keyboard([
   ["🟢 Готово", "🟡 Частково готово"],
   ["🔴 Збираємо", PROFILE_SKIP_LABEL],
@@ -825,14 +827,18 @@ function getTripHubItems(groupService, userId) {
 }
 
 function getTripHubKeyboard(items, options = {}) {
-  const rows = items.map((item) => [item.label]);
-
   if (options.canCreate) {
-    rows.push(["➕ Створити похід"]);
+    return buildKeyboard([
+      ["➕ Створити похід"],
+      ...items.map((item) => [item.label]),
+      ["⬅️ Головне меню"]
+    ]);
   }
 
-  rows.push(["⬅️ Головне меню"]);
-  return buildKeyboard(rows);
+  return buildKeyboard([
+    ...items.map((item) => [item.label]),
+    ["⬅️ Головне меню"]
+  ]);
 }
 
 function getTripHubDetailKeyboard(options = {}) {
@@ -7455,22 +7461,26 @@ function startTripCardWizardForTrip(ctx, tripId, initialData = {}) {
 }
 
 function startCreateTripWizard(ctx, tripName = "") {
+  const parentContext = getMenuContext(ctx.from?.id);
   setFlow(String(ctx.from.id), {
     type: "trip_create",
     step: tripName ? getTripCreateNextStep("name") : "name",
-    data: tripName ? { name: tripName } : {}
+    data: {
+      ...(tripName ? { name: tripName } : {}),
+      parentContext
+    }
   });
 
   if (tripName) {
     return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
       parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
+      ...TRIP_CREATE_KEYBOARD
     });
   }
 
   return ctx.reply("Введи назву походу.\nПриклад: `Карпати серпень`", {
     parse_mode: "Markdown",
-    ...FLOW_CANCEL_KEYBOARD
+    ...TRIP_CREATE_KEYBOARD
   });
 }
 
@@ -7971,8 +7981,57 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
   if (message === "❌ Скасувати") {
-    clearFlow(String(ctx.from.id));
-    return ctx.reply("Створення походу скасовано.", getMainKeyboard(ctx));
+    const previousStep = getTripCreatePreviousStep(flow.step);
+    if (previousStep === flow.step) {
+      const parentContext = getFlowParentContext(flow);
+      clearFlow(String(ctx.from.id));
+      return (
+        showParentMenuByContext(ctx, groupService, parentContext)
+        || showTripMenu(ctx, groupService)
+      );
+    }
+
+    flow.step = previousStep;
+    setFlow(String(ctx.from.id), flow);
+
+    if (flow.step === "name") {
+      return ctx.reply("Введи назву походу.\nПриклад: `Карпати серпень`", {
+        parse_mode: "Markdown",
+        ...TRIP_CREATE_KEYBOARD
+      });
+    }
+
+    if (flow.step === "startDate") {
+      return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
+        parse_mode: "Markdown",
+        ...TRIP_CREATE_KEYBOARD
+      });
+    }
+
+    if (flow.step === "endDate") {
+      return ctx.reply("Введи дату завершення у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
+        parse_mode: "Markdown",
+        ...TRIP_CREATE_KEYBOARD
+      });
+    }
+
+    if (flow.step === "gearStatus") {
+      return ctx.reply(
+        `Ночівель розраховано автоматично: ${flow.data.nights}\n\nОбери статус готовності спорядження.`,
+        FLOW_GEAR_STATUS_KEYBOARD
+      );
+    }
+
+    return ctx.reply(
+      [
+        "Перевір дані нового походу:",
+        `• Назва: ${flow.data.name}`,
+        `• Дати: ${flow.data.startDate} -> ${flow.data.endDate}`,
+        `• Ночівлі: ${flow.data.nights}`,
+        `• Готовність спорядження: ${flow.data.gearReadinessStatus}`
+      ].join("\n"),
+      FLOW_CONFIRM_CARD_KEYBOARD
+    );
   }
 
   if (flow.step === "name") {
@@ -7980,7 +8039,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     if (!validation.ok) {
       return ctx.reply(validation.error, {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...TRIP_CREATE_KEYBOARD
       });
     }
 
@@ -7989,7 +8048,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи дату початку у форматі YYYY-MM-DD.\nПриклад: `2026-07-14`", {
       parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
+      ...TRIP_CREATE_KEYBOARD
     });
   }
 
@@ -7998,7 +8057,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     if (!validation.ok) {
       return ctx.reply(`${validation.error}\nПриклад: \`2026-07-14\``, {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...TRIP_CREATE_KEYBOARD
       });
     }
 
@@ -8007,7 +8066,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     setFlow(String(ctx.from.id), flow);
     return ctx.reply("Введи дату завершення у форматі YYYY-MM-DD.\nПриклад: `2026-07-16`", {
       parse_mode: "Markdown",
-      ...FLOW_CANCEL_KEYBOARD
+      ...TRIP_CREATE_KEYBOARD
     });
   }
 
@@ -8016,7 +8075,7 @@ async function handleTripCreateFlow(ctx, flow, groupService, userService) {
     if (!validation.ok) {
       return ctx.reply(`${validation.error}\nПриклад: \`2026-07-16\``, {
         parse_mode: "Markdown",
-        ...FLOW_CANCEL_KEYBOARD
+        ...TRIP_CREATE_KEYBOARD
       });
     }
 

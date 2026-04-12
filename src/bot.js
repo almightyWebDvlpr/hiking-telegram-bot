@@ -674,7 +674,7 @@ function getAttendanceStatusMeta(status) {
     case "not_going":
       return { key: "not_going", emoji: "👎", label: "Не йду" };
     default:
-      return { key: "", emoji: "❔", label: "Не вказано" };
+      return { key: "", emoji: "🤔", label: "Думаю" };
   }
 }
 
@@ -1047,8 +1047,8 @@ function getTransferOrganizerKeyboard(items = [], { includeInvite = false } = {}
 function buildOrganizerTransferInlineKeyboard(groupId, requestId) {
   return Markup.inlineKeyboard([
     [
-      Markup.button.callback("✅ Прийняти роль організатора", `towner|accept|${groupId}|${requestId}`),
-      Markup.button.callback("❌ Відмовитись", `towner|decline|${groupId}|${requestId}`)
+      Markup.button.callback("✅ Прийняти роль організатора", `towner|a|${requestId}`),
+      Markup.button.callback("❌ Відмовитись", `towner|d|${requestId}`)
     ]
   ]);
 }
@@ -1230,7 +1230,11 @@ function getVpohidPreviewKeyboard(mode = "routes") {
 }
 
 function getVpohidSearchKeyboard(mode = "routes") {
-  return buildKeyboard([["❌ Скасувати", getVpohidBackLabel(mode)]]);
+  if (mode === "trip") {
+    return buildKeyboard([["❌ Скасувати", getVpohidBackLabel(mode)]]);
+  }
+
+  return buildKeyboard([["❌ Скасувати"]]);
 }
 
 function getVpohidCatalogMenuKeyboard(mode = "routes") {
@@ -1243,7 +1247,7 @@ function getVpohidCatalogMenuKeyboard(mode = "routes") {
 
   return buildKeyboard([
     [VPOHID_SEARCH_LABEL, VPOHID_BROWSE_ALL_LABEL],
-    ["❌ Скасувати", "⬅️ Головне меню"]
+    ["❌ Скасувати"]
   ]);
 }
 
@@ -3191,7 +3195,7 @@ function getTripHistoryKeyboard(items, { includeHistoryBack = false } = {}) {
   for (let index = 0; index < items.length; index += 2) {
     rows.push(items.slice(index, index + 2).map((item) => item.label));
   }
-  rows.push([TRIP_DETAILS_BACK_LABEL]);
+  rows.push([includeHistoryBack ? TRIP_HISTORY_BACK_LABEL : TRIP_DETAILS_BACK_LABEL]);
   return buildKeyboard(rows);
 }
 
@@ -4251,7 +4255,9 @@ function showTripHistory(ctx, groupService, userService) {
   const history = groupService.getGroupHistoryByMember(String(ctx.from.id));
 
   if (!history.length) {
-    return ctx.reply("Історія походів порожня.", getMainKeyboard(ctx));
+    clearFlow(String(ctx.from.id));
+    setMenuContext(ctx.from?.id, "profile");
+    return ctx.reply("Історія походів поки порожня.", getProfileKeyboard());
   }
 
   const items = history.map((trip, index) => ({
@@ -5241,13 +5247,15 @@ async function handleTripMemberStatusBack(ctx, groupService, userService) {
   return showTripMembers(ctx, groupService, userService);
 }
 
-async function handleOrganizerTransferAction(ctx, groupService, userService, action, groupId, requestId) {
+async function handleOrganizerTransferAction(ctx, groupService, userService, action, requestId) {
   const targetMemberId = String(ctx.from.id);
+  const group = groupService.findGroupByOrganizerTransferRequest(requestId);
+  const groupId = group?.id || "";
   const result = groupService.resolveOrganizerTransfer({
     groupId,
     requestId,
     targetMemberId,
-    accept: action === "accept"
+    accept: action === "a"
   });
 
   if (!result.ok) {
@@ -7810,17 +7818,17 @@ function showAdvicePrompt(ctx, advisorService) {
   return showFaqMenu(ctx, advisorService);
 }
 
-async function showWeather(ctx, weatherService, location, keyboard = null, advisorService = null, faqContext = {}) {
-  const targetKeyboard = keyboard || getMainKeyboard(ctx);
+async function showWeather(ctx, weatherService, location, keyboard = undefined, advisorService = null, faqContext = {}) {
+  const targetKeyboard = keyboard === undefined ? getMainKeyboard(ctx) : keyboard;
   if (!location) {
     return ctx.reply("Введи локацію: `/weather Яремче`", {
       parse_mode: "Markdown",
-      ...targetKeyboard
+      ...(targetKeyboard || {})
     });
   }
 
   const summary = await weatherService.getWeatherSummary(location);
-  const response = await ctx.reply(summary, { parse_mode: "HTML", ...targetKeyboard });
+  const response = await ctx.reply(summary, { parse_mode: "HTML", ...(targetKeyboard || {}) });
   await sendContextualFaqSuggestions(ctx, advisorService, {
     screen: "weather",
     weatherSummary: summary,
@@ -11337,11 +11345,16 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
   const parentContext = getFlowParentContext(flow);
 
   if (message === "❌ Скасувати") {
+    if (flow.step === "query" || flow.step === "catalog_loading") {
+      clearFlow(String(ctx.from.id));
+      return showParentMenuByContext(ctx, groupService, parentContext)
+        || (mode === "trip"
+          ? ctx.reply("Пошук готового маршруту скасовано.", getTripRouteKeyboard(groupService.findGroupByMember(String(ctx.from.id)), canManageTrip(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id))))
+          : ctx.reply("Пошук готового маршруту скасовано.", getRoutesMenuKeyboard(ctx.from.id)));
+    }
+
     clearFlow(String(ctx.from.id));
-    return showParentMenuByContext(ctx, groupService, parentContext)
-      || (mode === "trip"
-        ? ctx.reply("Пошук готового маршруту скасовано.", getTripRouteKeyboard(groupService.findGroupByMember(String(ctx.from.id)), canManageTrip(groupService.findGroupByMember(String(ctx.from.id)), String(ctx.from.id))))
-        : ctx.reply("Пошук готового маршруту скасовано.", getRoutesMenuKeyboard(ctx.from.id)));
+    return showVpohidCatalogMenu(ctx, groupService, mode);
   }
 
   if (flow.step === "query") {
@@ -11896,7 +11909,7 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     }
 
     clearFlow(String(ctx.from.id));
-    await showWeather(ctx, weatherService, message, getTripKeyboard(trip, String(ctx.from.id)), advisorService, { trip });
+    await showWeather(ctx, weatherService, message, false, advisorService, { trip });
     return true;
   }
 
@@ -13587,8 +13600,8 @@ export function createBot(store) {
     await ctx.answerCbQuery();
     return showTripSafety(ctx, groupService);
   });
-  bot.action(/^towner\|(accept|decline)\|([^|]+)\|([^|]+)$/, async (ctx) =>
-    handleOrganizerTransferAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "", ctx.match?.[3] || "")
+  bot.action(/^towner\|(a|d)\|([^|]+)$/, async (ctx) =>
+    handleOrganizerTransferAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
   );
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
   bot.action(/^mstatus\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
@@ -13832,6 +13845,18 @@ export function createBot(store) {
     const activeFlow = getFlow(String(ctx.from.id));
     const menuContext = getMenuContext(ctx.from.id);
 
+    if (activeFlow?.type === "route") {
+      return handleRouteFlow(ctx, activeFlow, groupService, routeService, userService, bot.telegram);
+    }
+
+    if (activeFlow?.type === "trip_card") {
+      return handleTripCardFlow(ctx, activeFlow, groupService, userService, bot.telegram);
+    }
+
+    if (activeFlow?.type === "vpohid_search") {
+      return handleVpohidSearchFlow(ctx, activeFlow, vpohidLiveService, routeService, groupService, userService, bot.telegram);
+    }
+
     if (activeFlow?.type === "join_trip") {
       clearFlow(String(ctx.from.id));
       return sendHome(ctx, userService);
@@ -13933,10 +13958,6 @@ export function createBot(store) {
       return handleProfileEditFlow(ctx, activeFlow, userService);
     }
 
-    if (activeFlow?.type === "trip_card") {
-      return handleTripCardFlow(ctx, activeFlow, groupService, userService, bot.telegram);
-    }
-
     if (activeFlow?.type === "my_gear_add" || activeFlow?.type === "my_gear_edit") {
       return showMyGearMenu(ctx);
     }
@@ -13951,15 +13972,6 @@ export function createBot(store) {
 
     if (activeFlow?.type === "transfer_organizer") {
       return showTripSettings(ctx, groupService);
-    }
-
-    if (activeFlow?.type === "vpohid_search") {
-      const mode = getVpohidFlowMode(activeFlow);
-      if (mode === "trip") {
-        const trip = groupService.findGroupByMember(String(ctx.from.id));
-        return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripRouteKeyboard(trip, canManageTrip(trip, String(ctx.from.id))) });
-      }
-      return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getRoutesMenuKeyboard(ctx.from.id) });
     }
 
     if (activeFlow?.type === "trip_photo_add") {

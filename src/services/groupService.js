@@ -830,6 +830,21 @@ export class GroupService {
     };
   }
 
+  findGroupByOrganizerTransferRequest(requestId) {
+    const data = this.store.read();
+    const normalizedRequestId = String(requestId || "");
+    if (!normalizedRequestId) {
+      return null;
+    }
+
+    const group = data.groups.find((item) => {
+      const request = normalizeOrganizerTransferRequest(item.pendingOrganizerTransfer);
+      return String(request?.id || "") === normalizedRequestId;
+    });
+
+    return group ? createEmptyGroupFields(group) : null;
+  }
+
   setMemberAttendanceStatus({
     groupId,
     actorId,

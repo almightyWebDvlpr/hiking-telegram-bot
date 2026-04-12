@@ -685,7 +685,7 @@ function formatAttendanceStatusText(status) {
 
 function getAttendanceStatusEmoji(status) {
   const meta = getAttendanceStatusMeta(status);
-  return meta.key ? meta.emoji : "";
+  return meta.emoji;
 }
 
 function isMemberIncludedInCalculations(member) {

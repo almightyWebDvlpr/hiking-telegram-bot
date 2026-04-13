@@ -457,6 +457,19 @@ function joinRichLines(lines) {
   return prepared.join("\n");
 }
 
+function stripHtmlTags(text) {
+  return String(text || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
 function splitRichText(text, maxLength = 3500) {
   const source = String(text || "").trim();
   if (!source) {
@@ -5256,7 +5269,10 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
       parse_mode: "HTML",
       ...getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
     }
-  );
+  ).catch(async () => ctx.reply(
+    stripHtmlTags(text),
+    getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
+  ));
 
   try {
     await ctx.reply("Обери дію нижче.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));

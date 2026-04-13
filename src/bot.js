@@ -5246,7 +5246,8 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
         actorLabel,
         result.previousStatus,
         updatedMember.attendanceStatus
-      )
+      ),
+      { excludeMemberId: viewerId }
     );
   }
 

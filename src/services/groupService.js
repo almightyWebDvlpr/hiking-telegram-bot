@@ -86,6 +86,20 @@ function normalizeTripPhotoEntry(entry = {}) {
   };
 }
 
+function normalizeMemberTicket(ticket = {}) {
+  return {
+    id: ticket.id || crypto.randomUUID(),
+    fileId: ticket.fileId || "",
+    fileUniqueId: ticket.fileUniqueId || "",
+    fileName: String(ticket.fileName || "").trim() || "Квиток",
+    mimeType: ticket.mimeType || "",
+    mediaType: ticket.mediaType === "photo" ? "photo" : "document",
+    uploadedByMemberId: ticket.uploadedByMemberId || "",
+    uploadedByMemberName: ticket.uploadedByMemberName || "",
+    createdAt: ticket.createdAt || new Date().toISOString()
+  };
+}
+
 function enrichTripGearItem(item = {}) {
   const enriched = enrichGearItem(item);
   const loans = Array.isArray(enriched.loans)
@@ -435,6 +449,9 @@ function createEmptyGroupFields(group) {
               ? member.attendanceStatus
               : "",
           attendanceSelfLocked: member.attendanceSelfLocked === true,
+          tickets: Array.isArray(member.tickets)
+            ? member.tickets.map((ticket) => normalizeMemberTicket(ticket)).filter((ticket) => ticket.fileId)
+            : [],
           role:
             member.role ||
             (member.id === (group.ownerId || group.members?.[0]?.id) ? "owner" : "member"),
@@ -480,6 +497,7 @@ export class GroupService {
           name: ownerName,
           attendanceStatus: "",
           attendanceSelfLocked: false,
+          tickets: [],
           role: "owner",
           canManage: true
         }
@@ -545,6 +563,7 @@ export class GroupService {
       ...member,
       attendanceStatus: "",
       attendanceSelfLocked: false,
+      tickets: [],
       role: "member",
       canManage: false
     });
@@ -667,6 +686,88 @@ export class GroupService {
 
     const preparedGroup = createEmptyGroupFields(group);
     return preparedGroup.members.find((member) => String(member?.id || "") === String(memberId || "")) || null;
+  }
+
+  getMemberTickets(groupId, memberId) {
+    return this.getMember(groupId, memberId)?.tickets || [];
+  }
+
+  addMemberTicket({ groupId, targetMemberId, ticket, replaceTicketId = "" }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return { ok: false, message: "Похід не знайдено." };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const member = group.members.find((item) => String(item.id) === String(targetMemberId || ""));
+    if (!member) {
+      return { ok: false, message: "Учасника не знайдено в цьому поході." };
+    }
+
+    const normalizedTicket = normalizeMemberTicket(ticket);
+    member.tickets = Array.isArray(member.tickets)
+      ? member.tickets.map((item) => normalizeMemberTicket(item)).filter((item) => item.fileId)
+      : [];
+
+    if (replaceTicketId) {
+      const index = member.tickets.findIndex((item) => String(item.id) === String(replaceTicketId));
+      if (index === -1) {
+        return { ok: false, message: "Квиток для оновлення не знайдено." };
+      }
+      normalizedTicket.id = member.tickets[index].id;
+      normalizedTicket.createdAt = member.tickets[index].createdAt || normalizedTicket.createdAt;
+      member.tickets[index] = normalizedTicket;
+    } else {
+      member.tickets.push(normalizedTicket);
+    }
+
+    this.store.write(data);
+
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group),
+      member: { ...member },
+      ticket: normalizedTicket
+    };
+  }
+
+  removeMemberTicket({ groupId, targetMemberId, ticketId }) {
+    const data = this.store.read();
+    const group = data.groups.find((item) => item.id === groupId);
+
+    if (!group) {
+      return { ok: false, message: "Похід не знайдено." };
+    }
+
+    const preparedGroup = createEmptyGroupFields(group);
+    Object.assign(group, preparedGroup);
+
+    const member = group.members.find((item) => String(item.id) === String(targetMemberId || ""));
+    if (!member) {
+      return { ok: false, message: "Учасника не знайдено в цьому поході." };
+    }
+
+    const existingTickets = Array.isArray(member.tickets)
+      ? member.tickets.map((item) => normalizeMemberTicket(item)).filter((item) => item.fileId)
+      : [];
+    const nextTickets = existingTickets.filter((item) => String(item.id) !== String(ticketId || ""));
+
+    if (nextTickets.length === existingTickets.length) {
+      return { ok: false, message: "Квиток не знайдено." };
+    }
+
+    member.tickets = nextTickets;
+    this.store.write(data);
+
+    return {
+      ok: true,
+      group: createEmptyGroupFields(group),
+      member: { ...member }
+    };
   }
 
   canManageGroup(groupId, memberId) {

@@ -5232,7 +5232,7 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
   ]);
 }
 
-function showTripMemberDetails(ctx, groupService, userService, trip, memberId, items = []) {
+async function showTripMemberDetails(ctx, groupService, userService, trip, memberId, items = []) {
   const member = trip.members.find((item) => item.id === memberId);
   if (!member) {
     return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(trip, String(ctx.from.id)));
@@ -5250,16 +5250,21 @@ function showTripMemberDetails(ctx, groupService, userService, trip, memberId, i
     }
   });
 
-  return Promise.all([
-    ctx.reply(
-      text,
-      {
-        parse_mode: "HTML",
-        ...getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
-      }
-    ),
-    ctx.reply(KEYBOARD_PLACEHOLDER, getTripMemberDetailsKeyboard(trip, viewerId, member.id))
-  ]);
+  const response = await ctx.reply(
+    text,
+    {
+      parse_mode: "HTML",
+      ...getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
+    }
+  );
+
+  try {
+    await ctx.reply("Обери дію нижче.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
+  } catch {
+    // Don't break the member card if auxiliary keyboard message fails.
+  }
+
+  return response;
 }
 
 function buildTripMemberTicketItems(member = {}) {

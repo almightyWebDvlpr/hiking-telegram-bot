@@ -1672,18 +1672,13 @@ function getTripMemberStatusInlineKeyboard(trip, memberId, viewerId) {
     ]);
   }
 
-  return rows.length ? Markup.inlineKeyboard(rows) : {};
-}
-
-function getTripMemberDetailsKeyboard(trip, viewerId, memberId) {
-  const rows = [];
-
-  if (canManageTripMemberTickets(trip, viewerId, memberId)) {
-    rows.push([MEMBER_TICKETS_UPLOAD_LABEL]);
+  if (member && canManageTripMemberTickets(trip, viewerId, memberId)) {
+    rows.push([
+      Markup.button.callback(MEMBER_TICKETS_UPLOAD_LABEL, `mtickets_upload|${trip.id}|${memberId}`)
+    ]);
   }
 
-  rows.push([MEMBER_TICKETS_BACK_LABEL]);
-  return buildKeyboard(rows);
+  return rows.length ? Markup.inlineKeyboard(rows) : {};
 }
 
 function getTripMemberTicketsKeyboard(items = [], { selected = false } = {}) {
@@ -5263,7 +5258,7 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
     }
   });
 
-  const response = await ctx.reply(
+  return ctx.reply(
     text,
     {
       parse_mode: "HTML",
@@ -5273,14 +5268,6 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
     stripHtmlTags(text),
     getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
   ));
-
-  try {
-    await ctx.reply("Обери дію нижче.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
-  } catch {
-    // Don't break the member card if auxiliary keyboard message fails.
-  }
-
-  return response;
 }
 
 function buildTripMemberTicketItems(member = {}) {
@@ -5576,6 +5563,54 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   );
 }
 
+async function startTripMemberTicketUpload(ctx, groupService, userService, tripId, memberId) {
+  const viewerId = String(ctx.from.id);
+  const trip = groupService.getGroup(tripId);
+  if (!trip) {
+    if (ctx.answerCbQuery) {
+      await ctx.answerCbQuery("Активний похід не знайдено.", { show_alert: true });
+    }
+    return null;
+  }
+
+  const member = trip.members.find((item) => String(item.id) === String(memberId));
+  if (!member) {
+    if (ctx.answerCbQuery) {
+      await ctx.answerCbQuery("Учасника не знайдено в цьому поході.", { show_alert: true });
+    }
+    return null;
+  }
+
+  if (!canManageTripMemberTickets(trip, viewerId, member.id)) {
+    if (ctx.answerCbQuery) {
+      await ctx.answerCbQuery("Ти не можеш завантажувати квитки цьому учаснику.", { show_alert: true });
+    }
+    return null;
+  }
+
+  setFlow(viewerId, {
+    type: "trip_member_ticket_manage",
+    tripId: trip.id,
+    step: "upload",
+    data: {
+      memberId: member.id,
+      items: buildTripMemberTicketItems(member),
+      selectedTicketId: "",
+      uploadMode: "create",
+      returnContext: "member_detail"
+    }
+  });
+
+  if (ctx.answerCbQuery) {
+    await ctx.answerCbQuery();
+  }
+
+  return ctx.reply(
+    "Надішли файл квитка документом або фото.",
+    buildKeyboard([["❌ Скасувати"]])
+  );
+}
+
 async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) {
   const viewerId = String(ctx.from.id);
   const message = String(ctx.message?.text || "").trim();
@@ -5591,37 +5626,8 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
     clearFlow(viewerId);
     return ctx.reply("Учасника не знайдено.", getTripMembersKeyboard(trip, viewerId));
   }
-
-  if (message === MEMBER_TICKETS_BACK_LABEL) {
-    clearFlow(viewerId);
-    return showTripMembers(ctx, groupService, userService);
-  }
-
-  if (message === MEMBER_TICKETS_UPLOAD_LABEL) {
-    if (!canManageTripMemberTickets(trip, viewerId, member.id)) {
-      return ctx.reply("Ти не можеш завантажувати квитки цьому учаснику.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
-    }
-
-    setFlow(viewerId, {
-      type: "trip_member_ticket_manage",
-      tripId: trip.id,
-      step: "upload",
-      data: {
-        memberId: member.id,
-        items: buildTripMemberTicketItems(member),
-        selectedTicketId: "",
-        uploadMode: "create",
-        returnContext: "member_detail"
-      }
-    });
-
-    return ctx.reply(
-      "Надішли файл квитка документом або фото.",
-      buildKeyboard([["❌ Скасувати"]])
-    );
-  }
-
-  return ctx.reply("Обери дію кнопкою нижче.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
+  clearFlow(viewerId);
+  return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
 }
 
 async function handleTripMemberStatusAction(ctx, groupService, userService, tripId, memberId, status) {
@@ -14115,6 +14121,9 @@ export function createBot(store) {
     }
     return showTripMemberTickets(ctx, groupService, userService, trip, ctx.match?.[1] || "");
   });
+  bot.action(/^mtickets_upload\|([^|]+)\|([^|]+)$/, async (ctx) =>
+    startTripMemberTicketUpload(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
+  );
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
   bot.action(/^mstatus\|([^|]+)\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
     handleTripMemberStatusAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "", ctx.match?.[3] || "")

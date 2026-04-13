@@ -4499,7 +4499,7 @@ function showTripSettings(ctx, groupService) {
   );
 }
 
-function startOrganizerTransferWizard(ctx, groupService, userService) {
+function startOrganizerTransferWizard(ctx, groupService, userService, options = {}) {
   const trip = requireOwnerTrip(ctx, groupService);
   if (!trip) {
     return null;
@@ -4532,7 +4532,13 @@ function startOrganizerTransferWizard(ctx, groupService, userService) {
     type: "transfer_organizer",
     tripId: trip.id,
     step: "member",
-    data: { items }
+    data: {
+      items,
+      previousOwnerStatusOnAccept:
+        options.previousOwnerStatusOnAccept === "not_going"
+          ? "not_going"
+          : ""
+    }
   });
 
   const lines = [
@@ -4546,6 +4552,10 @@ function startOrganizerTransferWizard(ctx, groupService, userService) {
     "• роль зміниться тільки після її підтвердження",
     "• новий організатор не повинен бути зайнятий в іншому активному поході на ті самі дати"
   ];
+
+  if (options.previousOwnerStatusOnAccept === "not_going") {
+    lines.push("• після підтвердження ти автоматично отримаєш статус «👎 Не йду» як звичайний учасник");
+  }
 
   if (!items.length) {
     lines.push("");
@@ -4574,7 +4584,9 @@ async function handleOrganizerTransferFlow(ctx, flow, groupService, userService,
   const message = String(ctx.message?.text || "").trim();
 
   if (message === TRIP_TRANSFER_BACK_LABEL && flow.step === "invite_info") {
-    return startOrganizerTransferWizard(ctx, groupService, userService);
+    return startOrganizerTransferWizard(ctx, groupService, userService, {
+      previousOwnerStatusOnAccept: flow.data?.previousOwnerStatusOnAccept || ""
+    });
   }
 
   if (message === TRIP_TRANSFER_BACK_LABEL || message === "❌ Скасувати") {
@@ -4599,7 +4611,8 @@ async function handleOrganizerTransferFlow(ctx, flow, groupService, userService,
   const result = groupService.startOrganizerTransfer({
     groupId: flow.tripId,
     actorId: String(ctx.from.id),
-    targetMemberId: selected.id
+    targetMemberId: selected.id,
+    previousOwnerStatusOnAccept: flow.data?.previousOwnerStatusOnAccept || ""
   });
 
   clearFlow(String(ctx.from.id));
@@ -5186,7 +5199,9 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
       "Спочатку передай похід іншій людині через «⚙️ Налаштування → 🔁 Передати похід».",
       { show_alert: true }
     );
-    return startOrganizerTransferWizard(ctx, groupService, userService);
+    return startOrganizerTransferWizard(ctx, groupService, userService, {
+      previousOwnerStatusOnAccept: "not_going"
+    });
   }
 
   const actorMember = trip.members.find((item) => String(item.id) === viewerId) || null;

@@ -337,6 +337,10 @@ function normalizeOrganizerTransferRequest(request = {}) {
     initiatedByName: request.initiatedByName || "",
     targetMemberId: request.targetMemberId || "",
     targetMemberName: request.targetMemberName || "",
+    previousOwnerStatusOnAccept:
+      request.previousOwnerStatusOnAccept === "not_going"
+        ? "not_going"
+        : "",
     createdAt: request.createdAt || new Date().toISOString()
   };
 }
@@ -690,7 +694,7 @@ export class GroupService {
     return { ok: true, group: createEmptyGroupFields(group), member: target };
   }
 
-  startOrganizerTransfer({ groupId, actorId, targetMemberId }) {
+  startOrganizerTransfer({ groupId, actorId, targetMemberId, previousOwnerStatusOnAccept = "" }) {
     const data = this.store.read();
     const group = data.groups.find((item) => item.id === groupId);
 
@@ -717,7 +721,11 @@ export class GroupService {
       initiatedById: actor.id,
       initiatedByName: actor.name || "",
       targetMemberId: target.id,
-      targetMemberName: target.name || ""
+      targetMemberName: target.name || "",
+      previousOwnerStatusOnAccept:
+        previousOwnerStatusOnAccept === "not_going"
+          ? "not_going"
+          : ""
     };
     this.store.write(data);
 
@@ -779,8 +787,13 @@ export class GroupService {
       return { ok: false, message: "Не вдалося знайти чинного організатора." };
     }
 
-    currentOwner.role = "manager";
-    currentOwner.canManage = true;
+    const shouldMarkPreviousOwnerNotGoing = request.previousOwnerStatusOnAccept === "not_going";
+    currentOwner.role = shouldMarkPreviousOwnerNotGoing ? "member" : "manager";
+    currentOwner.canManage = shouldMarkPreviousOwnerNotGoing ? false : true;
+    currentOwner.attendanceStatus = shouldMarkPreviousOwnerNotGoing ? "not_going" : (currentOwner.attendanceStatus || "");
+    currentOwner.attendanceSelfLocked = shouldMarkPreviousOwnerNotGoing
+      ? hasGroupAttendanceRestrictionWindow(group)
+      : false;
     target.role = "owner";
     target.canManage = true;
     target.attendanceStatus = "going";

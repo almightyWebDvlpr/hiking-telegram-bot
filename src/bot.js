@@ -5253,34 +5253,26 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
 
   const viewerId = String(ctx.from.id);
   const text = formatTripMemberDetailsMessage(trip, member, userService, viewerId);
-  setFlow(viewerId, {
-    type: "trip_member_detail",
-    tripId: trip.id,
-    step: "menu",
-    data: {
-      memberId,
-      items
-    }
-  });
-
-  const response = await ctx.reply(
-    text,
-    {
-      parse_mode: "HTML",
-      ...getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
-    }
-  ).catch(async () => ctx.reply(
-    stripHtmlTags(text),
-    getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
-  ));
+  const inlineKeyboard = getTripMemberStatusInlineKeyboard(trip, member.id, viewerId);
 
   try {
-    await ctx.reply("Обери дію нижче.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
+    return await ctx.reply(
+      text,
+      {
+        parse_mode: "HTML",
+        ...inlineKeyboard
+      }
+    );
   } catch {
-    // Don't break the member card if auxiliary keyboard message fails.
+    try {
+      return await ctx.reply(
+        stripHtmlTags(text),
+        inlineKeyboard
+      );
+    } catch {
+      return ctx.reply(stripHtmlTags(text));
+    }
   }
-
-  return response;
 }
 
 function buildTripMemberTicketItems(member = {}) {

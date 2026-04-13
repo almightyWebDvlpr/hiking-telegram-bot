@@ -547,6 +547,13 @@ export class GroupService {
       return { ok: false, message: "Ця людина вже є організатором цього походу." };
     }
 
+    if (String(target.attendanceStatus || "") === "not_going") {
+      return {
+        ok: false,
+        message: "Не можна передати роль організатора учаснику зі статусом «👎 Не йду»."
+      };
+    }
+
     const otherActiveGroups = data.groups
       .map((item) => createEmptyGroupFields(item))
       .filter(

@@ -130,6 +130,13 @@ const TRIP_SETTINGS_BACK_LABEL = "⬅️ До походу";
 const TRIP_TRANSFER_ORGANIZER_LABEL = "🔁 Передати похід";
 const TRIP_TRANSFER_BACK_LABEL = "⬅️ До налаштувань";
 const TRIP_TRANSFER_INVITE_LABEL = "➕ Запросити нового організатора";
+const MEMBER_TICKETS_LABEL = "🎫 Квитки";
+const MEMBER_TICKETS_UPLOAD_LABEL = "📤 Завантажити квиток";
+const MEMBER_TICKETS_OPEN_LABEL = "📎 Відкрити файл";
+const MEMBER_TICKETS_REPLACE_LABEL = "🔄 Оновити файл";
+const MEMBER_TICKETS_DELETE_LABEL = "🗑 Видалити квиток";
+const MEMBER_TICKETS_BACK_LABEL = "⬅️ До учасника";
+const MEMBER_TICKETS_LIST_BACK_LABEL = "⬅️ До квитків";
 const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
 const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
@@ -686,6 +693,30 @@ function formatAttendanceStatusText(status) {
 function getAttendanceStatusEmoji(status) {
   const meta = getAttendanceStatusMeta(status);
   return meta.emoji;
+}
+
+function getMemberTickets(member = {}) {
+  return Array.isArray(member?.tickets) ? member.tickets.filter((ticket) => ticket?.fileId) : [];
+}
+
+function getMemberTicketsStatusLabel(member = {}) {
+  const count = getMemberTickets(member).length;
+  return count ? `🎫 Є квитки (${count})` : "🎫 Немає квитків";
+}
+
+function summarizeTripTickets(trip) {
+  const members = Array.isArray(trip?.members) ? trip.members : [];
+  const ticketCount = members.reduce((sum, member) => sum + getMemberTickets(member).length, 0);
+  const membersWithTickets = members.filter((member) => getMemberTickets(member).length > 0).length;
+  return {
+    ticketCount,
+    membersWithTickets,
+    totalMembers: members.length
+  };
+}
+
+function canManageTripMemberTickets(trip, viewerId, memberId) {
+  return canManageTrip(trip, viewerId) || String(viewerId) === String(memberId);
 }
 
 function isMemberIncludedInCalculations(member) {
@@ -1621,7 +1652,36 @@ function getTripMemberStatusInlineKeyboard(trip, memberId, viewerId) {
     ]);
   }
 
+  if (canManageTripMemberTickets(trip, viewerId, memberId)) {
+    rows.push([
+      Markup.button.callback(MEMBER_TICKETS_LABEL, `mtickets|${memberId}`)
+    ]);
+  }
+
   return rows.length ? Markup.inlineKeyboard(rows) : {};
+}
+
+function getTripMemberTicketsKeyboard(items = [], { canManage = false, selected = false } = {}) {
+  const rows = [];
+
+  for (const item of items) {
+    rows.push([item.label]);
+  }
+
+  if (selected) {
+    rows.push([MEMBER_TICKETS_OPEN_LABEL]);
+    if (canManage) {
+      rows.push([MEMBER_TICKETS_REPLACE_LABEL, MEMBER_TICKETS_DELETE_LABEL]);
+    }
+    rows.push([MEMBER_TICKETS_LIST_BACK_LABEL]);
+    return buildKeyboard(rows);
+  }
+
+  if (canManage) {
+    rows.push([MEMBER_TICKETS_UPLOAD_LABEL]);
+  }
+  rows.push([MEMBER_TICKETS_BACK_LABEL]);
+  return buildKeyboard(rows);
 }
 
 function getTripRouteKeyboard(trip, canManage = false) {
@@ -3125,6 +3185,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
   const safety = resolveSafetyProfile(trip);
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
+  const ticketSummary = summarizeTripTickets(trip);
   const members = trip.members.map((member) => {
     const name = getMemberDisplayName(userService, member);
     const emoji = getAttendanceStatusEmoji(member.attendanceStatus);
@@ -3157,6 +3218,10 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     "",
     formatSectionHeader("👥", `Учасники (${trip.members.length})`),
     ...members,
+    "",
+    formatSectionHeader("🎫", "Квитки"),
+    `• Учасників із квитками: ${ticketSummary.membersWithTickets} з ${ticketSummary.totalMembers}`,
+    `• Завантажено файлів квитків: ${ticketSummary.ticketCount}`,
     "",
     ...buildTripMeetingPointLines(trip, userService, safety),
     "",
@@ -5106,6 +5171,7 @@ function showTripMembers(ctx, groupService, userService) {
     memberSummaryLines.push(`• Телефон: ${escapeHtml(memberView.title.split(" — ").slice(1).join(" — ") || "не вказано")}`);
     memberSummaryLines.push(`• Роль: ${roleLabel}`);
     memberSummaryLines.push(`• Статус: ${formatAttendanceStatusText(member.attendanceStatus)}`);
+    memberSummaryLines.push(`• Квитки: ${getMemberTicketsStatusLabel(member)}`);
     memberSummaryLines.push("");
   }
 
@@ -5137,6 +5203,10 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
   const role = member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник";
   const memberView = userService.getTripMemberView(member, canSeeFull);
   const titleName = `${getAttendanceStatusEmoji(member.attendanceStatus) ? `${getAttendanceStatusEmoji(member.attendanceStatus)} ` : ""}${getMemberDisplayName(userService, member)}`;
+  const tickets = getMemberTickets(member);
+  const ticketLines = tickets.length
+    ? tickets.map((ticket, index) => `• ${index + 1}. ${escapeHtml(ticket.fileName || `Квиток ${index + 1}`)}`)
+    : ["• Квитків ще немає"];
 
   return joinRichLines([
     ...formatCardHeader("👤 УЧАСНИК ПОХОДУ", titleName),
@@ -5144,11 +5214,15 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
     memberView.title,
     `Роль: ${role}`,
     `Статус: ${formatAttendanceStatusText(member.attendanceStatus)}`,
+    `Квитки: ${getMemberTicketsStatusLabel(member)}`,
     isTripMemberAttendanceSelfLocked(trip, member.id)
       ? "Самозміна статусу вимкнена. Для оновлення звернись до організатора або редактора."
       : null,
     "",
-    ...memberView.details
+    ...memberView.details,
+    "",
+    "🎫 Квитки",
+    ...ticketLines
   ]);
 }
 
@@ -5167,6 +5241,348 @@ function showTripMemberDetails(ctx, groupService, userService, trip, memberId, i
       parse_mode: "HTML",
       ...getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
     }
+  );
+}
+
+function buildTripMemberTicketItems(member = {}) {
+  return getMemberTickets(member).map((ticket, index) => ({
+    id: ticket.id,
+    label: `${index + 1}. ${truncateButtonLabel(ticket.fileName || `Квиток ${index + 1}`, 28)}`,
+    ticket
+  }));
+}
+
+function formatTripMemberTicketsMessage(trip, member, userService) {
+  const tickets = getMemberTickets(member);
+  const lines = [
+    ...formatCardHeader("🎫 КВИТКИ УЧАСНИКА", getMemberDisplayName(userService, member)),
+    "",
+    `Статус: ${getMemberTicketsStatusLabel(member)}`,
+    ""
+  ];
+
+  if (!tickets.length) {
+    lines.push("Поки що жодного квитка не додано.");
+  } else {
+    lines.push("Завантажені квитки:");
+    for (const [index, ticket] of tickets.entries()) {
+      lines.push(`• ${index + 1}. ${escapeHtml(ticket.fileName || `Квиток ${index + 1}`)}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("Обери квиток кнопкою нижче або завантаж новий файл.");
+  return joinRichLines(lines);
+}
+
+function formatTripMemberTicketDetailsMessage(trip, member, ticket, userService) {
+  return joinRichLines([
+    ...formatCardHeader("🎫 КВИТОК", getMemberDisplayName(userService, member)),
+    "",
+    `Файл: ${escapeHtml(ticket.fileName || "Квиток")}`,
+    `Тип файла: ${ticket.mediaType === "photo" ? "фото" : "документ"}`,
+    `Завантажено: ${formatDateTimeLabel(ticket.createdAt)}`,
+    ticket.uploadedByMemberName ? `Завантажив: ${escapeHtml(ticket.uploadedByMemberName)}` : null,
+    "",
+    "Можна відкрити файл, оновити його або видалити."
+  ].filter(Boolean));
+}
+
+function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
+  const member = trip.members.find((item) => String(item.id) === String(memberId));
+  if (!member) {
+    return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(trip, String(ctx.from.id)));
+  }
+
+  const viewerId = String(ctx.from.id);
+  if (!canManageTripMemberTickets(trip, viewerId, memberId)) {
+    return ctx.reply("Тобі недоступні квитки цього учасника.", getTripMembersListKeyboard([]));
+  }
+
+  const items = buildTripMemberTicketItems(member);
+  setFlow(viewerId, {
+    type: "trip_member_ticket_manage",
+    tripId: trip.id,
+    step: "list",
+    data: {
+      memberId,
+      items,
+      selectedTicketId: "",
+      uploadMode: ""
+    }
+  });
+
+  return ctx.reply(
+    formatTripMemberTicketsMessage(trip, member, userService),
+    {
+      parse_mode: "HTML",
+      ...getTripMemberTicketsKeyboard(items, {
+        canManage: canManageTripMemberTickets(trip, viewerId, memberId)
+      })
+    }
+  );
+}
+
+async function sendTripMemberTicketFile(ctx, member, ticket) {
+  const caption = `🎫 ${member.name || "Учасник"} — ${ticket.fileName || "Квиток"}`;
+  if (ticket.mediaType === "photo") {
+    return ctx.telegram.sendPhoto(ctx.chat.id, ticket.fileId, { caption });
+  }
+  return ctx.telegram.sendDocument(ctx.chat.id, ticket.fileId, { caption });
+}
+
+async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) {
+  const message = String(ctx.message?.text || "").trim();
+  const viewerId = String(ctx.from.id);
+  const trip = groupService.getGroup(flow.tripId);
+
+  if (!trip) {
+    clearFlow(viewerId);
+    return ctx.reply("Похід не знайдено.", getTripKeyboard(null, viewerId));
+  }
+
+  const member = trip.members.find((item) => String(item.id) === String(flow.data?.memberId || ""));
+  if (!member) {
+    clearFlow(viewerId);
+    return ctx.reply("Учасника не знайдено.", getTripMembersKeyboard(trip, viewerId));
+  }
+
+  const canManageTickets = canManageTripMemberTickets(trip, viewerId, member.id);
+  const items = buildTripMemberTicketItems(member);
+
+  if (message === MEMBER_TICKETS_BACK_LABEL) {
+    clearFlow(viewerId);
+    return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
+  }
+
+  if (flow.step === "list") {
+    if (message === MEMBER_TICKETS_UPLOAD_LABEL) {
+      if (!canManageTickets) {
+        return ctx.reply("Ти не можеш додавати квитки цьому учаснику.", getTripMemberTicketsKeyboard(items, { canManage: false }));
+      }
+
+      flow.step = "upload";
+      flow.data.items = items;
+      flow.data.uploadMode = "create";
+      flow.data.selectedTicketId = "";
+      setFlow(viewerId, flow);
+      return ctx.reply(
+        "Надішли файл квитка документом або фото. Після завантаження він з’явиться в картці учасника.",
+        buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]])
+      );
+    }
+
+    const selected = items.find((item) => item.label === message);
+    if (!selected) {
+      return ctx.reply(
+        "Обери квиток кнопкою нижче або завантаж новий файл.",
+        getTripMemberTicketsKeyboard(items, { canManage: canManageTickets })
+      );
+    }
+
+    flow.step = "item";
+    flow.data.items = items;
+    flow.data.selectedTicketId = selected.id;
+    setFlow(viewerId, flow);
+    return ctx.reply(
+      formatTripMemberTicketDetailsMessage(trip, member, selected.ticket, userService),
+      {
+        parse_mode: "HTML",
+        ...getTripMemberTicketsKeyboard(items, { canManage: canManageTickets, selected: true })
+      }
+    );
+  }
+
+  if (flow.step === "item") {
+    const selectedTicket = getMemberTickets(member).find((item) => String(item.id) === String(flow.data?.selectedTicketId || ""));
+    if (!selectedTicket) {
+      flow.step = "list";
+      flow.data.items = items;
+      flow.data.selectedTicketId = "";
+      setFlow(viewerId, flow);
+      return ctx.reply(
+        formatTripMemberTicketsMessage(trip, member, userService),
+        { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items, { canManage: canManageTickets }) }
+      );
+    }
+
+    if (message === MEMBER_TICKETS_LIST_BACK_LABEL) {
+      flow.step = "list";
+      flow.data.items = items;
+      flow.data.selectedTicketId = "";
+      setFlow(viewerId, flow);
+      return ctx.reply(
+        formatTripMemberTicketsMessage(trip, member, userService),
+        { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items, { canManage: canManageTickets }) }
+      );
+    }
+
+    if (message === MEMBER_TICKETS_OPEN_LABEL) {
+      await sendTripMemberTicketFile(ctx, member, selectedTicket);
+      return ctx.reply(
+        formatTripMemberTicketDetailsMessage(trip, member, selectedTicket, userService),
+        { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items, { canManage: canManageTickets, selected: true }) }
+      );
+    }
+
+    if (message === MEMBER_TICKETS_REPLACE_LABEL) {
+      if (!canManageTickets) {
+        return ctx.reply("Ти не можеш оновлювати цей квиток.", getTripMemberTicketsKeyboard(items, { canManage: false, selected: true }));
+      }
+
+      flow.step = "upload";
+      flow.data.items = items;
+      flow.data.uploadMode = "replace";
+      setFlow(viewerId, flow);
+      return ctx.reply(
+        "Надішли новий файл квитка документом або фото. Поточний файл буде замінено.",
+        buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]])
+      );
+    }
+
+    if (message === MEMBER_TICKETS_DELETE_LABEL) {
+      if (!canManageTickets) {
+        return ctx.reply("Ти не можеш видаляти цей квиток.", getTripMemberTicketsKeyboard(items, { canManage: false, selected: true }));
+      }
+
+      const result = groupService.removeMemberTicket({
+        groupId: trip.id,
+        targetMemberId: member.id,
+        ticketId: selectedTicket.id
+      });
+
+      if (!result.ok) {
+        return ctx.reply(result.message, getTripMemberTicketsKeyboard(items, { canManage: canManageTickets, selected: true }));
+      }
+
+      const refreshedTrip = result.group;
+      const refreshedMember = refreshedTrip.members.find((item) => String(item.id) === String(member.id)) || member;
+      const refreshedItems = buildTripMemberTicketItems(refreshedMember);
+      flow.step = "list";
+      flow.data.items = refreshedItems;
+      flow.data.selectedTicketId = "";
+      flow.data.uploadMode = "";
+      setFlow(viewerId, flow);
+      return ctx.reply(
+        joinRichLines([
+          `🗑 Квиток для ${escapeHtml(getMemberDisplayName(userService, refreshedMember))} видалено.`,
+          "",
+          formatTripMemberTicketsMessage(refreshedTrip, refreshedMember, userService)
+        ]),
+        { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(refreshedItems, { canManage: canManageTickets }) }
+      );
+    }
+
+    return ctx.reply(
+      "Обери дію з квитком кнопкою нижче.",
+      getTripMemberTicketsKeyboard(items, { canManage: canManageTickets, selected: true })
+    );
+  }
+
+  if (flow.step === "upload" && message === MEMBER_TICKETS_LIST_BACK_LABEL) {
+    flow.step = flow.data?.selectedTicketId ? "item" : "list";
+    flow.data.items = items;
+    flow.data.uploadMode = "";
+    setFlow(viewerId, flow);
+    if (flow.step === "item") {
+      const selectedTicket = getMemberTickets(member).find((item) => String(item.id) === String(flow.data?.selectedTicketId || ""));
+      if (selectedTicket) {
+        return ctx.reply(
+          formatTripMemberTicketDetailsMessage(trip, member, selectedTicket, userService),
+          { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items, { canManage: canManageTickets, selected: true }) }
+        );
+      }
+    }
+    return ctx.reply(
+      formatTripMemberTicketsMessage(trip, member, userService),
+      { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items, { canManage: canManageTickets }) }
+    );
+  }
+
+  if (flow.step === "upload") {
+    return ctx.reply(
+      "Надішли файл квитка документом або фото.",
+      buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]])
+    );
+  }
+
+  return null;
+}
+
+async function handleTripMemberTicketMedia(ctx, flow, groupService, userService) {
+  const viewerId = String(ctx.from.id);
+  const trip = groupService.getGroup(flow.tripId);
+  if (!trip) {
+    clearFlow(viewerId);
+    return ctx.reply("Похід не знайдено.", getTripKeyboard(null, viewerId));
+  }
+
+  const member = trip.members.find((item) => String(item.id) === String(flow.data?.memberId || ""));
+  if (!member) {
+    clearFlow(viewerId);
+    return ctx.reply("Учасника не знайдено.", getTripMembersKeyboard(trip, viewerId));
+  }
+
+  if (!canManageTripMemberTickets(trip, viewerId, member.id)) {
+    clearFlow(viewerId);
+    return ctx.reply("Тобі недоступно завантаження квитків для цього учасника.", getTripMembersKeyboard(trip, viewerId));
+  }
+
+  const document = ctx.message?.document || null;
+  const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
+
+  if (!document?.file_id && !photo?.file_id) {
+    return ctx.reply("Надішли документ або фото квитка.", buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]]));
+  }
+
+  const ticket = document
+    ? {
+        fileId: document.file_id,
+        fileUniqueId: document.file_unique_id || "",
+        fileName: document.file_name || "Квиток",
+        mimeType: document.mime_type || "",
+        mediaType: "document",
+        uploadedByMemberId: viewerId,
+        uploadedByMemberName: userService.getDisplayName(viewerId, getUserLabel(ctx))
+      }
+    : {
+        fileId: photo.file_id,
+        fileUniqueId: photo.file_unique_id || "",
+        fileName: `Фото квитка ${new Date().toLocaleDateString("uk-UA")}`,
+        mimeType: "image/jpeg",
+        mediaType: "photo",
+        uploadedByMemberId: viewerId,
+        uploadedByMemberName: userService.getDisplayName(viewerId, getUserLabel(ctx))
+      };
+
+  const result = groupService.addMemberTicket({
+    groupId: trip.id,
+    targetMemberId: member.id,
+    ticket,
+    replaceTicketId: flow.data?.uploadMode === "replace" ? flow.data?.selectedTicketId || "" : ""
+  });
+
+  if (!result.ok) {
+    return ctx.reply(result.message, buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]]));
+  }
+
+  const refreshedTrip = result.group;
+  const refreshedMember = refreshedTrip.members.find((item) => String(item.id) === String(member.id)) || member;
+  const refreshedItems = buildTripMemberTicketItems(refreshedMember);
+
+  flow.step = "list";
+  flow.data.items = refreshedItems;
+  flow.data.selectedTicketId = "";
+  flow.data.uploadMode = "";
+  setFlow(viewerId, flow);
+
+  return ctx.reply(
+    joinRichLines([
+      `✅ Квиток для ${escapeHtml(getMemberDisplayName(userService, refreshedMember))} збережено.`,
+      "",
+      formatTripMemberTicketsMessage(refreshedTrip, refreshedMember, userService)
+    ]),
+    { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(refreshedItems, { canManage: true }) }
   );
 }
 
@@ -11918,6 +12334,11 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
     return true;
   }
 
+  if (flow.type === "trip_member_ticket_manage") {
+    await handleTripMemberTicketFlow(ctx, flow, groupService, userService);
+    return true;
+  }
+
   if (flow.type === "vpohid_search") {
     await handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService, groupService, userService, telegram);
     return true;
@@ -13633,6 +14054,14 @@ export function createBot(store) {
   bot.action(/^towner\|(a|d)\|([^|]+)$/, async (ctx) =>
     handleOrganizerTransferAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
   );
+  bot.action(/^mtickets\|([^|]+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const trip = groupService.findGroupByMember(String(ctx.from.id));
+    if (!trip) {
+      return ctx.reply("Активний похід не знайдено.", getMainKeyboard(ctx));
+    }
+    return showTripMemberTickets(ctx, groupService, userService, trip, ctx.match?.[1] || "");
+  });
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
   bot.action(/^mstatus\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
     handleTripMemberStatusAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
@@ -14074,8 +14503,19 @@ export function createBot(store) {
 
   bot.on("photo", async (ctx) => {
     const flow = getFlow(String(ctx.from.id));
+    if (flow?.type === "trip_member_ticket_manage" && flow.step === "upload") {
+      await handleTripMemberTicketMedia(ctx, flow, groupService, userService);
+      return;
+    }
     if (flow?.type === "trip_photo_add") {
       await handleTripPhotoMessage(ctx, flow, groupService, userService, bot.telegram);
+    }
+  });
+
+  bot.on("document", async (ctx) => {
+    const flow = getFlow(String(ctx.from.id));
+    if (flow?.type === "trip_member_ticket_manage" && flow.step === "upload") {
+      await handleTripMemberTicketMedia(ctx, flow, groupService, userService);
     }
   });
 

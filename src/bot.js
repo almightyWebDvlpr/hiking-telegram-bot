@@ -135,7 +135,7 @@ const MEMBER_TICKETS_UPLOAD_LABEL = "📤 Завантажити квиток";
 const MEMBER_TICKETS_OPEN_LABEL = "📎 Відкрити файл";
 const MEMBER_TICKETS_REPLACE_LABEL = "🔄 Оновити файл";
 const MEMBER_TICKETS_DELETE_LABEL = "🗑 Видалити квиток";
-const MEMBER_TICKETS_BACK_LABEL = "⬅️ До учасника";
+const MEMBER_TICKETS_BACK_LABEL = "⬅️ До учасників";
 const MEMBER_TICKETS_LIST_BACK_LABEL = "⬅️ До квитків";
 const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
@@ -5352,7 +5352,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
 
   if (message === MEMBER_TICKETS_BACK_LABEL) {
     clearFlow(viewerId);
-    return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
+    return showTripMembers(ctx, groupService, userService);
   }
 
   if (flow.step === "list") {

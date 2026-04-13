@@ -5289,7 +5289,7 @@ function formatTripMemberTicketsMessage(trip, member, userService) {
   }
 
   lines.push("");
-  lines.push("Обери квиток кнопкою нижче або завантаж новий файл.");
+  lines.push("Обери квиток кнопкою нижче.");
   return joinRichLines(lines);
 }
 
@@ -5302,7 +5302,7 @@ function formatTripMemberTicketDetailsMessage(trip, member, ticket, userService)
     `Завантажено: ${formatDateTimeLabel(ticket.createdAt)}`,
     ticket.uploadedByMemberName ? `Завантажив: ${escapeHtml(ticket.uploadedByMemberName)}` : null,
     "",
-    "Можна відкрити файл, оновити його або видалити."
+    "Можна відкрити файл і повернутися до списку квитків."
   ].filter(Boolean));
 }
 
@@ -5463,7 +5463,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
   if (flow.step === "upload") {
     return ctx.reply(
       "Надішли файл квитка документом або фото.",
-      buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]])
+      buildKeyboard([["❌ Скасувати"]])
     );
   }
 
@@ -5493,7 +5493,7 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
 
   if (!document?.file_id && !photo?.file_id) {
-    return ctx.reply("Надішли документ або фото квитка.", buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]]));
+    return ctx.reply("Надішли документ або фото квитка.", buildKeyboard([["❌ Скасувати"]]));
   }
 
   const ticket = document
@@ -5524,7 +5524,7 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   });
 
   if (!result.ok) {
-    return ctx.reply(result.message, buildKeyboard([[MEMBER_TICKETS_LIST_BACK_LABEL]]));
+    return ctx.reply(result.message, buildKeyboard([["❌ Скасувати"]]));
   }
 
   const refreshedTrip = result.group;
@@ -5551,7 +5551,7 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
       "",
       formatTripMemberTicketsMessage(refreshedTrip, refreshedMember, userService)
     ]),
-    { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(refreshedItems, { canManage: true }) }
+    { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(refreshedItems) }
   );
 }
 

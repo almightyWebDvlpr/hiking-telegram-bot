@@ -5226,14 +5226,27 @@ async function handleTripMemberStatusAction(ctx, groupService, userService, memb
     return null;
   }
 
+  if (!result.changed) {
+    await ctx.answerCbQuery(`Статус уже: ${formatAttendanceStatusText(updatedMember.attendanceStatus)}`);
+    return null;
+  }
+
   await ctx.answerCbQuery(`Статус оновлено: ${formatAttendanceStatusText(updatedMember.attendanceStatus)}`);
-  const response = await ctx.editMessageText(
-    formatTripMemberDetailsMessage(updatedTrip, updatedMember, userService, viewerId),
-    {
-      parse_mode: "HTML",
-      ...getTripMemberStatusInlineKeyboard(updatedTrip, updatedMember.id, viewerId)
+  let response = null;
+  try {
+    response = await ctx.editMessageText(
+      formatTripMemberDetailsMessage(updatedTrip, updatedMember, userService, viewerId),
+      {
+        parse_mode: "HTML",
+        ...getTripMemberStatusInlineKeyboard(updatedTrip, updatedMember.id, viewerId)
+      }
+    );
+  } catch (error) {
+    const message = String(error?.message || "").toLowerCase();
+    if (!message.includes("message is not modified")) {
+      throw error;
     }
-  );
+  }
 
   if (result.previousStatus !== updatedMember.attendanceStatus) {
     const actorLabel = actorMember ? getMemberDisplayName(userService, actorMember) : getUserLabel(ctx);

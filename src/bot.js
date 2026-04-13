@@ -5248,26 +5248,26 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
 
   const viewerId = String(ctx.from.id);
   const text = formatTripMemberDetailsMessage(trip, member, userService, viewerId);
-  setFlow(viewerId, {
-    type: "trip_member_detail",
-    tripId: trip.id,
-    step: "menu",
-    data: {
-      memberId,
-      items
-    }
-  });
+  const inlineKeyboard = getTripMemberStatusInlineKeyboard(trip, member.id, viewerId);
 
-  return ctx.reply(
-    text,
-    {
-      parse_mode: "HTML",
-      ...getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
+  try {
+    return await ctx.reply(
+      text,
+      {
+        parse_mode: "HTML",
+        ...inlineKeyboard
+      }
+    );
+  } catch {
+    try {
+      return await ctx.reply(
+        stripHtmlTags(text),
+        inlineKeyboard
+      );
+    } catch {
+      return ctx.reply(stripHtmlTags(text));
     }
-  ).catch(async () => ctx.reply(
-    stripHtmlTags(text),
-    getTripMemberStatusInlineKeyboard(trip, member.id, viewerId)
-  ));
+  }
 }
 
 function buildTripMemberTicketItems(member = {}) {

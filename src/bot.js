@@ -1647,15 +1647,15 @@ function getTripMemberStatusInlineKeyboard(trip, memberId, viewerId) {
 
   if (canUpdateTripMemberStatus(trip, viewerId, memberId)) {
     rows.push([
-      Markup.button.callback("👍 Йду", `mstatus|${memberId}|going`),
-      Markup.button.callback("🤔 Думаю", `mstatus|${memberId}|thinking`),
-      Markup.button.callback("👎 Не йду", `mstatus|${memberId}|not_going`)
+      Markup.button.callback("👍 Йду", `mstatus|${trip.id}|${memberId}|going`),
+      Markup.button.callback("🤔 Думаю", `mstatus|${trip.id}|${memberId}|thinking`),
+      Markup.button.callback("👎 Не йду", `mstatus|${trip.id}|${memberId}|not_going`)
     ]);
   }
 
   if (member && getMemberTickets(member).length > 0 && canManageTripMemberTickets(trip, viewerId, memberId)) {
     rows.push([
-      Markup.button.callback(MEMBER_TICKETS_LABEL, `mtickets|${memberId}`)
+      Markup.button.callback(MEMBER_TICKETS_LABEL, `mtickets|${trip.id}|${memberId}`)
     ]);
   }
 
@@ -5603,9 +5603,9 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
   return ctx.reply("Обери дію кнопкою нижче.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
 }
 
-async function handleTripMemberStatusAction(ctx, groupService, userService, memberId, status) {
+async function handleTripMemberStatusAction(ctx, groupService, userService, tripId, memberId, status) {
   const viewerId = String(ctx.from.id);
-  const trip = groupService.findGroupByMember(viewerId);
+  const trip = groupService.getGroup(tripId);
   if (!trip) {
     await ctx.answerCbQuery("Активний похід не знайдено.", { show_alert: true });
     return null;
@@ -14078,6 +14078,14 @@ export function createBot(store) {
   bot.action(/^towner\|(a|d)\|([^|]+)$/, async (ctx) =>
     handleOrganizerTransferAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
   );
+  bot.action(/^mtickets\|([^|]+)\|([^|]+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const trip = groupService.getGroup(ctx.match?.[1] || "");
+    if (!trip) {
+      return ctx.reply("Активний похід не знайдено.", getMainKeyboard(ctx));
+    }
+    return showTripMemberTickets(ctx, groupService, userService, trip, ctx.match?.[2] || "");
+  });
   bot.action(/^mtickets\|([^|]+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const trip = groupService.findGroupByMember(String(ctx.from.id));
@@ -14087,8 +14095,17 @@ export function createBot(store) {
     return showTripMemberTickets(ctx, groupService, userService, trip, ctx.match?.[1] || "");
   });
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
-  bot.action(/^mstatus\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
-    handleTripMemberStatusAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
+  bot.action(/^mstatus\|([^|]+)\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
+    handleTripMemberStatusAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "", ctx.match?.[3] || "")
+  );
+  bot.action(/^mstatus\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) => {
+    const trip = groupService.findGroupByMember(String(ctx.from.id));
+    if (!trip) {
+      await ctx.answerCbQuery("Активний похід не знайдено.", { show_alert: true });
+      return null;
+    }
+    return handleTripMemberStatusAction(ctx, groupService, userService, trip.id, ctx.match?.[1] || "", ctx.match?.[2] || "");
+  }
   );
   bot.command("addexpense", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));

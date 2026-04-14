@@ -11624,6 +11624,12 @@ async function handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService
         getTripExpensesMenuKeyboard(groupService, flow.tripId)
       );
     }
+    if (/Cannot find package 'sharp'|Cannot find package 'tesseract\.js'|ERR_MODULE_NOT_FOUND|Could not load the \"sharp\" module/i.test(message)) {
+      return ctx.reply(
+        "OCR чека зараз недоступний на сервері. Сам бот має працювати далі, але цей режим тимчасово неактивний.",
+        getTripExpensesMenuKeyboard(groupService, flow.tripId)
+      );
+    }
     return ctx.reply(
       "Не вдалося розпізнати чек. Спробуй інше фото або додай витрату вручну.",
       getTripExpensesMenuKeyboard(groupService, flow.tripId)

@@ -11,6 +11,7 @@ import { UserService } from "./services/userService.js";
 import { WeatherService } from "./services/weatherService.js";
 import { RouteService } from "./services/routeService.js";
 import { AdvisorService } from "./services/advisorService.js";
+import { ReceiptOcrService } from "./services/receiptOcrService.js";
 import { resolveSafetyProfile } from "./data/safetyContacts.js";
 import { VpohidLiveService } from "./services/vpohidLiveService.js";
 import {
@@ -141,6 +142,9 @@ const MEMBER_TICKET_FLOW_BACK_LABEL = "⬅️ Назад";
 const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
 const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
+const EXPENSE_OCR_LABEL = "🧠 OCR чека";
+const EXPENSE_OCR_SAVE_LABEL = "✅ Зберегти витрату";
+const EXPENSE_OCR_RETRY_LABEL = "🔁 Інший чек";
 const HELP_SECTIONS = [
   "🚀 Як почати і створити похід",
   "📍 Як додати маршрут",
@@ -2060,7 +2064,7 @@ function getTripSafetyInlineKeyboard() {
 }
 
 function getTripExpensesKeyboard({ hasItems = false } = {}) {
-  const rows = [["💸 Додати витрату"]];
+  const rows = [["💸 Додати витрату", EXPENSE_OCR_LABEL]];
   if (hasItems) {
     rows[0].push("🗑 Видалити витрату");
   }
@@ -2077,6 +2081,36 @@ function getTripFoodMenuKeyboard(groupService, tripId) {
 function getTripExpensesMenuKeyboard(groupService, tripId) {
   const hasItems = Boolean(groupService.getExpenseSnapshot(tripId)?.items?.length);
   return getTripExpensesKeyboard({ hasItems });
+}
+
+function getExpenseOcrReviewKeyboard() {
+  return buildKeyboard([
+    [EXPENSE_OCR_SAVE_LABEL, EXPENSE_OCR_RETRY_LABEL],
+    ["❌ Скасувати"]
+  ]);
+}
+
+function formatExpenseOcrSummary(result = {}) {
+  const lines = [
+    ...formatCardHeader("🧠 OCR ЧЕКА", result.merchant || "Попередній розбір"),
+    "",
+    `Магазин: ${result.merchant || "не впізнано"}`,
+    `Дата: ${result.date || "не впізнано"}`,
+    `Сума: ${result.total ? formatMoney(result.total) : "не впізнано"}`,
+    `Точність OCR: ${Math.round(Number(result.confidence) || 0)}%`
+  ];
+
+  if (Array.isArray(result.positions) && result.positions.length) {
+    lines.push("");
+    lines.push("Позиції:");
+    for (const item of result.positions.slice(0, 5)) {
+      lines.push(`• ${escapeHtml(item.title)} — ${formatMoney(item.amount)}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("Можеш зберегти це як витрату або завантажити інший чек.");
+  return joinRichLines(lines);
 }
 
 function formatSafetySection(trip) {
@@ -5471,7 +5505,7 @@ function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
 
 async function sendTripMemberTicketFile(ctx, member, ticket) {
   const segmentLabel = getMemberTicketSegmentLabel(ticket);
-  const caption = `🎫 ${member.name || "Учасник"} — ${segmentLabel || ticket.fileName || "Квиток"}`;
+  const caption = `🎫 ${segmentLabel || ticket.fileName || "Квиток"}`;
   if (ticket.mediaType === "photo") {
     return ctx.telegram.sendPhoto(ctx.chat.id, ticket.fileId, { caption });
   }
@@ -6982,6 +7016,29 @@ function startExpenseAddWizard(ctx, groupService) {
     parse_mode: "Markdown",
     ...FLOW_CANCEL_KEYBOARD
   });
+}
+
+function startExpenseReceiptOcrWizard(ctx, groupService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
+  setFlow(String(ctx.from.id), {
+    type: "expense_receipt_ocr",
+    tripId: trip.id,
+    step: "upload",
+    data: {}
+  });
+
+  return ctx.reply(
+    "Надішли фото чека або документ-зображення. Бот спробує витягнути магазин, дату і суму.\n\nПоки що PDF не розпізнаємо, тільки фото або image-файл.",
+    { ...FLOW_CANCEL_KEYBOARD }
+  );
 }
 
 function startExpenseDeleteWizard(ctx, groupService) {
@@ -11440,6 +11497,135 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
   return null;
 }
 
+async function handleExpenseReceiptOcrFlow(ctx, flow, groupService, userService) {
+  const message = ctx.message.text.trim();
+
+  if (message === "❌ Скасувати") {
+    clearFlow(String(ctx.from.id));
+    return ctx.reply("OCR чека скасовано.", getTripExpensesMenuKeyboard(groupService, flow.tripId));
+  }
+
+  if (flow.step === "review") {
+    if (message === EXPENSE_OCR_RETRY_LABEL) {
+      flow.step = "upload";
+      flow.data = {};
+      setFlow(String(ctx.from.id), flow);
+      return ctx.reply(
+        "Надішли інше фото чека або документ-зображення.",
+        { ...FLOW_CANCEL_KEYBOARD }
+      );
+    }
+
+    if (message === EXPENSE_OCR_SAVE_LABEL) {
+      const total = Number(flow.data?.ocr?.total) || 0;
+      if (!total) {
+        return ctx.reply("Не бачу коректної суми для збереження. Надішли інший чек або додай витрату вручну.", getExpenseOcrReviewKeyboard());
+      }
+
+      const merchant = String(flow.data?.ocr?.merchant || "").trim() || "Чек";
+      const date = String(flow.data?.ocr?.date || "").trim();
+      const positions = Array.isArray(flow.data?.ocr?.positions) ? flow.data.ocr.positions : [];
+      const noteParts = [
+        date ? `Дата: ${date}` : null,
+        positions.length ? `Позиції: ${positions.slice(0, 5).map((item) => `${item.title} (${formatMoney(item.amount)})`).join("; ")}` : null,
+        "Джерело: OCR чека"
+      ].filter(Boolean);
+
+      groupService.addExpense({
+        groupId: flow.tripId,
+        memberId: String(ctx.from.id),
+        memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
+        expense: {
+          title: canonicalizeExpenseTitle(merchant),
+          quantity: 1,
+          price: total,
+          amount: total,
+          note: noteParts.join(" | ")
+        }
+      });
+
+      clearFlow(String(ctx.from.id));
+      return ctx.reply(
+        `✅ OCR-витрату "${canonicalizeExpenseTitle(merchant)}" додано на ${formatMoney(total)}.`,
+        getTripExpensesMenuKeyboard(groupService, flow.tripId)
+      );
+    }
+
+    return ctx.reply("Обери дію кнопкою нижче.", getExpenseOcrReviewKeyboard());
+  }
+
+  return ctx.reply(
+    "Надішли фото чека або документ-зображення.",
+    { ...FLOW_CANCEL_KEYBOARD }
+  );
+}
+
+async function handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService, receiptOcrService) {
+  const viewerId = String(ctx.from.id);
+  const trip = groupService.getGroup(flow.tripId);
+  if (!trip) {
+    clearFlow(viewerId);
+    return ctx.reply("Похід не знайдено.", getTripKeyboard(null, viewerId));
+  }
+
+  const document = ctx.message?.document || null;
+  const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
+  const fileId = photo?.file_id || document?.file_id || "";
+
+  if (!fileId) {
+    return ctx.reply("Надішли фото чека або документ-зображення.", { ...FLOW_CANCEL_KEYBOARD });
+  }
+
+  if (document?.mime_type && !document.mime_type.startsWith("image/")) {
+    return ctx.reply(
+      "Для OCR зараз підійде фото або image-файл. PDF поки не підтримується в цьому flow.",
+      { ...FLOW_CANCEL_KEYBOARD }
+    );
+  }
+
+  const fileLink = await ctx.telegram.getFileLink(fileId);
+  const extension = photo ? ".jpg" : path.extname(document?.file_name || "") || ".jpg";
+  const tempPath = path.join(os.tmpdir(), `receipt-ocr-${crypto.randomUUID()}${extension}`);
+
+  try {
+    const response = await fetch(String(fileLink));
+    if (!response.ok) {
+      throw new Error(`download failed: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    await fs.writeFile(tempPath, Buffer.from(arrayBuffer));
+
+    await ctx.reply("🧠 Розпізнаю чек, це може тривати до 20-30 секунд...");
+
+    const result = await receiptOcrService.recognizeReceipt(tempPath);
+    if (!result.total && !result.merchant) {
+      return ctx.reply(
+        "Не вдалося надійно розпізнати чек. Спробуй чіткіше фото або додай витрату вручну.",
+        getTripExpensesMenuKeyboard(groupService, flow.tripId)
+      );
+    }
+
+    flow.step = "review";
+    flow.data = {
+      ...flow.data,
+      ocr: result
+    };
+    setFlow(viewerId, flow);
+
+    return ctx.reply(
+      formatExpenseOcrSummary(result),
+      { parse_mode: "HTML", ...getExpenseOcrReviewKeyboard() }
+    );
+  } catch {
+    return ctx.reply(
+      "Не вдалося розпізнати чек. Спробуй інше фото або додай витрату вручну.",
+      getTripExpensesMenuKeyboard(groupService, flow.tripId)
+    );
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
+}
+
 async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
@@ -12483,7 +12669,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
   return null;
 }
 
-async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, telegram = null) {
+async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, receiptOcrService, telegram = null) {
   const flow = getFlow(String(ctx.from.id));
   if (!flow) {
     return false;
@@ -12595,6 +12781,11 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
 
   if (flow.type === "expense_add") {
     await handleExpenseAddFlow(ctx, flow, groupService, userService);
+    return true;
+  }
+
+  if (flow.type === "expense_receipt_ocr") {
+    await handleExpenseReceiptOcrFlow(ctx, flow, groupService, userService, receiptOcrService);
     return true;
   }
 
@@ -13235,6 +13426,7 @@ function showTripExpensesMenu(ctx, groupService) {
   const hasItems = Boolean(groupService.getExpenseSnapshot(trip.id)?.items?.length);
   const actions = [
     "• `💸 Додати витрату` — ввести назву, кількість і ціну",
+    "• `🧠 OCR чека` — надіслати фото чека, щоб бот спробував витягнути суму, дату і магазин",
     hasItems ? "• `🗑 Видалити витрату` — прибрати зайву або помилкову позицію" : null,
     "• `🧾 Переглянути всі витрати` — повний облік витрат без непорозумінь",
     "• у загальному зведенні автоматично враховуються продукти з розділу харчування"
@@ -13961,6 +14153,7 @@ export function createBot(store) {
   const groupService = new GroupService(store);
   const userService = new UserService(store);
   const weatherService = new WeatherService();
+  const receiptOcrService = new ReceiptOcrService();
   const vpohidLiveService = new VpohidLiveService();
   const routeService = new RouteService({
     openRouteServiceApiKey: config.openRouteServiceApiKey,
@@ -14632,6 +14825,7 @@ export function createBot(store) {
   bot.hears("⚖️ Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("🎒 Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("💸 Додати витрату", (ctx) => startExpenseAddWizard(ctx, groupService));
+  bot.hears(EXPENSE_OCR_LABEL, (ctx) => startExpenseReceiptOcrWizard(ctx, groupService));
   bot.hears("🗑 Видалити витрату", (ctx) => startExpenseDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути всі витрати", (ctx) => showTripExpenses(ctx, groupService, userService));
   bot.hears("⬅️ До походу", (ctx) => showTripMenu(ctx, groupService));
@@ -14793,6 +14987,10 @@ export function createBot(store) {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, activeFlow.tripId) });
     }
 
+    if (activeFlow?.type === "expense_receipt_ocr") {
+      return handleExpenseReceiptOcrFlow(ctx, activeFlow, groupService, userService, receiptOcrService);
+    }
+
     if (menuContext === "trip-route-catalog") {
       return showRouteMenu(ctx, groupService, advisorService);
     }
@@ -14828,7 +15026,7 @@ export function createBot(store) {
   });
 
   bot.on("text", async (ctx) => {
-    const flowHandled = await handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, bot.telegram);
+    const flowHandled = await handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, receiptOcrService, bot.telegram);
     if (flowHandled) {
       return;
     }
@@ -14843,6 +15041,10 @@ export function createBot(store) {
 
   bot.on("photo", async (ctx) => {
     const flow = getFlow(String(ctx.from.id));
+    if (flow?.type === "expense_receipt_ocr" && flow.step === "upload") {
+      await handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService, receiptOcrService);
+      return;
+    }
     if (flow?.type === "trip_member_ticket_manage" && flow.step === "upload") {
       await handleTripMemberTicketMedia(ctx, flow, groupService, userService);
       return;
@@ -14854,6 +15056,10 @@ export function createBot(store) {
 
   bot.on("document", async (ctx) => {
     const flow = getFlow(String(ctx.from.id));
+    if (flow?.type === "expense_receipt_ocr" && flow.step === "upload") {
+      await handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService, receiptOcrService);
+      return;
+    }
     if (flow?.type === "trip_member_ticket_manage" && flow.step === "upload") {
       await handleTripMemberTicketMedia(ctx, flow, groupService, userService);
     }

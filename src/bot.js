@@ -11616,7 +11616,14 @@ async function handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService
       formatExpenseOcrSummary(result),
       { parse_mode: "HTML", ...getExpenseOcrReviewKeyboard() }
     );
-  } catch {
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (message === "ocr_timeout") {
+      return ctx.reply(
+        "OCR чека не встиг обробити зображення за 90 секунд. Спробуй чіткіше фото або додай витрату вручну. Якщо це повторюється, значить OCR на сервері зараз не тягне цей файл.",
+        getTripExpensesMenuKeyboard(groupService, flow.tripId)
+      );
+    }
     return ctx.reply(
       "Не вдалося розпізнати чек. Спробуй інше фото або додай витрату вручну.",
       getTripExpensesMenuKeyboard(groupService, flow.tripId)

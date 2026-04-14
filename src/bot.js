@@ -1711,6 +1711,10 @@ function getTripMemberTicketsKeyboard(items = [], { selected = false } = {}) {
   return buildKeyboard(rows);
 }
 
+function getTripMemberTicketUploadKeyboard() {
+  return buildKeyboard([["❌ Скасувати"]]);
+}
+
 function getTripRouteKeyboard(trip, canManage = false) {
   const rows = [];
 
@@ -5359,6 +5363,32 @@ async function safeReplyTripTicketBlock(ctx, text, keyboard = null) {
   return ctx.reply(plainText);
 }
 
+async function sendTripMemberTicketsDirectly(ctx, member) {
+  const tickets = getMemberTickets(member);
+  if (!tickets.length) {
+    return ctx.reply("У цього учасника ще немає завантажених квитків.");
+  }
+
+  let sentCount = 0;
+  for (const ticket of tickets) {
+    try {
+      await sendTripMemberTicketFile(ctx, member, ticket);
+      sentCount += 1;
+    } catch {
+      const segmentLabel = getMemberTicketSegmentLabel(ticket);
+      await ctx.reply(
+        `Не вдалося відкрити квиток${segmentLabel ? ` ${segmentLabel}` : ""}. Спробуй перевантажити цей файл.`
+      );
+    }
+  }
+
+  if (!sentCount) {
+    return ctx.reply("Не вдалося відкрити жоден квиток. Спробуй перевантажити файл квитка.");
+  }
+
+  return null;
+}
+
 function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
   const member = trip.members.find((item) => String(item.id) === String(memberId));
   if (!member) {
@@ -5624,35 +5654,51 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
     return null;
   }
 
-  setFlow(viewerId, {
-    type: "trip_member_ticket_manage",
-    tripId: trip.id,
-    step: "upload_from",
-    data: {
-      memberId: member.id,
-      items: buildTripMemberTicketItems(member),
-      selectedTicketId: "",
-      uploadMode: "create",
-      replaceTicketId: "",
-      ticketDraft: {},
-      returnContext: "member_detail"
-    }
-  });
+  try {
+    setFlow(viewerId, {
+      type: "trip_member_ticket_manage",
+      tripId: trip.id,
+      step: "upload_from",
+      data: {
+        memberId: member.id,
+        items: buildTripMemberTicketItems(member),
+        selectedTicketId: "",
+        uploadMode: "create",
+        replaceTicketId: "",
+        ticketDraft: {},
+        returnContext: "member_detail"
+      }
+    });
 
-  if (ctx.answerCbQuery) {
-    if (ctx.callbackQuery) {
+    if (ctx.answerCbQuery && ctx.callbackQuery) {
       await ctx.answerCbQuery();
     }
-  }
 
-  const prompt = "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ";
-  try {
-    return await ctx.reply(
-      prompt,
-      buildKeyboard([["❌ Скасувати"]])
-    );
+    const prompt = "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ";
+    try {
+      return await ctx.reply(prompt, getTripMemberTicketUploadKeyboard());
+    } catch {
+      return ctx.reply(prompt);
+    }
   } catch {
-    return ctx.reply(prompt);
+    setFlow(viewerId, {
+      type: "trip_member_ticket_manage",
+      tripId: trip.id,
+      step: "upload_from",
+      data: {
+        memberId: member.id,
+        items: buildTripMemberTicketItems(member),
+        selectedTicketId: "",
+        uploadMode: "create",
+        replaceTicketId: "",
+        ticketDraft: {},
+        returnContext: "member_detail"
+      }
+    });
+    return ctx.reply(
+      "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
+      getTripMemberTicketUploadKeyboard()
+    );
   }
 }
 
@@ -5679,7 +5725,28 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
 
   if (message === MEMBER_TICKETS_UPLOAD_LABEL) {
     clearFlow(viewerId);
-    return startTripMemberTicketUpload(ctx, groupService, userService, trip.id, member.id);
+    try {
+      return await startTripMemberTicketUpload(ctx, groupService, userService, trip.id, member.id);
+    } catch {
+      setFlow(viewerId, {
+        type: "trip_member_ticket_manage",
+        tripId: trip.id,
+        step: "upload_from",
+        data: {
+          memberId: member.id,
+          items: buildTripMemberTicketItems(member),
+          selectedTicketId: "",
+          uploadMode: "create",
+          replaceTicketId: "",
+          ticketDraft: {},
+          returnContext: "member_detail"
+        }
+      });
+      return ctx.reply(
+        "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
+        getTripMemberTicketUploadKeyboard()
+      );
+    }
   }
 
   return ctx.reply(
@@ -14169,7 +14236,14 @@ export function createBot(store) {
     if (!trip) {
       return ctx.reply("Активний похід не знайдено.", getMainKeyboard(ctx));
     }
-    return showTripMemberTickets(ctx, groupService, userService, trip, ctx.match?.[2] || "");
+    const member = trip.members.find((item) => String(item.id) === String(ctx.match?.[2] || ""));
+    if (!member) {
+      return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(trip, String(ctx.from.id)));
+    }
+    if (!canManageTripMemberTickets(trip, String(ctx.from.id), member.id)) {
+      return ctx.reply("Тобі недоступні квитки цього учасника.");
+    }
+    return sendTripMemberTicketsDirectly(ctx, member);
   });
   bot.action(/^mtickets\|([^|]+)$/, async (ctx) => {
     await ctx.answerCbQuery();
@@ -14177,7 +14251,14 @@ export function createBot(store) {
     if (!trip) {
       return ctx.reply("Активний похід не знайдено.", getMainKeyboard(ctx));
     }
-    return showTripMemberTickets(ctx, groupService, userService, trip, ctx.match?.[1] || "");
+    const member = trip.members.find((item) => String(item.id) === String(ctx.match?.[1] || ""));
+    if (!member) {
+      return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(trip, String(ctx.from.id)));
+    }
+    if (!canManageTripMemberTickets(trip, String(ctx.from.id), member.id)) {
+      return ctx.reply("Тобі недоступні квитки цього учасника.");
+    }
+    return sendTripMemberTicketsDirectly(ctx, member);
   });
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
   bot.action(/^mstatus\|([^|]+)\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>

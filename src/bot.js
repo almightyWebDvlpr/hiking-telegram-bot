@@ -3679,6 +3679,9 @@ function formatTripHistoryDetails(trip, userService = null) {
       formatTotalLine("ВСЬОГО", expenseSettlement.grandTotal),
       formatTotalLine("З кожного порівну", expenseSettlement.perPerson),
       `• У розрахунку беруть участь: ${expenseSettlement.participantCount}`,
+      ...(expenseSettlement.excludedMembers.length
+        ? [`• У статусі \`👎 Не йду\`: ${expenseSettlement.excludedMembers.map((item) => item.memberName).join(", ")}`]
+        : []),
       "",
       formatSectionHeader("↩️", "Повернення Тим, Хто Не Йде"),
       ...(expenseSettlement.excludedPayers.length
@@ -4207,6 +4210,7 @@ function getSettlementActorKey(memberId = "", memberName = "") {
 function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, userService) {
   const participants = getTripMembersIncludedInCalculations(trip);
   const participantKeys = new Map();
+  const excludedMemberKeys = new Map();
   const paidByKey = new Map();
   const directExpenseItems = expenseSnapshot?.items || [];
   const foodItems = Array.isArray(trip?.food) ? trip.food : [];
@@ -4220,6 +4224,22 @@ function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, use
       continue;
     }
     participantKeys.set(key, {
+      memberId: String(member.id || ""),
+      memberName: resolveMemberDisplayName(userService, member.id, member.name)
+    });
+  }
+
+  for (const member of Array.isArray(trip?.members) ? trip.members : []) {
+    if (member?.attendanceStatus !== "not_going") {
+      continue;
+    }
+
+    const key = getSettlementActorKey(member.id, member.name);
+    if (!key || participantKeys.has(key)) {
+      continue;
+    }
+
+    excludedMemberKeys.set(key, {
       memberId: String(member.id || ""),
       memberName: resolveMemberDisplayName(userService, member.id, member.name)
     });
@@ -4250,20 +4270,23 @@ function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, use
 
   const allKeys = new Set([
     ...participantKeys.keys(),
+    ...excludedMemberKeys.keys(),
     ...paidByKey.keys()
   ]);
 
   const perPerson = participants.length ? grandTotal / participants.length : 0;
   const balances = [...allKeys].map((key) => {
     const participant = participantKeys.get(key);
+    const excludedMember = excludedMemberKeys.get(key);
     const payer = paidByKey.get(key);
     const paid = payer?.total || 0;
     const expected = participant ? perPerson : 0;
     return {
       key,
-      memberId: participant?.memberId || payer?.memberId || "",
-      memberName: participant?.memberName || payer?.memberName || "учасник",
+      memberId: participant?.memberId || excludedMember?.memberId || payer?.memberId || "",
+      memberName: participant?.memberName || excludedMember?.memberName || payer?.memberName || "учасник",
       isParticipant: Boolean(participant),
+      isExcluded: Boolean(excludedMember) && !participant,
       paid,
       expected,
       balance: paid - expected
@@ -4309,11 +4332,19 @@ function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, use
   }
 
   const paidByMemberLines = balances
-    .filter((item) => item.isParticipant)
-    .sort((left, right) => right.paid - left.paid || left.memberName.localeCompare(right.memberName, "uk"))
-    .map((item) => ({ label: item.memberName, value: item.paid }));
+    .sort((left, right) => {
+      if (left.isParticipant !== right.isParticipant) {
+        return left.isParticipant ? -1 : 1;
+      }
+      return right.paid - left.paid || left.memberName.localeCompare(right.memberName, "uk");
+    })
+    .map((item) => ({
+      label: item.isExcluded ? `${item.memberName} — 👎 Не йду` : item.memberName,
+      value: item.paid
+    }));
 
   const excludedPayers = balances.filter((item) => !item.isParticipant && item.paid > 0.5);
+  const excludedMembers = balances.filter((item) => item.isExcluded);
 
   return {
     directExpenseItems,
@@ -4325,6 +4356,7 @@ function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, use
     participantCount: participants.length,
     paidByMemberLines,
     balances,
+    excludedMembers,
     excludedPayers,
     transfers
   };
@@ -13507,6 +13539,9 @@ function showTripExpenses(ctx, groupService, userService) {
   const includedMembersLabel = getTripMembersIncludedInCalculations(trip)
     .map((member) => resolveMemberDisplayName(userService, member.id, member.name))
     .join(", ");
+  const excludedMembersLabel = expenseSettlement.excludedMembers
+    .map((member) => member.memberName)
+    .join(", ");
   const excludedPayersSection = expenseSettlement.excludedPayers.length
     ? [
         "",
@@ -13536,7 +13571,8 @@ function showTripExpenses(ctx, groupService, userService) {
       formatTotalLine("З кожного порівну", expenseSettlement.perPerson),
       `• У розрахунку беруть участь: ${expenseSettlement.participantCount}`,
       includedMembersLabel ? `• Учасники розрахунку: ${includedMembersLabel}` : null,
-      ...(expenseSettlement.excludedPayers.length ? ["• Учасники зі статусом `👎 Не йду` не включаються в поділ витрат"] : []),
+      ...(expenseSettlement.excludedMembers.length ? [`• У статусі \`👎 Не йду\`: ${excludedMembersLabel}`] : []),
+      ...(expenseSettlement.excludedMembers.length ? ["• Учасники зі статусом `👎 Не йду` не включаються в поділ витрат"] : []),
       ...excludedPayersSection,
       "",
       formatSectionHeader("💱", "Хто Кому Винен"),

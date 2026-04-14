@@ -3,7 +3,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEMP_WORKTREE="${TEMP_WORKTREE:-/tmp/hiking-main-sync-publish}"
 COMMIT_REF="${1:-HEAD}"
 
 cd "$REPO_ROOT"
@@ -21,7 +20,12 @@ git push origin develop
 
 echo "2/4 Prepare main worktree"
 git fetch origin main
-rm -rf "$TEMP_WORKTREE"
+git worktree prune
+if [[ -n "${TEMP_WORKTREE:-}" ]]; then
+  rm -rf "$TEMP_WORKTREE"
+else
+  TEMP_WORKTREE="$(mktemp -d /tmp/hiking-main-sync-publish.XXXXXX)"
+fi
 git worktree add "$TEMP_WORKTREE" origin/main
 
 cleanup() {

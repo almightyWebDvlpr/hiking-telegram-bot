@@ -3677,21 +3677,16 @@ function formatTripHistoryDetails(trip, userService = null) {
       formatTotalLine("Інші витрати", expenseSettlement.directExpensesTotal),
       formatTotalLine("Продукти", expenseSettlement.foodTotal),
       formatTotalLine("ВСЬОГО", expenseSettlement.grandTotal),
-      formatTotalLine("З кожного порівну", expenseSettlement.perPerson),
+      formatTotalLine("Частка 1 учасника", expenseSettlement.perPerson),
       `• У розрахунку беруть участь: ${expenseSettlement.participantCount}`,
       ...(expenseSettlement.excludedMembers.length
         ? [`• У статусі \`👎 Не йду\`: ${expenseSettlement.excludedMembers.map((item) => item.memberName).join(", ")}`]
         : []),
       "",
-      formatSectionHeader("↩️", "Повернення Тим, Хто Не Йде"),
-      ...(expenseSettlement.excludedPayers.length
-        ? expenseSettlement.excludedPayers.map((item) => `• ${item.memberName} — повернути ${formatMoney(item.paid)}`)
-        : ["• немає"]),
-      "",
-      formatSectionHeader("💱", "Хто Кому Винен"),
-      ...(expenseSettlement.transfers.length
-        ? expenseSettlement.transfers.map((item) => `• ${item.from} → ${item.to}: ${formatMoney(item.amount)}`)
-        : ["• взаєморозрахунки вже збалансовані"])
+      formatSectionHeader("💱", "Баланс По Учасниках"),
+      ...(expenseSettlement.memberSettlementLines.length
+        ? expenseSettlement.memberSettlementLines
+        : ["• немає"])
     );
   }
 
@@ -4343,6 +4338,27 @@ function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, use
       value: item.paid
     }));
 
+  const memberSettlementLines = balances
+    .sort((left, right) => {
+      if (left.isParticipant !== right.isParticipant) {
+        return left.isParticipant ? -1 : 1;
+      }
+      return left.memberName.localeCompare(right.memberName, "uk");
+    })
+    .map((item) => {
+      if (!item.isParticipant) {
+        return `• ${item.memberName} — 👎 Не йду | сплачено ${formatMoney(item.paid)} | ${item.paid > 0.5 ? `повернути ${formatMoney(item.paid)}` : "у поділі не бере участі"}`;
+      }
+
+      const outcome = item.balance > 0.5
+        ? `отримати ${formatMoney(item.balance)}`
+        : item.balance < -0.5
+          ? `доплатити ${formatMoney(Math.abs(item.balance))}`
+          : "нічого не винен";
+
+      return `• ${item.memberName} — сплачено ${formatMoney(item.paid)} | частка ${formatMoney(item.expected)} | ${outcome}`;
+    });
+
   const excludedPayers = balances.filter((item) => !item.isParticipant && item.paid > 0.5);
   const excludedMembers = balances.filter((item) => item.isExcluded);
 
@@ -4355,6 +4371,7 @@ function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, use
     perPerson,
     participantCount: participants.length,
     paidByMemberLines,
+    memberSettlementLines,
     balances,
     excludedMembers,
     excludedPayers,
@@ -13568,17 +13585,17 @@ function showTripExpenses(ctx, groupService, userService) {
       formatTotalLine("Інші витрати", directExpenses),
       formatTotalLine("Продукти", foodTotal),
       formatTotalLine("ВСЬОГО", grandTotal),
-      formatTotalLine("З кожного порівну", expenseSettlement.perPerson),
+      formatTotalLine("Частка 1 учасника", expenseSettlement.perPerson),
       `• У розрахунку беруть участь: ${expenseSettlement.participantCount}`,
       includedMembersLabel ? `• Учасники розрахунку: ${includedMembersLabel}` : null,
       ...(expenseSettlement.excludedMembers.length ? [`• У статусі \`👎 Не йду\`: ${excludedMembersLabel}`] : []),
       ...(expenseSettlement.excludedMembers.length ? ["• Учасники зі статусом `👎 Не йду` не включаються в поділ витрат"] : []),
       ...excludedPayersSection,
       "",
-      formatSectionHeader("💱", "Хто Кому Винен"),
-      ...(expenseSettlement.transfers.length
-        ? expenseSettlement.transfers.map((item) => `• ${item.from} → ${item.to}: ${formatMoney(item.amount)}`)
-        : ["• взаєморозрахунки вже збалансовані"]),
+      formatSectionHeader("💱", "Баланс По Учасниках"),
+      ...(expenseSettlement.memberSettlementLines.length
+        ? expenseSettlement.memberSettlementLines
+        : ["• немає"]),
       "",
       divider
     ]),

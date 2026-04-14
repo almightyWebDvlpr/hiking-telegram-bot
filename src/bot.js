@@ -716,16 +716,55 @@ function normalizeTicketSegmentInput(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function buildMemberTicketSegmentKey(segmentFrom = "", segmentTo = "") {
+const MEMBER_TICKET_CATEGORY_OPTIONS = [
+  { key: "train", label: "🚆 Залізничний" },
+  { key: "bus", label: "🚌 Автобусний" },
+  { key: "other", label: "🎫 Інший" }
+];
+
+function normalizeMemberTicketCategory(value = "") {
+  const key = String(value || "").trim().toLowerCase();
+  if (["train", "rail", "railway"].includes(key)) {
+    return "train";
+  }
+  if (["bus", "coach"].includes(key)) {
+    return "bus";
+  }
+  return "other";
+}
+
+function getMemberTicketCategoryLabel(value = "") {
+  const normalized = normalizeMemberTicketCategory(value);
+  return MEMBER_TICKET_CATEGORY_OPTIONS.find((item) => item.key === normalized)?.label || "🎫 Інший";
+}
+
+function getMemberTicketCategoryKeyByLabel(value = "") {
+  const label = String(value || "").trim();
+  return MEMBER_TICKET_CATEGORY_OPTIONS.find((item) => item.label === label)?.key || "";
+}
+
+function buildMemberTicketCategoryKeyboard() {
+  return buildKeyboard([
+    MEMBER_TICKET_CATEGORY_OPTIONS.map((item) => item.label),
+    ["❌ Скасувати"]
+  ]);
+}
+
+function buildMemberTicketSegmentKey(category = "", segmentFrom = "", segmentTo = "") {
+  const normalizedCategory = normalizeMemberTicketCategory(category);
   const from = normalizeTicketSegmentInput(segmentFrom).toLowerCase();
   const to = normalizeTicketSegmentInput(segmentTo).toLowerCase();
-  return from && to ? `${from}::${to}` : "";
+  return from && to ? `${normalizedCategory}::${from}::${to}` : "";
 }
 
 function getMemberTicketSegmentLabel(ticket = {}) {
+  const categoryLabel = getMemberTicketCategoryLabel(ticket.category || "");
   const from = normalizeTicketSegmentInput(ticket.segmentFrom || "");
   const to = normalizeTicketSegmentInput(ticket.segmentTo || "");
-  return from && to ? `${from} → ${to}` : "";
+  if (from && to) {
+    return `${categoryLabel}: ${from} → ${to}`;
+  }
+  return categoryLabel;
 }
 
 function getMemberTicketsStatusLabel(member = {}) {
@@ -5469,9 +5508,29 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     return null;
   }
 
-  if (["upload_from", "upload_to", "upload"].includes(flow.step) && message === "❌ Скасувати") {
+  if (["upload_category", "upload_from", "upload_to", "upload"].includes(flow.step) && message === "❌ Скасувати") {
     clearFlow(viewerId);
     return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
+  }
+
+  if (flow.step === "upload_category") {
+    const category = getMemberTicketCategoryKeyByLabel(message);
+    if (!category) {
+      return ctx.reply(
+        "Обери тип квитка кнопкою нижче.",
+        buildMemberTicketCategoryKeyboard()
+      );
+    }
+    flow.step = "upload_from";
+    flow.data.ticketDraft = {
+      ...(flow.data.ticketDraft || {}),
+      category
+    };
+    setFlow(viewerId, flow);
+    return ctx.reply(
+      "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
+      getTripMemberTicketUploadKeyboard()
+    );
   }
 
   if (flow.step === "upload_from") {
@@ -5503,12 +5562,14 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
       );
     }
 
+    const category = normalizeMemberTicketCategory(flow.data?.ticketDraft?.category || "other");
     const segmentFrom = normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentFrom || "");
-    const segmentKey = buildMemberTicketSegmentKey(segmentFrom, segmentTo);
+    const segmentKey = buildMemberTicketSegmentKey(category, segmentFrom, segmentTo);
     const existingTicket = getMemberTickets(member).find((item) => String(item.segmentKey || "") === segmentKey);
 
     flow.step = "upload";
     flow.data.ticketDraft = {
+      category,
       segmentFrom,
       segmentTo,
       segmentKey
@@ -5516,9 +5577,10 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     flow.data.replaceTicketId = existingTicket?.id || "";
     setFlow(viewerId, flow);
 
+    const categoryLabel = getMemberTicketCategoryLabel(category);
     const uploadHint = existingTicket
-      ? `Для сегмента ${segmentFrom} → ${segmentTo} уже є квиток. Новий файл оновить попередній.\n\nНадішли файл квитка документом або фото.`
-      : `Додаємо окремий квиток для сегмента ${segmentFrom} → ${segmentTo}.\n\nНадішли файл квитка документом або фото.`;
+      ? `Для квитка ${categoryLabel} ${segmentFrom} → ${segmentTo} уже є файл. Новий файл оновить попередній.\n\nНадішли файл квитка документом або фото.`
+      : `Додаємо окремий квиток ${categoryLabel} для сегмента ${segmentFrom} → ${segmentTo}.\n\nНадішли файл квитка документом або фото.`;
     return ctx.reply(uploadHint, buildKeyboard([["❌ Скасувати"]]));
   }
 
@@ -5565,9 +5627,14 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
         fileName: document.file_name || "Квиток",
         mimeType: document.mime_type || "",
         mediaType: "document",
+        category: normalizeMemberTicketCategory(flow.data?.ticketDraft?.category || "other"),
         segmentFrom: normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentFrom || ""),
         segmentTo: normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentTo || ""),
-        segmentKey: buildMemberTicketSegmentKey(flow.data?.ticketDraft?.segmentFrom || "", flow.data?.ticketDraft?.segmentTo || ""),
+        segmentKey: buildMemberTicketSegmentKey(
+          flow.data?.ticketDraft?.category || "other",
+          flow.data?.ticketDraft?.segmentFrom || "",
+          flow.data?.ticketDraft?.segmentTo || ""
+        ),
         uploadedByMemberId: viewerId,
         uploadedByMemberName: userService.getDisplayName(viewerId, getUserLabel(ctx))
       }
@@ -5577,9 +5644,14 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
         fileName: `Фото квитка ${new Date().toLocaleDateString("uk-UA")}`,
         mimeType: "image/jpeg",
         mediaType: "photo",
+        category: normalizeMemberTicketCategory(flow.data?.ticketDraft?.category || "other"),
         segmentFrom: normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentFrom || ""),
         segmentTo: normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentTo || ""),
-        segmentKey: buildMemberTicketSegmentKey(flow.data?.ticketDraft?.segmentFrom || "", flow.data?.ticketDraft?.segmentTo || ""),
+        segmentKey: buildMemberTicketSegmentKey(
+          flow.data?.ticketDraft?.category || "other",
+          flow.data?.ticketDraft?.segmentFrom || "",
+          flow.data?.ticketDraft?.segmentTo || ""
+        ),
         uploadedByMemberId: viewerId,
         uploadedByMemberName: userService.getDisplayName(viewerId, getUserLabel(ctx))
       };
@@ -5658,7 +5730,7 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
     setFlow(viewerId, {
       type: "trip_member_ticket_manage",
       tripId: trip.id,
-      step: "upload_from",
+      step: "upload_category",
       data: {
         memberId: member.id,
         items: buildTripMemberTicketItems(member),
@@ -5674,9 +5746,9 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
       await ctx.answerCbQuery();
     }
 
-    const prompt = "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ";
+    const prompt = "Обери тип квитка для цього сегмента.";
     try {
-      return await ctx.reply(prompt, getTripMemberTicketUploadKeyboard());
+      return await ctx.reply(prompt, buildMemberTicketCategoryKeyboard());
     } catch {
       return ctx.reply(prompt);
     }
@@ -5684,7 +5756,7 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
     setFlow(viewerId, {
       type: "trip_member_ticket_manage",
       tripId: trip.id,
-      step: "upload_from",
+      step: "upload_category",
       data: {
         memberId: member.id,
         items: buildTripMemberTicketItems(member),
@@ -5696,8 +5768,8 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
       }
     });
     return ctx.reply(
-      "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
-      getTripMemberTicketUploadKeyboard()
+      "Обери тип квитка для цього сегмента.",
+      buildMemberTicketCategoryKeyboard()
     );
   }
 }
@@ -5731,7 +5803,7 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
       setFlow(viewerId, {
         type: "trip_member_ticket_manage",
         tripId: trip.id,
-        step: "upload_from",
+        step: "upload_category",
         data: {
           memberId: member.id,
           items: buildTripMemberTicketItems(member),
@@ -5743,8 +5815,8 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
         }
       });
       return ctx.reply(
-        "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
-        getTripMemberTicketUploadKeyboard()
+        "Обери тип квитка для цього сегмента.",
+        buildMemberTicketCategoryKeyboard()
       );
     }
   }

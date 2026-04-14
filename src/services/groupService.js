@@ -87,11 +87,12 @@ function normalizeTripPhotoEntry(entry = {}) {
 }
 
 function normalizeMemberTicket(ticket = {}) {
+  const category = String(ticket.category || "other").trim() || "other";
   const segmentFrom = String(ticket.segmentFrom || "").trim();
   const segmentTo = String(ticket.segmentTo || "").trim();
   const segmentKey = String(
     ticket.segmentKey
-    || (segmentFrom && segmentTo ? `${segmentFrom.toLowerCase()}::${segmentTo.toLowerCase()}` : "")
+    || (segmentFrom && segmentTo ? `${category.toLowerCase()}::${segmentFrom.toLowerCase()}::${segmentTo.toLowerCase()}` : "")
   ).trim();
 
   return {
@@ -103,6 +104,7 @@ function normalizeMemberTicket(ticket = {}) {
     mediaType: ticket.mediaType === "photo" ? "photo" : "document",
     uploadedByMemberId: ticket.uploadedByMemberId || "",
     uploadedByMemberName: ticket.uploadedByMemberName || "",
+    category,
     segmentFrom,
     segmentTo,
     segmentKey,

@@ -490,6 +490,7 @@ async function buildOpenAiReceiptInputs(filePath) {
   const inputs = [
     {
       type: "input_image",
+      detail: "high",
       image_url: `data:${originalMimeType};base64,${originalBuffer.toString("base64")}`
     }
   ];
@@ -512,6 +513,7 @@ async function buildOpenAiReceiptInputs(filePath) {
 
     inputs.push({
       type: "input_image",
+      detail: "high",
       image_url: `data:image/png;base64,${normalized.toString("base64")}`
     });
 
@@ -540,6 +542,7 @@ async function buildOpenAiReceiptInputs(filePath) {
 
         inputs.push({
           type: "input_image",
+          detail: "high",
           image_url: `data:image/png;base64,${zoneBuffer.toString("base64")}`
         });
       }
@@ -612,10 +615,11 @@ async function callOpenAiReceiptVision(filePath) {
                 type: "input_text",
                 text: [
                   "Extract this receipt as accurately as possible.",
-                  "Return the real store name, the printed receipt date, the real total amount paid, and as many line items as you can read confidently.",
-                  "Use DD-MM-YYYY for date.",
+                  "Return the exact store name, the printed receipt date, the real total amount paid, and as many line items as you can read confidently.",
+                  "Use DD-MM-YYYY for date and preserve the real year from the receipt.",
                   "If the receipt shows both cash given and change, total must be cash minus change, not the cash value.",
                   "Normalize obvious Ukrainian grocery chain names when the logo/text clearly identifies them.",
+                  "Prefer complete line items from the goods section of the receipt.",
                   "Do not hallucinate. If a line item is unreadable, omit it."
                 ].join(" ")
               },
@@ -663,6 +667,7 @@ async function callOpenAiReceiptVision(filePath) {
     positions: sanitizeOpenAiPositions(parsed?.positions),
     suggestedTitle: extractKnownMerchant([String(parsed?.merchant || "")]) || sanitizeMerchant(parsed?.merchant || "") || "Чек",
     confidence: 100,
+    provider: "openai_vision",
     variant: "openai-vision",
     score: 1000
   };
@@ -670,16 +675,27 @@ async function callOpenAiReceiptVision(filePath) {
 
 export class ReceiptOcrService {
   async recognizeReceipt(filePath) {
+    const hasOpenAiKey = Boolean(String(process.env.OPENAI_API_KEY || "").trim());
     try {
       const openAiResult = await callOpenAiReceiptVision(filePath);
       if (openAiResult?.merchant || openAiResult?.total || openAiResult?.positions?.length) {
         return openAiResult;
       }
-    } catch {
-      // Fall back to local OCR when vision OCR is unavailable or fails.
+    } catch (error) {
+      const fallback = await withTimeout(this.#recognizeReceiptInternal(filePath), OCR_TIMEOUT_MS);
+      return {
+        ...fallback,
+        provider: "local_tesseract_fallback",
+        warning: hasOpenAiKey ? `openai_failed:${String(error?.message || "unknown")}` : ""
+      };
     }
 
-    return withTimeout(this.#recognizeReceiptInternal(filePath), OCR_TIMEOUT_MS);
+    const fallback = await withTimeout(this.#recognizeReceiptInternal(filePath), OCR_TIMEOUT_MS);
+    return {
+      ...fallback,
+      provider: "local_tesseract_fallback",
+      warning: hasOpenAiKey ? "openai_empty_result" : ""
+    };
   }
 
   async #recognizeReceiptInternal(filePath) {
@@ -816,6 +832,7 @@ export class ReceiptOcrService {
         positions: middlePositions.length ? middlePositions : (best?.positions || []),
         suggestedTitle: topMerchant || best?.suggestedTitle || "Чек",
         confidence: Number(best?.confidence) || 0,
+        provider: "local_tesseract_fallback",
         variant: best?.variant || "",
         score: best?.score || 0
       };

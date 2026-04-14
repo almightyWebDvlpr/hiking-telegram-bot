@@ -13498,6 +13498,16 @@ function showTripExpenses(ctx, groupService, userService) {
     .map((item) => formatTotalLine(item.label, item.value))
     .join("\n") || "немає";
   const grandTotal = expenseSettlement.grandTotal;
+  const includedMembersLabel = getTripMembersIncludedInCalculations(trip)
+    .map((member) => resolveMemberDisplayName(userService, member.id, member.name))
+    .join(", ");
+  const excludedPayersSection = expenseSettlement.excludedPayers.length
+    ? [
+        "",
+        formatSectionHeader("↩️", "Повернення Тим, Хто Не Йде"),
+        ...expenseSettlement.excludedPayers.map((item) => `• ${item.memberName} — повернути ${formatMoney(item.paid)}`)
+      ]
+    : [];
 
   return replyRichText(
     ctx,
@@ -13519,12 +13529,9 @@ function showTripExpenses(ctx, groupService, userService) {
       formatTotalLine("ВСЬОГО", grandTotal),
       formatTotalLine("З кожного порівну", expenseSettlement.perPerson),
       `• У розрахунку беруть участь: ${expenseSettlement.participantCount}`,
-      "• статус `👎 Не йду` не включається в поділ витрат",
-      "",
-      formatSectionHeader("↩️", "Повернення Тим, Хто Не Йде"),
-      ...(expenseSettlement.excludedPayers.length
-        ? expenseSettlement.excludedPayers.map((item) => `• ${item.memberName} — повернути ${formatMoney(item.paid)}`)
-        : ["• немає"]),
+      includedMembersLabel ? `• Учасники розрахунку: ${includedMembersLabel}` : null,
+      ...(expenseSettlement.excludedPayers.length ? ["• Учасники зі статусом `👎 Не йду` не включаються в поділ витрат"] : []),
+      ...excludedPayersSection,
       "",
       formatSectionHeader("💱", "Хто Кому Винен"),
       ...(expenseSettlement.transfers.length

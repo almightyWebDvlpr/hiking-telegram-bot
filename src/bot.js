@@ -773,6 +773,15 @@ function getMemberTicketsStatusLabel(member = {}) {
   return count ? `🎫 Є квитки (${count})` : "🎫 Немає квитків";
 }
 
+function getMemberTicketListLabel(ticket = {}, index = null) {
+  const segmentLabel = getMemberTicketSegmentLabel(ticket);
+  const fileName = String(ticket.fileName || "").trim();
+  const baseLabel = segmentLabel || fileName || "Квиток";
+  const suffix = fileName && fileName !== baseLabel ? ` (${fileName})` : "";
+  const numberedLabel = typeof index === "number" ? `${index + 1}. ${baseLabel}${suffix}` : `${baseLabel}${suffix}`;
+  return numberedLabel;
+}
+
 function summarizeTripTickets(trip) {
   const members = Array.isArray(trip?.members) ? trip.members : [];
   const ticketCount = members.reduce((sum, member) => sum + getMemberTickets(member).length, 0);
@@ -5276,10 +5285,7 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
   const titleName = `${getAttendanceStatusEmoji(member.attendanceStatus) ? `${getAttendanceStatusEmoji(member.attendanceStatus)} ` : ""}${getMemberDisplayName(userService, member)}`;
   const tickets = getMemberTickets(member);
   const ticketLines = tickets.length
-    ? tickets.map((ticket, index) => {
-        const segmentLabel = getMemberTicketSegmentLabel(ticket);
-        return `• ${index + 1}. ${escapeHtml(segmentLabel || ticket.fileName || `Квиток ${index + 1}`)}`;
-      })
+    ? tickets.map((ticket, index) => `• ${escapeHtml(getMemberTicketListLabel(ticket, index))}`)
     : ["• Квитків ще немає"];
 
   return joinRichLines([
@@ -5347,7 +5353,7 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
 function buildTripMemberTicketItems(member = {}) {
   return getMemberTickets(member).map((ticket, index) => ({
     id: ticket.id,
-    label: `${index + 1}. ${truncateButtonLabel(getMemberTicketSegmentLabel(ticket) || ticket.fileName || `Квиток ${index + 1}`, 28)}`,
+    label: truncateButtonLabel(getMemberTicketListLabel(ticket, index), 28),
     ticket
   }));
 }
@@ -5366,8 +5372,7 @@ function formatTripMemberTicketsMessage(trip, member, userService) {
   } else {
     lines.push("Завантажені квитки:");
     for (const [index, ticket] of tickets.entries()) {
-      const segmentLabel = getMemberTicketSegmentLabel(ticket);
-      lines.push(`• ${index + 1}. ${escapeHtml(segmentLabel || ticket.fileName || `Квиток ${index + 1}`)}`);
+      lines.push(`• ${escapeHtml(getMemberTicketListLabel(ticket, index))}`);
     }
   }
 

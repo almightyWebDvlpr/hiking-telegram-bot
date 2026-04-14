@@ -137,6 +137,7 @@ const MEMBER_TICKETS_REPLACE_LABEL = "🔄 Оновити файл";
 const MEMBER_TICKETS_DELETE_LABEL = "🗑 Видалити квиток";
 const MEMBER_TICKETS_BACK_LABEL = "⬅️ До учасників";
 const MEMBER_TICKETS_LIST_BACK_LABEL = "⬅️ До квитків";
+const MEMBER_TICKET_FLOW_BACK_LABEL = "⬅️ Назад";
 const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
 const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
@@ -746,7 +747,7 @@ function getMemberTicketCategoryKeyByLabel(value = "") {
 function buildMemberTicketCategoryKeyboard() {
   return buildKeyboard([
     MEMBER_TICKET_CATEGORY_OPTIONS.map((item) => item.label),
-    ["❌ Скасувати"]
+    [MEMBER_TICKET_FLOW_BACK_LABEL]
   ]);
 }
 
@@ -1751,7 +1752,7 @@ function getTripMemberTicketsKeyboard(items = [], { selected = false } = {}) {
 }
 
 function getTripMemberTicketUploadKeyboard() {
-  return buildKeyboard([["❌ Скасувати"]]);
+  return buildKeyboard([[MEMBER_TICKET_FLOW_BACK_LABEL]]);
 }
 
 function getTripRouteKeyboard(trip, canManage = false) {
@@ -5546,7 +5547,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     return null;
   }
 
-  if (message === "❌ Скасувати") {
+  if (message === MEMBER_TICKET_FLOW_BACK_LABEL) {
     if (flow.step === "upload_category") {
       clearFlow(viewerId);
       return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
@@ -5601,7 +5602,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     if (!segmentFrom) {
       return ctx.reply(
         "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
-        buildKeyboard([["❌ Скасувати"]])
+        getTripMemberTicketUploadKeyboard()
       );
     }
     flow.step = "upload_to";
@@ -5618,7 +5619,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     if (!segmentTo) {
       return ctx.reply(
         "Вкажи куди їде людина за цим квитком.",
-        buildKeyboard([["❌ Скасувати"]])
+        getTripMemberTicketUploadKeyboard()
       );
     }
 
@@ -5669,7 +5670,7 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
 
   if (!document?.file_id && !photo?.file_id) {
-    return ctx.reply("Надішли документ або фото квитка.", buildKeyboard([["❌ Скасувати"]]));
+    return ctx.reply("Надішли документ або фото квитка.", getTripMemberTicketUploadKeyboard());
   }
 
   const ticket = document
@@ -5718,7 +5719,7 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   });
 
   if (!result.ok) {
-    return ctx.reply(result.message, buildKeyboard([["❌ Скасувати"]]));
+    return ctx.reply(result.message, getTripMemberTicketUploadKeyboard());
   }
 
   const refreshedTrip = result.group;

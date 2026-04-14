@@ -1688,13 +1688,16 @@ function getTripMemberStatusInlineKeyboard(trip, memberId, viewerId) {
     ]);
   }
 
-  if (member && canManageTripMemberTickets(trip, viewerId, memberId)) {
-    rows.push([
-      Markup.button.callback(MEMBER_TICKETS_UPLOAD_LABEL, `mtickets_upload|${trip.id}|${memberId}`)
-    ]);
-  }
-
   return rows.length ? Markup.inlineKeyboard(rows) : {};
+}
+
+function getTripMemberDetailsKeyboard(trip, viewerId, memberId) {
+  const rows = [];
+  if (canManageTripMemberTickets(trip, viewerId, memberId)) {
+    rows.push([MEMBER_TICKETS_UPLOAD_LABEL]);
+  }
+  rows.push([MEMBER_TICKETS_BACK_LABEL]);
+  return buildKeyboard(rows);
 }
 
 function getTripMemberTicketsKeyboard(items = [], { selected = false } = {}) {
@@ -5268,9 +5271,18 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
   const viewerId = String(ctx.from.id);
   const text = formatTripMemberDetailsMessage(trip, member, userService, viewerId);
   const inlineKeyboard = getTripMemberStatusInlineKeyboard(trip, member.id, viewerId);
+  setFlow(viewerId, {
+    type: "trip_member_detail",
+    tripId: trip.id,
+    step: "menu",
+    data: {
+      memberId,
+      items
+    }
+  });
 
   try {
-    return await ctx.reply(
+    await ctx.reply(
       text,
       {
         parse_mode: "HTML",
@@ -5279,14 +5291,19 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
     );
   } catch {
     try {
-      return await ctx.reply(
+      await ctx.reply(
         stripHtmlTags(text),
         inlineKeyboard
       );
     } catch {
-      return ctx.reply(stripHtmlTags(text));
+      await ctx.reply(stripHtmlTags(text));
     }
   }
+
+  return ctx.reply(
+    "Дії з учасником:",
+    getTripMemberDetailsKeyboard(trip, viewerId, member.id)
+  );
 }
 
 function buildTripMemberTicketItems(member = {}) {
@@ -5695,8 +5712,21 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
     clearFlow(viewerId);
     return ctx.reply("Учасника не знайдено.", getTripMembersKeyboard(trip, viewerId));
   }
-  clearFlow(viewerId);
-  return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
+
+  if (message === MEMBER_TICKETS_BACK_LABEL) {
+    clearFlow(viewerId);
+    return showTripMembers(ctx, groupService, userService);
+  }
+
+  if (message === MEMBER_TICKETS_UPLOAD_LABEL) {
+    clearFlow(viewerId);
+    return startTripMemberTicketUpload(ctx, groupService, userService, trip.id, member.id);
+  }
+
+  return ctx.reply(
+    "Обери дію кнопкою нижче.",
+    getTripMemberDetailsKeyboard(trip, viewerId, member.id)
+  );
 }
 
 async function handleTripMemberStatusAction(ctx, groupService, userService, tripId, memberId, status) {
@@ -14190,9 +14220,6 @@ export function createBot(store) {
     }
     return showTripMemberTickets(ctx, groupService, userService, trip, ctx.match?.[1] || "");
   });
-  bot.action(/^mtickets_upload\|([^|]+)\|([^|]+)$/, async (ctx) =>
-    startTripMemberTicketUpload(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
-  );
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
   bot.action(/^mstatus\|([^|]+)\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>
     handleTripMemberStatusAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "", ctx.match?.[3] || "")

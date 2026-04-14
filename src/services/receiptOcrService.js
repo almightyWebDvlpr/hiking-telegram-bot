@@ -1,6 +1,3 @@
-import sharp from "sharp";
-import Tesseract from "tesseract.js";
-
 const OCR_TIMEOUT_MS = 90000;
 
 function normalizeLine(value = "") {
@@ -219,6 +216,7 @@ function scoreResult(result = {}) {
 }
 
 async function buildReceiptVariants(filePath) {
+  const sharp = await loadSharp();
   const metadata = await sharp(filePath, { failOn: "none" }).metadata();
   const targetWidth = Math.max(Number(metadata.width) || 0, 1800);
   const base = sharp(filePath, { failOn: "none" })
@@ -245,6 +243,7 @@ async function buildReceiptVariants(filePath) {
 }
 
 async function buildReceiptZoneVariants(filePath) {
+  const sharp = await loadSharp();
   const metadata = await sharp(filePath, { failOn: "none" }).metadata();
   const width = Number(metadata.width) || 0;
   const height = Number(metadata.height) || 0;
@@ -300,12 +299,30 @@ function withTimeout(promise, timeoutMs) {
   ]);
 }
 
+let sharpModulePromise = null;
+let tesseractModulePromise = null;
+
+async function loadSharp() {
+  if (!sharpModulePromise) {
+    sharpModulePromise = import("sharp").then((module) => module.default || module);
+  }
+  return sharpModulePromise;
+}
+
+async function loadTesseract() {
+  if (!tesseractModulePromise) {
+    tesseractModulePromise = import("tesseract.js").then((module) => module.default || module);
+  }
+  return tesseractModulePromise;
+}
+
 export class ReceiptOcrService {
   async recognizeReceipt(filePath) {
     return withTimeout(this.#recognizeReceiptInternal(filePath), OCR_TIMEOUT_MS);
   }
 
   async #recognizeReceiptInternal(filePath) {
+    const Tesseract = await loadTesseract();
     const variants = await buildReceiptVariants(filePath);
     const zoneVariants = await buildReceiptZoneVariants(filePath);
     const worker = await Tesseract.createWorker("ukr+eng", 1, {

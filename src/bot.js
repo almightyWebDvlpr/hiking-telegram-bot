@@ -5354,22 +5354,15 @@ function formatTripMemberTicketDetailsMessage(trip, member, ticket, userService)
 }
 
 async function safeReplyTripTicketBlock(ctx, text, keyboard = null) {
-  try {
-    return await ctx.reply(
-      text,
-      keyboard ? { parse_mode: "HTML", ...keyboard } : { parse_mode: "HTML" }
-    );
-  } catch {
-    const plainText = stripHtmlTags(text);
-    if (keyboard) {
-      try {
-        return await ctx.reply(plainText, keyboard);
-      } catch {
-        return ctx.reply(plainText);
-      }
+  const plainText = stripHtmlTags(text);
+  if (keyboard) {
+    try {
+      return await ctx.reply(plainText, keyboard);
+    } catch {
+      return ctx.reply(plainText);
     }
-    return ctx.reply(plainText);
   }
+  return ctx.reply(plainText);
 }
 
 function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
@@ -5487,11 +5480,11 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
 
     if (message === MEMBER_TICKETS_OPEN_LABEL) {
       await sendTripMemberTicketFile(ctx, member, selectedTicket);
-      return safeReplyTripTicketBlock(
-        ctx,
-        formatTripMemberTicketDetailsMessage(trip, member, selectedTicket, userService),
-        getTripMemberTicketsKeyboard(items, { selected: true })
-      );
+    return safeReplyTripTicketBlock(
+      ctx,
+      formatTripMemberTicketDetailsMessage(trip, member, selectedTicket, userService),
+      getTripMemberTicketsKeyboard(items, { selected: true })
+    );
     }
 
     return ctx.reply(
@@ -5547,17 +5540,10 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     flow.data.replaceTicketId = existingTicket?.id || "";
     setFlow(viewerId, flow);
 
-    return safeReplyTripTicketBlock(
-      ctx,
-      joinRichLines([
-        existingTicket
-          ? `Для сегмента <b>${escapeHtml(`${segmentFrom} → ${segmentTo}`)}</b> уже є квиток. Новий файл оновить попередній.`
-          : `Додаємо окремий квиток для сегмента <b>${escapeHtml(`${segmentFrom} → ${segmentTo}`)}</b>.`,
-        "",
-        "Надішли файл квитка документом або фото."
-      ]),
-      buildKeyboard([["❌ Скасувати"]])
-    );
+    const uploadHint = existingTicket
+      ? `Для сегмента ${segmentFrom} → ${segmentTo} уже є квиток. Новий файл оновить попередній.\n\nНадішли файл квитка документом або фото.`
+      : `Додаємо окремий квиток для сегмента ${segmentFrom} → ${segmentTo}.\n\nНадішли файл квитка документом або фото.`;
+    return ctx.reply(uploadHint, buildKeyboard([["❌ Скасувати"]]));
   }
 
   if (flow.step === "upload") {
@@ -5708,7 +5694,9 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
   });
 
   if (ctx.answerCbQuery) {
-    await ctx.answerCbQuery();
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery();
+    }
   }
 
   const prompt = "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ";

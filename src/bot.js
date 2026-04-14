@@ -1693,11 +1693,9 @@ function getTripMemberStatusInlineKeyboard(trip, memberId, viewerId) {
 
 function getTripMemberDetailsKeyboard(trip, viewerId, memberId) {
   const rows = [];
-
   if (canManageTripMemberTickets(trip, viewerId, memberId)) {
     rows.push([MEMBER_TICKETS_UPLOAD_LABEL]);
   }
-
   rows.push([MEMBER_TICKETS_BACK_LABEL]);
   return buildKeyboard(rows);
 }
@@ -5273,9 +5271,18 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
   const viewerId = String(ctx.from.id);
   const text = formatTripMemberDetailsMessage(trip, member, userService, viewerId);
   const inlineKeyboard = getTripMemberStatusInlineKeyboard(trip, member.id, viewerId);
+  setFlow(viewerId, {
+    type: "trip_member_detail",
+    tripId: trip.id,
+    step: "menu",
+    data: {
+      memberId,
+      items
+    }
+  });
 
   try {
-    return await ctx.reply(
+    await ctx.reply(
       text,
       {
         parse_mode: "HTML",
@@ -5284,14 +5291,19 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
     );
   } catch {
     try {
-      return await ctx.reply(
+      await ctx.reply(
         stripHtmlTags(text),
         inlineKeyboard
       );
     } catch {
-      return ctx.reply(stripHtmlTags(text));
+      await ctx.reply(stripHtmlTags(text));
     }
   }
+
+  return ctx.reply(
+    "Дії з учасником:",
+    getTripMemberDetailsKeyboard(trip, viewerId, member.id)
+  );
 }
 
 function buildTripMemberTicketItems(member = {}) {
@@ -5684,6 +5696,7 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
     { parse_mode: "Markdown", ...buildKeyboard([["❌ Скасувати"]]) }
   );
 }
+
 async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) {
   const viewerId = String(ctx.from.id);
   const message = String(ctx.message?.text || "").trim();
@@ -5706,30 +5719,14 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
   }
 
   if (message === MEMBER_TICKETS_UPLOAD_LABEL) {
-    if (!canManageTripMemberTickets(trip, viewerId, member.id)) {
-      return ctx.reply("Ти не можеш завантажувати квитки цьому учаснику.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
-    }
-
-    setFlow(viewerId, {
-      type: "trip_member_ticket_manage",
-      tripId: trip.id,
-      step: "upload",
-      data: {
-        memberId: member.id,
-        items: buildTripMemberTicketItems(member),
-        selectedTicketId: "",
-        uploadMode: "create",
-        returnContext: "member_detail"
-      }
-    });
-
-    return ctx.reply(
-      "Надішли файл квитка документом або фото.",
-      buildKeyboard([["❌ Скасувати"]])
-    );
+    clearFlow(viewerId);
+    return startTripMemberTicketUpload(ctx, groupService, userService, trip.id, member.id);
   }
 
-  return ctx.reply("Обери дію кнопкою нижче.", getTripMemberDetailsKeyboard(trip, viewerId, member.id));
+  return ctx.reply(
+    "Обери дію кнопкою нижче.",
+    getTripMemberDetailsKeyboard(trip, viewerId, member.id)
+  );
 }
 
 async function handleTripMemberStatusAction(ctx, groupService, userService, tripId, memberId, status) {
@@ -13280,14 +13277,16 @@ async function finishTrip(ctx, groupService, userService, telegram = null) {
   }
 
   const completed = completionResult.group;
-  const awardResults = completed.members.map((member) => ({
-    member,
-    awards: userService.grantTripAwards({
-      trip: completed,
-      memberId: member.id,
-      userName: member.name
-    })
-  }));
+  const awardResults = completed.members
+    .filter(isMemberIncludedInCalculations)
+    .map((member) => ({
+      member,
+      awards: userService.grantTripAwards({
+        trip: completed,
+        memberId: member.id,
+        userName: member.name
+      })
+    }));
   const hasTrackableRoute = Boolean(
     completed?.routePlan &&
     (

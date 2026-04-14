@@ -87,6 +87,13 @@ function normalizeTripPhotoEntry(entry = {}) {
 }
 
 function normalizeMemberTicket(ticket = {}) {
+  const segmentFrom = String(ticket.segmentFrom || "").trim();
+  const segmentTo = String(ticket.segmentTo || "").trim();
+  const segmentKey = String(
+    ticket.segmentKey
+    || (segmentFrom && segmentTo ? `${segmentFrom.toLowerCase()}::${segmentTo.toLowerCase()}` : "")
+  ).trim();
+
   return {
     id: ticket.id || crypto.randomUUID(),
     fileId: ticket.fileId || "",
@@ -96,6 +103,9 @@ function normalizeMemberTicket(ticket = {}) {
     mediaType: ticket.mediaType === "photo" ? "photo" : "document",
     uploadedByMemberId: ticket.uploadedByMemberId || "",
     uploadedByMemberName: ticket.uploadedByMemberName || "",
+    segmentFrom,
+    segmentTo,
+    segmentKey,
     createdAt: ticket.createdAt || new Date().toISOString()
   };
 }
@@ -713,8 +723,16 @@ export class GroupService {
       ? member.tickets.map((item) => normalizeMemberTicket(item)).filter((item) => item.fileId)
       : [];
 
-    if (replaceTicketId) {
-      const index = member.tickets.findIndex((item) => String(item.id) === String(replaceTicketId));
+    let resolvedReplaceTicketId = String(replaceTicketId || "");
+    if (!resolvedReplaceTicketId && normalizedTicket.segmentKey) {
+      const existingBySegment = member.tickets.find((item) => String(item.segmentKey || "") === normalizedTicket.segmentKey);
+      if (existingBySegment) {
+        resolvedReplaceTicketId = existingBySegment.id;
+      }
+    }
+
+    if (resolvedReplaceTicketId) {
+      const index = member.tickets.findIndex((item) => String(item.id) === resolvedReplaceTicketId);
       if (index === -1) {
         return { ok: false, message: "Квиток для оновлення не знайдено." };
       }

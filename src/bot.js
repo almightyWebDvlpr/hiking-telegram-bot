@@ -5691,10 +5691,15 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
     await ctx.answerCbQuery();
   }
 
-  return ctx.reply(
-    "Вкажи звідки їде людина за цим квитком.\nПриклад: `Київ` або `Івано-Франківськ`",
-    { parse_mode: "Markdown", ...buildKeyboard([["❌ Скасувати"]]) }
-  );
+  const prompt = "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ";
+  try {
+    return await ctx.reply(
+      prompt,
+      buildKeyboard([["❌ Скасувати"]])
+    );
+  } catch {
+    return ctx.reply(prompt);
+  }
 }
 
 async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) {

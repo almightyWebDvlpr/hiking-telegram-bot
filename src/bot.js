@@ -4309,9 +4309,10 @@ function buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, use
     }
   }
 
-  const paidByMemberLines = [...paidByKey.values()]
-    .sort((left, right) => right.total - left.total)
-    .map((item) => ({ label: item.memberName, value: item.total }));
+  const paidByMemberLines = balances
+    .filter((item) => item.isParticipant)
+    .sort((left, right) => right.paid - left.paid || left.memberName.localeCompare(right.memberName, "uk"))
+    .map((item) => ({ label: item.memberName, value: item.paid }));
 
   const excludedPayers = balances.filter((item) => !item.isParticipant && item.paid > 0.5);
 

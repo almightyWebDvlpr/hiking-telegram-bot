@@ -1,5 +1,7 @@
 import Tesseract from "tesseract.js";
 
+const OCR_TIMEOUT_MS = 90000;
+
 function normalizeLine(value = "") {
   return String(value || "")
     .replaceAll(/\s+/g, " ")
@@ -130,9 +132,14 @@ function extractPositions(lines = []) {
 
 export class ReceiptOcrService {
   async recognizeReceipt(filePath) {
-    const { data } = await Tesseract.recognize(filePath, "ukr+eng", {
-      logger: () => {}
-    });
+    const { data } = await Promise.race([
+      Tesseract.recognize(filePath, "ukr+eng", {
+        logger: () => {}
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("ocr_timeout")), OCR_TIMEOUT_MS);
+      })
+    ]);
 
     const rawText = String(data?.text || "").trim();
     const lines = extractLines(rawText);

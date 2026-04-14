@@ -5353,6 +5353,25 @@ function formatTripMemberTicketDetailsMessage(trip, member, ticket, userService)
   ].filter(Boolean));
 }
 
+async function safeReplyTripTicketBlock(ctx, text, keyboard = null) {
+  try {
+    return await ctx.reply(
+      text,
+      keyboard ? { parse_mode: "HTML", ...keyboard } : { parse_mode: "HTML" }
+    );
+  } catch {
+    const plainText = stripHtmlTags(text);
+    if (keyboard) {
+      try {
+        return await ctx.reply(plainText, keyboard);
+      } catch {
+        return ctx.reply(plainText);
+      }
+    }
+    return ctx.reply(plainText);
+  }
+}
+
 function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
   const member = trip.members.find((item) => String(item.id) === String(memberId));
   if (!member) {
@@ -5381,12 +5400,10 @@ function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
     }
   });
 
-  return ctx.reply(
+  return safeReplyTripTicketBlock(
+    ctx,
     formatTripMemberTicketsMessage(trip, member, userService),
-    {
-      parse_mode: "HTML",
-      ...getTripMemberTicketsKeyboard(items)
-    }
+    getTripMemberTicketsKeyboard(items)
   );
 }
 
@@ -5435,12 +5452,10 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     flow.data.items = items;
     flow.data.selectedTicketId = selected.id;
     setFlow(viewerId, flow);
-    return ctx.reply(
+    return safeReplyTripTicketBlock(
+      ctx,
       formatTripMemberTicketDetailsMessage(trip, member, selected.ticket, userService),
-      {
-        parse_mode: "HTML",
-        ...getTripMemberTicketsKeyboard(items, { selected: true })
-      }
+      getTripMemberTicketsKeyboard(items, { selected: true })
     );
   }
 
@@ -5451,9 +5466,10 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
       flow.data.items = items;
       flow.data.selectedTicketId = "";
       setFlow(viewerId, flow);
-      return ctx.reply(
+      return safeReplyTripTicketBlock(
+        ctx,
         formatTripMemberTicketsMessage(trip, member, userService),
-        { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items) }
+        getTripMemberTicketsKeyboard(items)
       );
     }
 
@@ -5462,17 +5478,19 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
       flow.data.items = items;
       flow.data.selectedTicketId = "";
       setFlow(viewerId, flow);
-      return ctx.reply(
+      return safeReplyTripTicketBlock(
+        ctx,
         formatTripMemberTicketsMessage(trip, member, userService),
-        { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items) }
+        getTripMemberTicketsKeyboard(items)
       );
     }
 
     if (message === MEMBER_TICKETS_OPEN_LABEL) {
       await sendTripMemberTicketFile(ctx, member, selectedTicket);
-      return ctx.reply(
+      return safeReplyTripTicketBlock(
+        ctx,
         formatTripMemberTicketDetailsMessage(trip, member, selectedTicket, userService),
-        { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(items, { selected: true }) }
+        getTripMemberTicketsKeyboard(items, { selected: true })
       );
     }
 
@@ -5491,8 +5509,8 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     const segmentFrom = normalizeTicketSegmentInput(message);
     if (!segmentFrom) {
       return ctx.reply(
-        "Вкажи звідки їде людина за цим квитком.\nПриклад: `Київ` або `Івано-Франківськ`",
-        { parse_mode: "Markdown", ...buildKeyboard([["❌ Скасувати"]]) }
+        "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
+        buildKeyboard([["❌ Скасувати"]])
       );
     }
     flow.step = "upload_to";
@@ -5502,8 +5520,8 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     };
     setFlow(viewerId, flow);
     return ctx.reply(
-      "Тепер вкажи куди цей квиток.\nПриклад: `Івано-Франківськ` або `Ворохта`",
-      { parse_mode: "Markdown", ...buildKeyboard([["❌ Скасувати"]]) }
+      "Тепер вкажи куди цей квиток.\nПриклад: Івано-Франківськ або Ворохта",
+      buildKeyboard([["❌ Скасувати"]])
     );
   }
 
@@ -5529,7 +5547,8 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     flow.data.replaceTicketId = existingTicket?.id || "";
     setFlow(viewerId, flow);
 
-    return ctx.reply(
+    return safeReplyTripTicketBlock(
+      ctx,
       joinRichLines([
         existingTicket
           ? `Для сегмента <b>${escapeHtml(`${segmentFrom} → ${segmentTo}`)}</b> уже є квиток. Новий файл оновить попередній.`
@@ -5537,7 +5556,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
         "",
         "Надішли файл квитка документом або фото."
       ]),
-      { parse_mode: "HTML", ...buildKeyboard([["❌ Скасувати"]]) }
+      buildKeyboard([["❌ Скасувати"]])
     );
   }
 
@@ -5637,13 +5656,14 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
     return showTripMemberDetails(ctx, groupService, userService, refreshedTrip, refreshedMember.id);
   }
 
-  return ctx.reply(
+  return safeReplyTripTicketBlock(
+    ctx,
     joinRichLines([
       `✅ Квиток для ${escapeHtml(getMemberDisplayName(userService, refreshedMember))} збережено.`,
       "",
       formatTripMemberTicketsMessage(refreshedTrip, refreshedMember, userService)
     ]),
-    { parse_mode: "HTML", ...getTripMemberTicketsKeyboard(refreshedItems) }
+    getTripMemberTicketsKeyboard(refreshedItems)
   );
 }
 

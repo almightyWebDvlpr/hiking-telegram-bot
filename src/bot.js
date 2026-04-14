@@ -2096,8 +2096,7 @@ function formatExpenseOcrSummary(result = {}) {
     "",
     `Магазин: ${result.merchant || "не впізнано"}`,
     `Дата: ${result.date || "не впізнано"}`,
-    `Сума: ${result.total ? formatMoney(result.total) : "не впізнано"}`,
-    `Точність OCR: ${Math.round(Number(result.confidence) || 0)}%`
+    `Сума: ${result.total ? formatMoney(result.total) : "не впізнано"}`
   ];
 
   if (Array.isArray(result.positions) && result.positions.length) {

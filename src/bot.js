@@ -2094,6 +2094,7 @@ function formatExpenseOcrSummary(result = {}) {
   const lines = [
     ...formatCardHeader("🧠 OCR ЧЕКА", result.merchant || "Попередній розбір"),
     "",
+    `Режим OCR: ${result.provider === "openai_vision" ? "OpenAI Vision" : "Локальний fallback"}`,
     `Магазин: ${result.merchant || "не впізнано"}`,
     `Дата: ${result.date || "не впізнано"}`,
     `Сума: ${result.total ? formatMoney(result.total) : "не впізнано"}`
@@ -2105,6 +2106,11 @@ function formatExpenseOcrSummary(result = {}) {
     for (const item of result.positions.slice(0, 5)) {
       lines.push(`• ${escapeHtml(item.title)} — ${formatMoney(item.amount)}`);
     }
+  }
+
+  if (result.provider !== "openai_vision" && result.warning) {
+    lines.push("");
+    lines.push("⚠️ OpenAI OCR не спрацював, тому бот використав локальний fallback.");
   }
 
   lines.push("");

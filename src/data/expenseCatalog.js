@@ -51,6 +51,11 @@ function scoreKeywordMatch(normalizedValue, keyword) {
   return 0;
 }
 
+function hasRouteHint(normalizedValue = "") {
+  const value = String(normalizedValue || "");
+  return value.includes("→") || value.includes("->") || /\bз\b.+\bдо\b/.test(value);
+}
+
 export const EXPENSE_CATEGORIES = [
   { key: "transport", icon: "🚆", label: "Транспорт" },
   { key: "transfer", icon: "🚐", label: "Трансфер і довіз" },
@@ -68,8 +73,8 @@ export const EXPENSE_CATEGORIES = [
 ];
 
 const EXPENSE_NAME_ALIASES = [
-  { canonical: "Квиток на потяг", categoryKey: "transport", keywords: ["квиток потяг", "залізничний квиток", "квиток на поїзд", "поїзд", "потяг", "купе", "плацкарт", "інтерсіті"] },
-  { canonical: "Квиток на автобус", categoryKey: "transport", keywords: ["квиток автобус", "автобус", "маршрутка", "квиток на автобус", "міжміський автобус"] },
+  { canonical: "Квиток на потяг", categoryKey: "transport", keywords: ["квиток потяг", "залізничний квиток", "квиток на поїзд", "квиток на потяг", "поїзд", "потяг", "купе", "плацкарт", "інтерсіті", "укрзалізниця"] },
+  { canonical: "Квиток на автобус", categoryKey: "transport", keywords: ["квиток автобус", "автобус", "маршрутка", "квиток на автобус", "міжміський автобус", "автобусний квиток"] },
   { canonical: "Квиток на електричку", categoryKey: "transport", keywords: ["електричка", "квиток на електричку", "приміський поїзд"] },
   { canonical: "Міський транспорт", categoryKey: "transport", keywords: ["метро", "трамвай", "тролейбус", "міський автобус", "проїзд по місту"] },
   { canonical: "Таксі", categoryKey: "transfer", keywords: ["таксі", "taxi", "uber", "bolt"] },
@@ -86,7 +91,7 @@ const EXPENSE_NAME_ALIASES = [
   { canonical: "Спирт / рідке пальне", categoryKey: "fuel", keywords: ["спирт", "сухий спирт", "рідке пальне", "паливо для пальника"] },
   { canonical: "Бензин / мультитопливне пальне", categoryKey: "fuel", keywords: ["бензин", "паливо", "пальне", "мультитопливне пальне", "white gas"] },
   { canonical: "Дрова / розпалювання", categoryKey: "fuel", keywords: ["дрова", "розпалка", "розпалювання", "паливні брикети"] },
-  { canonical: "Вхідний квиток", categoryKey: "tickets", keywords: ["вхідний квиток", "квиток", "вхід"] },
+  { canonical: "Вхідний квиток", categoryKey: "tickets", keywords: ["вхідний квиток", "вхід", "вхід у музей", "вхід у парк", "вхід у заповідник"] },
   { canonical: "Екологічний збір", categoryKey: "tickets", keywords: ["екозбір", "екологічний збір", "рекреаційний збір", "плата за вхід у парк"] },
   { canonical: "Перепустка", categoryKey: "tickets", keywords: ["перепустка", "дозвіл", "permit", "пропуск"] },
   { canonical: "Послуги гіда / інструктора", categoryKey: "tickets", keywords: ["гід", "інструктор", "послуги гіда", "супровід"] },
@@ -126,10 +131,14 @@ const EXPENSE_ALIAS_FUSE = new Fuse(EXPENSE_ALIAS_RECORDS, {
 
 function resolveExpenseAlias(title) {
   const normalized = normalizeExpenseSearch(title);
+  const routeHint = hasRouteHint(normalized);
   let bestAlias = null;
   let bestScore = 0;
 
   for (const item of EXPENSE_NAME_ALIASES) {
+    if (routeHint && item.canonical === "Вхідний квиток") {
+      continue;
+    }
     for (const keyword of item.keywords) {
       const score = scoreKeywordMatch(normalized, keyword);
       if (score > bestScore) {
@@ -149,6 +158,9 @@ function resolveExpenseAlias(title) {
 
   const [match] = EXPENSE_ALIAS_FUSE.search(normalized, { limit: 1 });
   if (match?.item?.alias && (match.score ?? 1) <= 0.34) {
+    if (routeHint && match.item.alias.canonical === "Вхідний квиток") {
+      return null;
+    }
     return match.item.alias;
   }
 

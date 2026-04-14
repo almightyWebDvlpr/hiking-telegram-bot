@@ -1707,12 +1707,6 @@ function getTripMemberTicketsKeyboard(items = [], { selected = false } = {}) {
     rows.push([item.label]);
   }
 
-  if (selected) {
-    rows.push([MEMBER_TICKETS_OPEN_LABEL]);
-    rows.push([MEMBER_TICKETS_LIST_BACK_LABEL]);
-    return buildKeyboard(rows);
-  }
-
   rows.push([MEMBER_TICKETS_BACK_LABEL]);
   return buildKeyboard(rows);
 }
@@ -5441,56 +5435,8 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
       );
     }
 
-    flow.step = "item";
-    flow.data.items = items;
-    flow.data.selectedTicketId = selected.id;
-    setFlow(viewerId, flow);
-    return safeReplyTripTicketBlock(
-      ctx,
-      formatTripMemberTicketDetailsMessage(trip, member, selected.ticket, userService),
-      getTripMemberTicketsKeyboard(items, { selected: true })
-    );
-  }
-
-  if (flow.step === "item") {
-    const selectedTicket = getMemberTickets(member).find((item) => String(item.id) === String(flow.data?.selectedTicketId || ""));
-    if (!selectedTicket) {
-      flow.step = "list";
-      flow.data.items = items;
-      flow.data.selectedTicketId = "";
-      setFlow(viewerId, flow);
-      return safeReplyTripTicketBlock(
-        ctx,
-        formatTripMemberTicketsMessage(trip, member, userService),
-        getTripMemberTicketsKeyboard(items)
-      );
-    }
-
-    if (message === MEMBER_TICKETS_LIST_BACK_LABEL) {
-      flow.step = "list";
-      flow.data.items = items;
-      flow.data.selectedTicketId = "";
-      setFlow(viewerId, flow);
-      return safeReplyTripTicketBlock(
-        ctx,
-        formatTripMemberTicketsMessage(trip, member, userService),
-        getTripMemberTicketsKeyboard(items)
-      );
-    }
-
-    if (message === MEMBER_TICKETS_OPEN_LABEL) {
-      await sendTripMemberTicketFile(ctx, member, selectedTicket);
-    return safeReplyTripTicketBlock(
-      ctx,
-      formatTripMemberTicketDetailsMessage(trip, member, selectedTicket, userService),
-      getTripMemberTicketsKeyboard(items, { selected: true })
-    );
-    }
-
-    return ctx.reply(
-      "Обери дію з квитком кнопкою нижче.",
-      getTripMemberTicketsKeyboard(items, { selected: true })
-    );
+    await sendTripMemberTicketFile(ctx, member, selected.ticket);
+    return null;
   }
 
   if (["upload_from", "upload_to", "upload"].includes(flow.step) && message === "❌ Скасувати") {

@@ -16,17 +16,19 @@ function extractLines(text = "") {
 function extractDate(text = "") {
   const patterns = [
     /\b(\d{2}[./-]\d{2}[./-]\d{4})\b/,
-    /\b(\d{4}[./-]\d{2}[./-]\d{2})\b/
+    /\b(\d{4}[./-]\d{2}[./-]\d{2})\b/,
+    /\b(\d{2}[./-]\d{2}[./-]\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\b/
   ];
 
   for (const pattern of patterns) {
     const match = String(text || "").match(pattern);
     if (match?.[1]) {
-      const candidate = match[1];
-      const parts = candidate.split(/[./-]/).map((item) => Number.parseInt(item, 10));
+      const candidate = normalizeReceiptDateCandidate(match[1]);
+      const datePart = candidate.split(/\s+/)[0];
+      const parts = datePart.split(/[./-]/).map((item) => Number.parseInt(item, 10));
       if (parts.length === 3) {
         const [first, second, third] = parts;
-        const dayFirst = candidate.match(/^\d{2}[./-]/);
+        const dayFirst = datePart.match(/^\d{2}[./-]/);
         const day = dayFirst ? first : third;
         const month = second;
         if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
@@ -37,6 +39,33 @@ function extractDate(text = "") {
   }
 
   return "";
+}
+
+function normalizeReceiptDateCandidate(value = "") {
+  const candidate = String(value || "").trim();
+  if (!candidate) {
+    return "";
+  }
+
+  const [datePart, timePart] = candidate.split(/\s+/, 2);
+  const parts = datePart.split(/[./-]/);
+  if (parts.length !== 3) {
+    return candidate;
+  }
+
+  const normalizedParts = parts.map((part, index) => {
+    let cleaned = String(part || "").replace(/[OoОоD]/g, "0").replace(/[Il|]/g, "1");
+    if (index === 1) {
+      const numeric = Number.parseInt(cleaned, 10);
+      if (!Number.isFinite(numeric) || numeric < 1 || numeric > 12) {
+        cleaned = cleaned.replace(/^[689]/, "0");
+      }
+    }
+    return cleaned;
+  });
+
+  const separator = datePart.includes(".") ? "." : datePart.includes("/") ? "/" : "-";
+  return [normalizedParts.join(separator), timePart].filter(Boolean).join(" ").trim();
 }
 
 function parseMoneyCandidate(raw = "") {
@@ -66,6 +95,7 @@ function extractAllAmounts(lines = []) {
 
 function extractTotal(lines = []) {
   const totalPattern = /(сума|разом|всього|до сплати|сплатити|итого|підсумок|total|sum)/i;
+  const excludedAmountLine = /(готівка|решта|податку|пдв)/i;
   const amounts = extractAllAmounts(lines);
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -75,17 +105,31 @@ function extractTotal(lines = []) {
     }
 
     const combined = [line, lines[index + 1], lines[index + 2]].filter(Boolean).join(" ");
+    const directMatch = combined.match(/(?:сума|разом|всього|до сплати|сплатити|итого|підсумок|total|sum)[^\d]{0,30}(\d{1,6}(?:[.,]\d{2}))/i);
+    if (directMatch?.[1]) {
+      const directValue = parseMoneyCandidate(directMatch[1]);
+      if (directValue > 0) {
+        return directValue;
+      }
+    }
+
     const lineAmounts = (combined.match(/(\d{1,6}(?:[.,]\d{2}))/g) || [])
       .map((item) => parseMoneyCandidate(item))
       .filter((item) => item > 0);
 
     if (lineAmounts.length) {
-      return Math.max(...lineAmounts);
+      return lineAmounts[0];
     }
+  }
+
+  const cashChangeTotal = extractCashChangeTotal(lines);
+  if (cashChangeTotal > 0) {
+    return cashChangeTotal;
   }
 
   const tailAmounts = amounts
     .filter((item) => lines.slice(-12).includes(item.line))
+    .filter((item) => !excludedAmountLine.test(item.line))
     .map((item) => item.value);
   if (tailAmounts.length) {
     return Math.max(...tailAmounts);
@@ -98,6 +142,22 @@ function extractTotal(lines = []) {
   return Math.max(...amounts.map((item) => item.value));
 }
 
+function extractCashChangeTotal(lines = []) {
+  const cashLine = lines.find((line) => /готівка/i.test(line));
+  const changeLine = lines.find((line) => /решта/i.test(line));
+  if (!cashLine || !changeLine) {
+    return 0;
+  }
+
+  const cash = Math.max(...((cashLine.match(/(\d{1,6}(?:[.,]\d{2}))/g) || []).map((item) => parseMoneyCandidate(item))), 0);
+  const change = Math.max(...((changeLine.match(/(\d{1,6}(?:[.,]\d{2}))/g) || []).map((item) => parseMoneyCandidate(item))), 0);
+  if (cash > 0 && change >= 0 && cash > change) {
+    return Number((cash - change).toFixed(2));
+  }
+
+  return 0;
+}
+
 function sanitizeMerchant(value = "") {
   const sanitized = normalizeLine(value)
     .replace(/^[^A-Za-zА-Яа-яІіЇїЄєҐґ]+/, "")
@@ -108,6 +168,36 @@ function sanitizeMerchant(value = "") {
   return trimmed
     .replace(/\s+[A-Za-zА-Яа-яІіЇїЄєҐґ]$/, "")
     .trim();
+}
+
+function normalizeOcrMerchantKey(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[|'"`’"]/g, "")
+    .replace(/0/g, "о")
+    .replace(/3/g, "з")
+    .replace(/6/g, "б")
+    .replace(/8/g, "в")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function extractKnownMerchant(lines = []) {
+  const joined = normalizeOcrMerchantKey(lines.slice(0, 8).join(" "));
+  if (joined.includes("кишен")) {
+    return "Велика Кишеня";
+  }
+
+  const knownPatterns = [
+    { pattern: /велик[а-яіїєґ]*кишен/, value: "Велика Кишеня" },
+    { pattern: /сільп[о0]/, value: "Сільпо" },
+    { pattern: /атб/, value: "АТБ" },
+    { pattern: /novus|новус/, value: "NOVUS" },
+    { pattern: /ашан|auchan/, value: "Ашан" },
+    { pattern: /metro|метро/, value: "METRO" }
+  ];
+
+  const matched = knownPatterns.find((item) => item.pattern.test(joined));
+  return matched?.value || "";
 }
 
 function scoreMerchantLine(value = "") {
@@ -132,6 +222,11 @@ function scoreMerchantLine(value = "") {
 }
 
 function extractMerchant(lines = []) {
+  const knownMerchant = extractKnownMerchant(lines);
+  if (knownMerchant) {
+    return knownMerchant;
+  }
+
   const excluded = /(сума|разом|всього|чек|касир|термінал|терминал|дата|час|рн|єдрпоу|фн|зн|пдв|subtotal|total|готівка|решта)/i;
   const topLines = lines.slice(0, 6)
     .map((line) => sanitizeMerchant(line))
@@ -150,23 +245,74 @@ function extractMerchant(lines = []) {
   return best?.score > 0 ? best.value : "";
 }
 
+function sanitizePositionTitle(value = "") {
+  return normalizeLine(value)
+    .replace(/^\d{4,}[-.: ]+/, "")
+    .replace(/^[A-Za-zА-Яа-яІіЇїЄєҐґ]{0,2}\d{2,}[-.: ]+/u, "")
+    .replace(/^\d+[.,]\d+\s*[xх×]\s*/iu, "")
+    .replace(/\s+\d{1,6}(?:[.,]\d{2})\s*[AА]?$/u, "")
+    .replace(/\s*[AА]$/u, "")
+    .replace(/[|]+/g, " ")
+    .trim();
+}
+
+function isLikelyPositionTitle(value = "") {
+  const title = sanitizePositionTitle(value);
+  const letters = (title.match(/[A-Za-zА-Яа-яІіЇїЄєҐґ]/g) || []).length;
+  const digits = (title.match(/\d/g) || []).length;
+  const weird = (title.match(/[^A-Za-zА-Яа-яІіЇїЄєҐґ\d\s"'().,%/-]/g) || []).length;
+  if (letters < 5) {
+    return false;
+  }
+  if (weird > Math.max(2, Math.floor(letters / 3))) {
+    return false;
+  }
+  if (digits > letters) {
+    return false;
+  }
+  if (/(сума|разом|всього|до сплати|итого|total|sum|готівка|решта|пдв|податку|знижк)/i.test(title)) {
+    return false;
+  }
+  return true;
+}
+
 function extractPositions(lines = []) {
   const result = [];
   const seen = new Set();
-  const linePattern = /^(.+?)\s+(\d{1,6}(?:[.,]\d{2}))$/;
+  const consumedIndexes = new Set();
+  const linePattern = /^(.+?)\s+(\d{1,6}(?:[.,]\d{2}))\s*[AА]?$/u;
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (consumedIndexes.has(index)) {
+      continue;
+    }
+    const line = normalizeLine(lines[index]);
+
+    const quantityAmountMatch = line.match(/^(\d+[.,]\d+\s*[xх×]|[xх×]\s*\d+[.,]\d+).*?(\d{1,6}(?:[.,]\d{2}))\s*[AА]?$/iu);
+    const nextLine = normalizeLine(lines[index + 1] || "");
+    if (quantityAmountMatch && nextLine && isLikelyPositionTitle(nextLine)) {
+      const title = sanitizePositionTitle(nextLine);
+      const amount = parseMoneyCandidate(quantityAmountMatch[2]);
+      const key = `${title.toLowerCase()}::${amount}`;
+      if (!seen.has(key) && amount > 0) {
+        seen.add(key);
+        result.push({ title, amount });
+        consumedIndexes.add(index + 1);
+        if (result.length >= 8) {
+          break;
+        }
+      }
+      continue;
+    }
+
     const match = line.match(linePattern);
     if (!match) {
       continue;
     }
 
-    const title = normalizeLine(match[1]);
+    const title = sanitizePositionTitle(match[1]);
     const amount = parseMoneyCandidate(match[2]);
-    if (!title || amount <= 0) {
-      continue;
-    }
-    if (/(сума|разом|всього|до сплати|итого|total|sum|готівка|решта)/i.test(title)) {
+    if (!title || amount <= 0 || !isLikelyPositionTitle(title)) {
       continue;
     }
 
@@ -217,10 +363,10 @@ function scoreResult(result = {}) {
 
 async function buildReceiptVariants(filePath) {
   const sharp = await loadSharp();
-  const metadata = await sharp(filePath, { failOn: "none" }).metadata();
+  const prepared = sharp(filePath, { failOn: "none" }).rotate().trim();
+  const metadata = await prepared.metadata();
   const targetWidth = Math.max(Number(metadata.width) || 0, 1800);
-  const base = sharp(filePath, { failOn: "none" })
-    .rotate()
+  const base = prepared
     .resize({ width: targetWidth, withoutEnlargement: false })
     .grayscale()
     .normalize()
@@ -244,13 +390,14 @@ async function buildReceiptVariants(filePath) {
 
 async function buildReceiptZoneVariants(filePath) {
   const sharp = await loadSharp();
-  const metadata = await sharp(filePath, { failOn: "none" }).metadata();
+  const prepared = sharp(filePath, { failOn: "none" }).rotate().trim();
+  const metadata = await prepared.metadata();
   const width = Number(metadata.width) || 0;
   const height = Number(metadata.height) || 0;
 
   const buildZone = async ({ topRatio, heightRatio, widthPx, threshold = null, name }) => {
-    let image = sharp(filePath, { failOn: "none" })
-      .rotate()
+    let image = prepared
+      .clone()
       .extract({
         left: 0,
         top: Math.max(0, Math.floor(height * topRatio)),
@@ -275,14 +422,21 @@ async function buildReceiptZoneVariants(filePath) {
   return {
     top: await buildZone({
       topRatio: 0,
-      heightRatio: 0.24,
+      heightRatio: 0.22,
       widthPx: 1800,
       threshold: 176,
       name: "top-threshold-176"
     }),
+    middle: await buildZone({
+      topRatio: 0.16,
+      heightRatio: 0.54,
+      widthPx: 2600,
+      threshold: null,
+      name: "middle-normalized"
+    }),
     bottom: await buildZone({
-      topRatio: 0.58,
-      heightRatio: 0.42,
+      topRatio: 0.72,
+      heightRatio: 0.28,
       widthPx: 2200,
       threshold: null,
       name: "bottom-normalized"
@@ -328,6 +482,12 @@ export class ReceiptOcrService {
     const worker = await Tesseract.createWorker("ukr+eng", 1, {
       logger: () => {}
     });
+    const zonePsms = [
+      Tesseract.PSM.AUTO,
+      Tesseract.PSM.SINGLE_BLOCK,
+      Tesseract.PSM.SINGLE_COLUMN,
+      Tesseract.PSM.SPARSE_TEXT
+    ];
 
     try {
       await worker.setParameters({
@@ -366,15 +526,79 @@ export class ReceiptOcrService {
         user_defined_dpi: "300"
       });
 
-      const { data: topData } = await worker.recognize(zoneVariants.top.input);
-      const topLines = extractLines(String(topData?.text || "").trim());
-      const topMerchant = extractMerchant(topLines);
+      let topMerchant = "";
+      let topMerchantScore = -Infinity;
+      for (const psm of zonePsms) {
+        await worker.setParameters({
+          tessedit_pageseg_mode: psm,
+          preserve_interword_spaces: "1",
+          user_defined_dpi: "300"
+        });
+        const { data } = await worker.recognize(zoneVariants.top.input);
+        const lines = extractLines(String(data?.text || "").trim());
+        const merchant = extractMerchant(lines);
+        const merchantScore = scoreMerchantLine(merchant) + (merchant ? 25 : 0);
+        if (merchantScore > topMerchantScore) {
+          topMerchantScore = merchantScore;
+          topMerchant = merchant;
+        }
+      }
 
-      const { data: bottomData } = await worker.recognize(zoneVariants.bottom.input);
-      const bottomRawText = String(bottomData?.text || "").trim();
-      const bottomLines = extractLines(bottomRawText);
-      const bottomTotal = extractTotal(bottomLines);
-      const bottomDate = extractDate(bottomRawText);
+      let bottomTotal = 0;
+      let bottomTotalScore = -Infinity;
+      let bottomDate = "";
+      let bottomDateScore = -Infinity;
+      for (const psm of zonePsms) {
+        await worker.setParameters({
+          tessedit_pageseg_mode: psm,
+          preserve_interword_spaces: "1",
+          user_defined_dpi: "300"
+        });
+        const { data } = await worker.recognize(zoneVariants.bottom.input);
+        const rawText = String(data?.text || "").trim();
+        const lines = extractLines(rawText);
+        const cashChangeTotal = extractCashChangeTotal(lines);
+        const total = cashChangeTotal || extractTotal(lines);
+        const date = extractDate(rawText);
+        const confidence = Math.round(Number(data?.confidence) || 0);
+        const hasTime = /\d{2}:\d{2}/.test(date);
+        const totalScore =
+          (/(сума|разом|всього|до сплати|підсумок)/i.test(rawText) ? 120 : 0) +
+          (cashChangeTotal > 0 ? 180 : 0) +
+          (total > 0 ? 80 : 0) +
+          confidence;
+        const dateScore =
+          (hasTime ? 120 : 0) +
+          (date ? 60 : 0) +
+          confidence;
+
+        if (totalScore > bottomTotalScore) {
+          bottomTotalScore = totalScore;
+          bottomTotal = total;
+        }
+        if (dateScore > bottomDateScore) {
+          bottomDateScore = dateScore;
+          bottomDate = date;
+        }
+      }
+
+      let middlePositions = [];
+      let middlePositionScore = -Infinity;
+      for (const psm of [Tesseract.PSM.AUTO, Tesseract.PSM.SINGLE_BLOCK, Tesseract.PSM.SINGLE_COLUMN]) {
+        await worker.setParameters({
+          tessedit_pageseg_mode: psm,
+          preserve_interword_spaces: "1",
+          user_defined_dpi: "300"
+        });
+        const { data } = await worker.recognize(zoneVariants.middle.input);
+        const lines = extractLines(String(data?.text || "").trim());
+        const positions = extractPositions(lines);
+        const score = positions.length * 40 + Math.round(Number(data?.confidence) || 0);
+        if (score > middlePositionScore) {
+          middlePositionScore = score;
+          middlePositions = positions;
+        }
+      }
 
       return {
         rawText: best?.rawText || "",
@@ -382,7 +606,7 @@ export class ReceiptOcrService {
         merchant: topMerchant || best?.merchant || "",
         date: bottomDate || best?.date || "",
         total: bottomTotal || best?.total || 0,
-        positions: best?.positions || [],
+        positions: middlePositions.length ? middlePositions : (best?.positions || []),
         suggestedTitle: topMerchant || best?.suggestedTitle || "Чек",
         confidence: Number(best?.confidence) || 0,
         variant: best?.variant || "",

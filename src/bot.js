@@ -5472,6 +5472,44 @@ async function sendTripMemberTicketFile(ctx, member, ticket) {
   return ctx.telegram.sendDocument(ctx.chat.id, ticket.fileId, { caption });
 }
 
+function renderTripMemberTicketStep(ctx, step, flow, member) {
+  if (step === "upload_category") {
+    return ctx.reply(
+      "Обери тип квитка для цього сегмента.",
+      buildMemberTicketCategoryKeyboard()
+    );
+  }
+
+  if (step === "upload_from") {
+    return ctx.reply(
+      "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
+      getTripMemberTicketUploadKeyboard()
+    );
+  }
+
+  if (step === "upload_to") {
+    return ctx.reply(
+      "Тепер вкажи куди цей квиток.\nПриклад: Івано-Франківськ або Ворохта",
+      getTripMemberTicketUploadKeyboard()
+    );
+  }
+
+  if (step === "upload") {
+    const category = normalizeMemberTicketCategory(flow.data?.ticketDraft?.category || "other");
+    const categoryLabel = getMemberTicketCategoryLabel(category);
+    const segmentFrom = normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentFrom || "");
+    const segmentTo = normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentTo || "");
+    const segmentKey = buildMemberTicketSegmentKey(category, segmentFrom, segmentTo);
+    const existingTicket = getMemberTickets(member).find((item) => String(item.segmentKey || "") === segmentKey);
+    const uploadHint = existingTicket
+      ? `Для квитка ${categoryLabel} ${segmentFrom} → ${segmentTo} уже є файл. Новий файл оновить попередній.\n\nНадішли файл квитка документом або фото.`
+      : `Додаємо окремий квиток ${categoryLabel} для сегмента ${segmentFrom} → ${segmentTo}.\n\nНадішли файл квитка документом або фото.`;
+    return ctx.reply(uploadHint, getTripMemberTicketUploadKeyboard());
+  }
+
+  return null;
+}
+
 async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) {
   const message = String(ctx.message?.text || "").trim();
   const viewerId = String(ctx.from.id);
@@ -5508,9 +5546,37 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     return null;
   }
 
-  if (["upload_category", "upload_from", "upload_to", "upload"].includes(flow.step) && message === "❌ Скасувати") {
-    clearFlow(viewerId);
-    return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
+  if (message === "❌ Скасувати") {
+    if (flow.step === "upload_category") {
+      clearFlow(viewerId);
+      return showTripMemberDetails(ctx, groupService, userService, trip, member.id);
+    }
+
+    if (flow.step === "upload_from") {
+      flow.step = "upload_category";
+      flow.data.ticketDraft = {};
+      flow.data.replaceTicketId = "";
+      setFlow(viewerId, flow);
+      return renderTripMemberTicketStep(ctx, "upload_category", flow, member);
+    }
+
+    if (flow.step === "upload_to") {
+      flow.step = "upload_from";
+      flow.data.ticketDraft = {
+        ...(flow.data.ticketDraft || {}),
+        segmentFrom: ""
+      };
+      flow.data.replaceTicketId = "";
+      setFlow(viewerId, flow);
+      return renderTripMemberTicketStep(ctx, "upload_from", flow, member);
+    }
+
+    if (flow.step === "upload") {
+      flow.step = "upload_to";
+      flow.data.replaceTicketId = "";
+      setFlow(viewerId, flow);
+      return renderTripMemberTicketStep(ctx, "upload_to", flow, member);
+    }
   }
 
   if (flow.step === "upload_category") {
@@ -5527,10 +5593,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
       category
     };
     setFlow(viewerId, flow);
-    return ctx.reply(
-      "Вкажи звідки їде людина за цим квитком.\nПриклад: Київ або Івано-Франківськ",
-      getTripMemberTicketUploadKeyboard()
-    );
+    return renderTripMemberTicketStep(ctx, "upload_from", flow, member);
   }
 
   if (flow.step === "upload_from") {
@@ -5547,10 +5610,7 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
       segmentFrom
     };
     setFlow(viewerId, flow);
-    return ctx.reply(
-      "Тепер вкажи куди цей квиток.\nПриклад: Івано-Франківськ або Ворохта",
-      buildKeyboard([["❌ Скасувати"]])
-    );
+    return renderTripMemberTicketStep(ctx, "upload_to", flow, member);
   }
 
   if (flow.step === "upload_to") {
@@ -5576,19 +5636,11 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     };
     flow.data.replaceTicketId = existingTicket?.id || "";
     setFlow(viewerId, flow);
-
-    const categoryLabel = getMemberTicketCategoryLabel(category);
-    const uploadHint = existingTicket
-      ? `Для квитка ${categoryLabel} ${segmentFrom} → ${segmentTo} уже є файл. Новий файл оновить попередній.\n\nНадішли файл квитка документом або фото.`
-      : `Додаємо окремий квиток ${categoryLabel} для сегмента ${segmentFrom} → ${segmentTo}.\n\nНадішли файл квитка документом або фото.`;
-    return ctx.reply(uploadHint, buildKeyboard([["❌ Скасувати"]]));
+    return renderTripMemberTicketStep(ctx, "upload", flow, member);
   }
 
   if (flow.step === "upload") {
-    return ctx.reply(
-      "Надішли файл квитка документом або фото.",
-      buildKeyboard([["❌ Скасувати"]])
-    );
+    return renderTripMemberTicketStep(ctx, "upload", flow, member);
   }
 
   return null;

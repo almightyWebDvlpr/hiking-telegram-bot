@@ -1,8 +1,4 @@
-import fs from "node:fs/promises";
-
 const OCR_TIMEOUT_MS = 90000;
-const OPENAI_RECEIPT_TIMEOUT_MS = 45000;
-const OPENAI_RECEIPT_MODEL = process.env.OPENAI_RECEIPT_OCR_MODEL || "gpt-4.1";
 
 function normalizeLine(value = "") {
   return String(value || "")
@@ -15,16 +11,6 @@ function extractLines(text = "") {
     .split("\n")
     .map((line) => normalizeLine(line))
     .filter((line) => line.length >= 2);
-}
-
-function sanitizeOpenAiPositions(items = []) {
-  return (Array.isArray(items) ? items : [])
-    .map((item) => ({
-      title: sanitizePositionTitle(item?.title || ""),
-      amount: Number(item?.amount) || 0
-    }))
-    .filter((item) => item.title && item.amount > 0 && isLikelyPositionTitle(item.title))
-    .slice(0, 20);
 }
 
 function extractDate(text = "") {
@@ -270,6 +256,25 @@ function sanitizePositionTitle(value = "") {
     .trim();
 }
 
+function extractTrailingAmount(line = "") {
+  const matches = [...String(line || "").matchAll(/(\d{1,6}(?:[.,]\d{2}))/g)];
+  if (!matches.length) {
+    return null;
+  }
+
+  const match = matches[matches.length - 1];
+  const amount = parseMoneyCandidate(match[1]);
+  if (amount <= 0) {
+    return null;
+  }
+
+  return {
+    amount,
+    raw: match[1],
+    index: Number(match.index) || String(line || "").lastIndexOf(match[1])
+  };
+}
+
 function isLikelyPositionTitle(value = "") {
   const title = sanitizePositionTitle(value);
   const letters = (title.match(/[A-Za-zА-Яа-яІіЇїЄєҐґ]/g) || []).length;
@@ -284,15 +289,52 @@ function isLikelyPositionTitle(value = "") {
   if (digits > letters) {
     return false;
   }
-  if (/(сума|разом|всього|до сплати|итого|total|sum|готівка|решта|пдв|податку|знижк)/i.test(title)) {
+  if (/(сума|разом|всього|до сплати|итого|total|sum|готівка|решта|пдв|податку|знижк|кас[а-я]*|kacc|касса|касир|чек|вул|героїв|дніпра|тов|пн\.?|звертай|безкоштов|мартинов|володим|артикул)/i.test(title)) {
     return false;
   }
   return true;
 }
 
+function mergePositionCandidates(items = [], limit = 12) {
+  const bestByKey = new Map();
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const title = sanitizePositionTitle(item?.title || "");
+    const amount = Number(item?.amount) || 0;
+    if (!title || amount <= 0 || !isLikelyPositionTitle(title)) {
+      continue;
+    }
+
+    const key = `${title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")}::${amount.toFixed(2)}`;
+    const words = title.split(/\s+/).filter(Boolean);
+    const mixedWords = words.filter((word) => /[A-Za-zА-Яа-яІіЇїЄєҐґ]/.test(word) && /\d/.test(word)).length;
+    const shortWords = words.filter((word) => word.length <= 2).length;
+    const quality =
+      title.length * 2 +
+      ((title.match(/[А-Яа-яІіЇїЄєҐґ]/g) || []).length * 2) -
+      ((title.match(/[^A-Za-zА-Яа-яІіЇїЄєҐґ\d\s"'().,%/-]/g) || []).length * 8) -
+      mixedWords * 10 -
+      shortWords * 3 -
+      (/(кас[а-я]*|kacc|касса|касир|чек|вул|героїв|дніпра|тов|пн\.?|звертай|безкоштов|мартинов|володим|артикул)/i.test(title) ? 80 : 0);
+    const current = bestByKey.get(key);
+
+    if (!current || quality > current.quality) {
+      bestByKey.set(key, {
+        title,
+        amount,
+        quality
+      });
+    }
+  }
+
+  return Array.from(bestByKey.values())
+    .sort((left, right) => right.quality - left.quality || right.amount - left.amount)
+    .slice(0, limit)
+    .map(({ title, amount }) => ({ title, amount }));
+}
+
 function extractPositions(lines = []) {
   const result = [];
-  const seen = new Set();
   const consumedIndexes = new Set();
   const linePattern = /^(.+?)\s+(\d{1,6}(?:[.,]\d{2}))\s*[AА]?$/u;
 
@@ -307,9 +349,7 @@ function extractPositions(lines = []) {
     if (quantityAmountMatch && nextLine && isLikelyPositionTitle(nextLine)) {
       const title = sanitizePositionTitle(nextLine);
       const amount = parseMoneyCandidate(quantityAmountMatch[2]);
-      const key = `${title.toLowerCase()}::${amount}`;
-      if (!seen.has(key) && amount > 0) {
-        seen.add(key);
+      if (amount > 0) {
         result.push({ title, amount });
         consumedIndexes.add(index + 1);
         if (result.length >= 8) {
@@ -317,6 +357,46 @@ function extractPositions(lines = []) {
         }
       }
       continue;
+    }
+
+    const trailingAmount = extractTrailingAmount(line);
+    const previousLine = normalizeLine(lines[index - 1] || "");
+    if (trailingAmount && trailingAmount.index >= Math.floor(line.length * 0.45)) {
+      const ownTitle = sanitizePositionTitle(line.slice(0, trailingAmount.index));
+      const previousLooksLikeTitle = previousLine && isLikelyPositionTitle(previousLine);
+      const previousHasTooManyDigits = ((previousLine.match(/\d/g) || []).length) > 4;
+      const ownLooksStrong =
+        ownTitle &&
+        !/^\d+[A-Za-zА-Яа-яІіЇїЄєҐґ]{0,3}$/u.test(ownTitle) &&
+        isLikelyPositionTitle(ownTitle);
+
+      if (ownLooksStrong) {
+        result.push({ title: ownTitle, amount: trailingAmount.amount });
+        continue;
+      }
+
+      if (previousLooksLikeTitle && !previousHasTooManyDigits && ownTitle.length <= 12) {
+        const mergedTitle = sanitizePositionTitle([previousLine, ownTitle].filter(Boolean).join(" "));
+        if (isLikelyPositionTitle(mergedTitle)) {
+          result.push({ title: mergedTitle, amount: trailingAmount.amount });
+          consumedIndexes.add(index - 1);
+          continue;
+        }
+      }
+    }
+
+    const nextTrailingAmount = extractTrailingAmount(nextLine);
+    if (nextTrailingAmount && isLikelyPositionTitle(line)) {
+      const nextPrefix = sanitizePositionTitle(nextLine.slice(0, nextTrailingAmount.index));
+      const mergedTitle = sanitizePositionTitle([line, nextPrefix.length <= 12 ? nextPrefix : ""].filter(Boolean).join(" "));
+      if (isLikelyPositionTitle(mergedTitle)) {
+        result.push({ title: mergedTitle, amount: nextTrailingAmount.amount });
+        consumedIndexes.add(index + 1);
+        if (result.length >= 8) {
+          break;
+        }
+        continue;
+      }
     }
 
     const match = line.match(linePattern);
@@ -330,18 +410,13 @@ function extractPositions(lines = []) {
       continue;
     }
 
-    const key = `${title.toLowerCase()}::${amount}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
     result.push({ title, amount });
     if (result.length >= 8) {
       break;
     }
   }
 
-  return result;
+  return mergePositionCandidates(result);
 }
 
 function scoreResult(result = {}) {
@@ -484,218 +559,9 @@ async function loadTesseract() {
   return tesseractModulePromise;
 }
 
-async function buildOpenAiReceiptInputs(filePath) {
-  const originalBuffer = await fs.readFile(filePath);
-  const originalMimeType = guessReceiptMimeType(filePath);
-  const inputs = [
-    {
-      type: "input_image",
-      detail: "high",
-      image_url: `data:${originalMimeType};base64,${originalBuffer.toString("base64")}`
-    }
-  ];
-
-  try {
-    const sharp = await loadSharp();
-    const prepared = sharp(filePath, { failOn: "none" }).rotate().trim();
-    const metadata = await prepared.metadata();
-    const width = Number(metadata.width) || 0;
-    const height = Number(metadata.height) || 0;
-
-    const normalized = await prepared
-      .clone()
-      .resize({ width: Math.max(width, 2200), withoutEnlargement: false })
-      .grayscale()
-      .normalize()
-      .sharpen()
-      .png()
-      .toBuffer();
-
-    inputs.push({
-      type: "input_image",
-      detail: "high",
-      image_url: `data:image/png;base64,${normalized.toString("base64")}`
-    });
-
-    if (width > 0 && height > 0) {
-      const zoneSpecs = [
-        { topRatio: 0, heightRatio: 0.22, widthPx: 1800 },
-        { topRatio: 0.16, heightRatio: 0.54, widthPx: 2600 },
-        { topRatio: 0.72, heightRatio: 0.28, widthPx: 2200 }
-      ];
-
-      for (const zone of zoneSpecs) {
-        const zoneBuffer = await prepared
-          .clone()
-          .extract({
-            left: 0,
-            top: Math.max(0, Math.floor(height * zone.topRatio)),
-            width,
-            height: Math.max(1, Math.floor(height * zone.heightRatio))
-          })
-          .resize({ width: zone.widthPx, withoutEnlargement: false })
-          .grayscale()
-          .normalize()
-          .sharpen()
-          .png()
-          .toBuffer();
-
-        inputs.push({
-          type: "input_image",
-          detail: "high",
-          image_url: `data:image/png;base64,${zoneBuffer.toString("base64")}`
-        });
-      }
-    }
-  } catch {
-    // Original image is enough for the fallback vision request.
-  }
-
-  return inputs;
-}
-
-function guessReceiptMimeType(filePath = "") {
-  const lower = String(filePath || "").toLowerCase();
-  if (lower.endsWith(".png")) {
-    return "image/png";
-  }
-  if (lower.endsWith(".webp")) {
-    return "image/webp";
-  }
-  if (lower.endsWith(".heic")) {
-    return "image/heic";
-  }
-  return "image/jpeg";
-}
-
-async function callOpenAiReceiptVision(filePath) {
-  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) {
-    return null;
-  }
-
-  const inputImages = await buildOpenAiReceiptInputs(filePath);
-  const schema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      merchant: { type: "string" },
-      date: { type: "string" },
-      total: { type: "number" },
-      positions: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            title: { type: "string" },
-            amount: { type: "number" }
-          },
-          required: ["title", "amount"]
-        }
-      }
-    },
-    required: ["merchant", "date", "total", "positions"]
-  };
-
-  const response = await withTimeout(
-    fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: OPENAI_RECEIPT_MODEL,
-        input: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: [
-                  "Extract this receipt as accurately as possible.",
-                  "Return the exact store name, the printed receipt date, the real total amount paid, and as many line items as you can read confidently.",
-                  "Use DD-MM-YYYY for date and preserve the real year from the receipt.",
-                  "If the receipt shows both cash given and change, total must be cash minus change, not the cash value.",
-                  "Normalize obvious Ukrainian grocery chain names when the logo/text clearly identifies them.",
-                  "Prefer complete line items from the goods section of the receipt.",
-                  "Do not hallucinate. If a line item is unreadable, omit it."
-                ].join(" ")
-              },
-              ...inputImages
-            ]
-          }
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "receipt_extraction",
-            strict: true,
-            schema
-          }
-        }
-      })
-    }),
-    OPENAI_RECEIPT_TIMEOUT_MS
-  );
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`openai_receipt_http_${response.status}:${body.slice(0, 200)}`);
-  }
-
-  const payload = await response.json();
-  const rawText = String(payload?.output_text || "").trim();
-  if (!rawText) {
-    throw new Error("openai_receipt_empty");
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    throw new Error("openai_receipt_invalid_json");
-  }
-
-  return {
-    rawText,
-    lines: [],
-    merchant: extractKnownMerchant([String(parsed?.merchant || "")]) || sanitizeMerchant(parsed?.merchant || ""),
-    date: extractDate(String(parsed?.date || "")) || normalizeReceiptDateCandidate(String(parsed?.date || "")),
-    total: Number(parsed?.total) || 0,
-    positions: sanitizeOpenAiPositions(parsed?.positions),
-    suggestedTitle: extractKnownMerchant([String(parsed?.merchant || "")]) || sanitizeMerchant(parsed?.merchant || "") || "Чек",
-    confidence: 100,
-    provider: "openai_vision",
-    variant: "openai-vision",
-    score: 1000
-  };
-}
-
 export class ReceiptOcrService {
   async recognizeReceipt(filePath) {
-    const hasOpenAiKey = Boolean(String(process.env.OPENAI_API_KEY || "").trim());
-    try {
-      const openAiResult = await callOpenAiReceiptVision(filePath);
-      if (openAiResult?.merchant || openAiResult?.total || openAiResult?.positions?.length) {
-        return openAiResult;
-      }
-    } catch (error) {
-      const fallback = await withTimeout(this.#recognizeReceiptInternal(filePath), OCR_TIMEOUT_MS);
-      return {
-        ...fallback,
-        provider: "local_tesseract_fallback",
-        warning: hasOpenAiKey ? `openai_failed:${String(error?.message || "unknown")}` : ""
-      };
-    }
-
-    const fallback = await withTimeout(this.#recognizeReceiptInternal(filePath), OCR_TIMEOUT_MS);
-    return {
-      ...fallback,
-      provider: "local_tesseract_fallback",
-      warning: hasOpenAiKey ? "openai_empty_result" : ""
-    };
+    return withTimeout(this.#recognizeReceiptInternal(filePath), OCR_TIMEOUT_MS);
   }
 
   async #recognizeReceiptInternal(filePath) {
@@ -832,7 +698,6 @@ export class ReceiptOcrService {
         positions: middlePositions.length ? middlePositions : (best?.positions || []),
         suggestedTitle: topMerchant || best?.suggestedTitle || "Чек",
         confidence: Number(best?.confidence) || 0,
-        provider: "local_tesseract_fallback",
         variant: best?.variant || "",
         score: best?.score || 0
       };

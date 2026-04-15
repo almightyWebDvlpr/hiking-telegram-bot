@@ -1,6 +1,9 @@
-import { config as loadEnv } from "dotenv";
-
-loadEnv();
+try {
+  const dotenv = await import("dotenv");
+  dotenv.config();
+} catch {
+  // Allow running in environments where variables are injected externally.
+}
 
 const appStage = String(process.env.APP_STAGE || "prod").toLowerCase() === "test" ? "test" : "prod";
 const botToken =

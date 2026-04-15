@@ -2091,6 +2091,7 @@ function getExpenseOcrReviewKeyboard() {
 }
 
 function formatExpenseOcrSummary(result = {}) {
+  const vatEntries = Array.isArray(result.vat?.entries) ? result.vat.entries : [];
   const lines = [
     ...formatCardHeader("🧠 OCR ЧЕКА", result.merchant || "Попередній розбір"),
     "",
@@ -2098,6 +2099,13 @@ function formatExpenseOcrSummary(result = {}) {
     `Дата: ${result.date || "не впізнано"}`,
     `Сума: ${result.total ? formatMoney(result.total) : "не впізнано"}`
   ];
+
+  if (vatEntries.length) {
+    const vatLabel = vatEntries
+      .map((item) => `${item.rate ? `${item.rate}%` : "ПДВ"} — ${formatMoney(item.amount)}`)
+      .join(", ");
+    lines.push(`ПДВ: ${vatLabel}`);
+  }
 
   if (Array.isArray(result.positions) && result.positions.length) {
     lines.push("");

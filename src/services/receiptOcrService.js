@@ -1,4 +1,18 @@
+import { canonicalizeFoodName } from "../data/foodCatalog.js";
+
 const OCR_TIMEOUT_MS = 90000;
+const MAX_REASONABLE_RECEIPT_YEAR = new Date().getUTCFullYear() + 1;
+const RECEIPT_ITEM_CANONICAL_RULES = [
+  { pattern: /(ковбас|kovbac|kosaca|ko6aca|kobaca)/i, value: "Ковбаса" },
+  { pattern: /(петруш|petru|tpyuk|leтpyuk|петрук)/i, value: "Петрушка" },
+  { pattern: /(цибул|cибул|uibul|зелена78|зелена)/i, value: "Цибуля" },
+  { pattern: /(моркв|mopkva|morkva)/i, value: "Морква" },
+  { pattern: /(горош|opouok|gorow|гopoш)/i, value: "Горошок" },
+  { pattern: /(яйц|яиц|яйчик|яицк|яцик)/i, value: "Яйця" },
+  { pattern: /(консерв|koncepb|koncepb)/i, value: "Консерви" },
+  { pattern: /(огір|orik|orir|or1pk|огipк)/i, value: "Огірки" },
+  { pattern: /(прованс|provan|майонез)/i, value: "Провансаль" }
+];
 
 function normalizeLine(value = "") {
   return String(value || "")
@@ -15,30 +29,24 @@ function extractLines(text = "") {
 
 function extractDate(text = "") {
   const patterns = [
-    /\b(\d{2}[./-]\d{2}[./-]\d{4})\b/,
-    /\b(\d{4}[./-]\d{2}[./-]\d{2})\b/,
-    /\b(\d{2}[./-]\d{2}[./-]\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\b/
+    /\b(\d{2}[./-]\d{2}[./-]\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?)\b/g,
+    /\b(\d{4}[./-]\d{2}[./-]\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?)\b/g
   ];
 
+  let best = "";
+  let bestScore = -Infinity;
   for (const pattern of patterns) {
-    const match = String(text || "").match(pattern);
-    if (match?.[1]) {
+    for (const match of String(text || "").matchAll(pattern)) {
       const candidate = normalizeReceiptDateCandidate(match[1]);
-      const datePart = candidate.split(/\s+/)[0];
-      const parts = datePart.split(/[./-]/).map((item) => Number.parseInt(item, 10));
-      if (parts.length === 3) {
-        const [first, second, third] = parts;
-        const dayFirst = datePart.match(/^\d{2}[./-]/);
-        const day = dayFirst ? first : third;
-        const month = second;
-        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
-          return candidate;
-        }
+      const score = scoreReceiptDateCandidate(candidate);
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
       }
     }
   }
 
-  return "";
+  return bestScore > 0 ? best : "";
 }
 
 function normalizeReceiptDateCandidate(value = "") {
@@ -61,11 +69,68 @@ function normalizeReceiptDateCandidate(value = "") {
         cleaned = cleaned.replace(/^[689]/, "0");
       }
     }
+    if (index === 2 && cleaned.length === 4) {
+      cleaned = normalizeReceiptYear(cleaned);
+    }
     return cleaned;
   });
 
   const separator = datePart.includes(".") ? "." : datePart.includes("/") ? "/" : "-";
   return [normalizedParts.join(separator), timePart].filter(Boolean).join(" ").trim();
+}
+
+function normalizeReceiptYear(value = "") {
+  let year = String(value || "").replace(/[OoОоD]/g, "0").replace(/[Il|]/g, "1");
+  if (!/^\d{4}$/.test(year)) {
+    return year;
+  }
+
+  const numeric = Number.parseInt(year, 10);
+  if (numeric <= MAX_REASONABLE_RECEIPT_YEAR) {
+    return year;
+  }
+
+  const chars = year.split("");
+  if (chars[0] === "2" && ["6", "8", "9"].includes(chars[1])) {
+    chars[1] = "0";
+  } else if (chars[0] === "7") {
+    chars[0] = "2";
+  }
+
+  const normalized = chars.join("");
+  const normalizedNumeric = Number.parseInt(normalized, 10);
+  return normalizedNumeric <= MAX_REASONABLE_RECEIPT_YEAR ? normalized : year;
+}
+
+function scoreReceiptDateCandidate(candidate = "") {
+  const [datePart, timePart] = String(candidate || "").split(/\s+/, 2);
+  const parts = datePart.split(/[./-]/).map((item) => Number.parseInt(item, 10));
+  if (parts.length !== 3) {
+    return -1000;
+  }
+
+  const dayFirst = /^\d{2}[./-]/.test(datePart);
+  const [first, second, third] = parts;
+  const day = dayFirst ? first : third;
+  const month = second;
+  const year = dayFirst ? third : first;
+  if (day < 1 || day > 31 || month < 1 || month > 12) {
+    return -1000;
+  }
+
+  let score = 0;
+  if (year >= 2000 && year <= MAX_REASONABLE_RECEIPT_YEAR) {
+    score += 120;
+  } else if (year >= 1900 && year <= MAX_REASONABLE_RECEIPT_YEAR + 10) {
+    score += 40;
+  } else {
+    score -= 100;
+  }
+  if (timePart && /\d{2}:\d{2}/.test(timePart)) {
+    score += 40;
+  }
+
+  return score;
 }
 
 function parseMoneyCandidate(raw = "") {
@@ -156,6 +221,38 @@ function extractCashChangeTotal(lines = []) {
   }
 
   return 0;
+}
+
+function extractVat(lines = []) {
+  const results = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const combined = [lines[index], lines[index + 1]].filter(Boolean).join(" ");
+    if (!/(?:\bпдв\b|\bvat\b|податк)/i.test(combined)) {
+      continue;
+    }
+
+    const rateMatch = combined.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+    const amountMatches = [...combined.matchAll(/(\d{1,6}(?:[.,]\d{2}))/g)];
+    const amount = amountMatches.length ? parseMoneyCandidate(amountMatches[amountMatches.length - 1][1]) : 0;
+    const rate = rateMatch ? Number.parseFloat(rateMatch[1].replace(",", ".")) : 0;
+    if (amount <= 0 || (!rate && amountMatches.length < 2)) {
+      continue;
+    }
+
+    const key = `${rate || 0}:${amount.toFixed(2)}`;
+    if (results.some((item) => `${item.rate || 0}:${item.amount.toFixed(2)}` === key)) {
+      continue;
+    }
+
+    results.push({ rate, amount });
+  }
+
+  const total = Number(results.reduce((sum, item) => sum + (Number(item.amount) || 0), 0).toFixed(2));
+  return {
+    total,
+    entries: results
+  };
 }
 
 function sanitizeMerchant(value = "") {
@@ -256,6 +353,42 @@ function sanitizePositionTitle(value = "") {
     .trim();
 }
 
+function normalizeReceiptItemKey(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[|'"`’"]/g, "")
+    .replace(/0/g, "о")
+    .replace(/3/g, "з")
+    .replace(/6/g, "б")
+    .replace(/8/g, "в")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function cleanupReceiptItemTitle(value = "") {
+  const cleaned = sanitizePositionTitle(value)
+    .replace(/\b\d{1,4}\s*(?:г|гр|kg|кг|ml|мл|л|шт)\b/giu, "")
+    .replace(/\b[ABCDАВСD]\b/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return "";
+  }
+
+  const key = normalizeReceiptItemKey(cleaned);
+  const byRule = RECEIPT_ITEM_CANONICAL_RULES.find((item) => item.pattern.test(key));
+  if (byRule) {
+    return byRule.value;
+  }
+
+  const foodCanonical = canonicalizeFoodName(cleaned);
+  if (foodCanonical && foodCanonical !== cleaned && !/\d/.test(foodCanonical) && foodCanonical.length <= cleaned.length + 8) {
+    return foodCanonical;
+  }
+
+  return cleaned;
+}
+
 function extractTrailingAmount(line = "") {
   const matches = [...String(line || "").matchAll(/(\d{1,6}(?:[.,]\d{2}))/g)];
   if (!matches.length) {
@@ -299,7 +432,7 @@ function mergePositionCandidates(items = [], limit = 12) {
   const bestByKey = new Map();
 
   for (const item of Array.isArray(items) ? items : []) {
-    const title = sanitizePositionTitle(item?.title || "");
+    const title = cleanupReceiptItemTitle(item?.title || "");
     const amount = Number(item?.amount) || 0;
     if (!title || amount <= 0 || !isLikelyPositionTitle(title)) {
       continue;
@@ -348,9 +481,10 @@ function extractPositions(lines = []) {
     const nextLine = normalizeLine(lines[index + 1] || "");
     if (quantityAmountMatch && nextLine && isLikelyPositionTitle(nextLine)) {
       const title = sanitizePositionTitle(nextLine);
+      const normalizedTitle = cleanupReceiptItemTitle(title);
       const amount = parseMoneyCandidate(quantityAmountMatch[2]);
       if (amount > 0) {
-        result.push({ title, amount });
+        result.push({ title: normalizedTitle || title, amount });
         consumedIndexes.add(index + 1);
         if (result.length >= 8) {
           break;
@@ -371,14 +505,14 @@ function extractPositions(lines = []) {
         isLikelyPositionTitle(ownTitle);
 
       if (ownLooksStrong) {
-        result.push({ title: ownTitle, amount: trailingAmount.amount });
+        result.push({ title: cleanupReceiptItemTitle(ownTitle) || ownTitle, amount: trailingAmount.amount });
         continue;
       }
 
       if (previousLooksLikeTitle && !previousHasTooManyDigits && ownTitle.length <= 12) {
         const mergedTitle = sanitizePositionTitle([previousLine, ownTitle].filter(Boolean).join(" "));
         if (isLikelyPositionTitle(mergedTitle)) {
-          result.push({ title: mergedTitle, amount: trailingAmount.amount });
+          result.push({ title: cleanupReceiptItemTitle(mergedTitle) || mergedTitle, amount: trailingAmount.amount });
           consumedIndexes.add(index - 1);
           continue;
         }
@@ -390,7 +524,7 @@ function extractPositions(lines = []) {
       const nextPrefix = sanitizePositionTitle(nextLine.slice(0, nextTrailingAmount.index));
       const mergedTitle = sanitizePositionTitle([line, nextPrefix.length <= 12 ? nextPrefix : ""].filter(Boolean).join(" "));
       if (isLikelyPositionTitle(mergedTitle)) {
-        result.push({ title: mergedTitle, amount: nextTrailingAmount.amount });
+        result.push({ title: cleanupReceiptItemTitle(mergedTitle) || mergedTitle, amount: nextTrailingAmount.amount });
         consumedIndexes.add(index + 1);
         if (result.length >= 8) {
           break;
@@ -410,7 +544,7 @@ function extractPositions(lines = []) {
       continue;
     }
 
-    result.push({ title, amount });
+    result.push({ title: cleanupReceiptItemTitle(title) || title, amount });
     if (result.length >= 8) {
       break;
     }
@@ -454,25 +588,33 @@ async function buildReceiptVariants(filePath) {
   const sharp = await loadSharp();
   const prepared = sharp(filePath, { failOn: "none" }).rotate().trim();
   const metadata = await prepared.metadata();
-  const targetWidth = Math.max(Number(metadata.width) || 0, 1800);
-  const base = prepared
-    .resize({ width: targetWidth, withoutEnlargement: false })
-    .grayscale()
-    .normalize()
-    .sharpen();
+  const targetWidth = Math.max(Number(metadata.width) || 0, 2200);
+  const base = prepared.resize({ width: targetWidth, withoutEnlargement: false });
 
   return [
     {
       name: "normalized",
-      input: await base.clone().png().toBuffer()
+      input: await renderReceiptVariant(base, "normalized")
     },
     {
-      name: "threshold-176",
-      input: await base.clone().threshold(176).png().toBuffer()
+      name: "contrast-strong",
+      input: await renderReceiptVariant(base, "contrast-strong")
     },
     {
-      name: "threshold-196",
-      input: await base.clone().threshold(196).png().toBuffer()
+      name: "threshold-172",
+      input: await renderReceiptVariant(base, "threshold-172")
+    },
+    {
+      name: "threshold-188",
+      input: await renderReceiptVariant(base, "threshold-188")
+    },
+    {
+      name: "threshold-204",
+      input: await renderReceiptVariant(base, "threshold-204")
+    },
+    {
+      name: "inverted-bw",
+      input: await renderReceiptVariant(base, "inverted-bw")
     }
   ];
 }
@@ -484,8 +626,8 @@ async function buildReceiptZoneVariants(filePath) {
   const width = Number(metadata.width) || 0;
   const height = Number(metadata.height) || 0;
 
-  const buildZone = async ({ topRatio, heightRatio, widthPx, threshold = null, name }) => {
-    let image = prepared
+  const buildZoneBase = async ({ topRatio, heightRatio, widthPx }) =>
+    prepared
       .clone()
       .extract({
         left: 0,
@@ -493,44 +635,103 @@ async function buildReceiptZoneVariants(filePath) {
         width,
         height: Math.max(1, Math.floor(height * heightRatio))
       })
-      .resize({ width: widthPx, withoutEnlargement: false })
-      .grayscale()
-      .normalize()
-      .sharpen();
-
-    if (threshold) {
-      image = image.threshold(threshold);
-    }
-
-    return {
-      name,
-      input: await image.png().toBuffer()
-    };
-  };
+      .resize({ width: widthPx, withoutEnlargement: false });
 
   return {
-    top: await buildZone({
-      topRatio: 0,
-      heightRatio: 0.22,
-      widthPx: 1800,
-      threshold: 176,
-      name: "top-threshold-176"
-    }),
-    middle: await buildZone({
-      topRatio: 0.16,
-      heightRatio: 0.54,
-      widthPx: 2600,
-      threshold: null,
-      name: "middle-normalized"
-    }),
-    bottom: await buildZone({
-      topRatio: 0.72,
-      heightRatio: 0.28,
-      widthPx: 2200,
-      threshold: null,
-      name: "bottom-normalized"
-    })
+    top: [
+      {
+        name: "top-normalized",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0,
+          heightRatio: 0.22,
+          widthPx: 2200
+        }), "normalized")
+      },
+      {
+        name: "top-threshold-188",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0,
+          heightRatio: 0.22,
+          widthPx: 2200
+        }), "threshold-188")
+      }
+    ],
+    middle: [
+      {
+        name: "middle-normalized",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0.16,
+          heightRatio: 0.54,
+          widthPx: 3000
+        }), "normalized")
+      },
+      {
+        name: "middle-contrast-strong",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0.16,
+          heightRatio: 0.54,
+          widthPx: 3000
+        }), "contrast-strong")
+      },
+      {
+        name: "middle-threshold-172",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0.16,
+          heightRatio: 0.54,
+          widthPx: 3000
+        }), "threshold-172")
+      }
+    ],
+    bottom: [
+      {
+        name: "bottom-normalized",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0.72,
+          heightRatio: 0.28,
+          widthPx: 2600
+        }), "normalized")
+      },
+      {
+        name: "bottom-threshold-188",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0.72,
+          heightRatio: 0.28,
+          widthPx: 2600
+        }), "threshold-188")
+      },
+      {
+        name: "bottom-threshold-204",
+        input: await renderReceiptVariant(await buildZoneBase({
+          topRatio: 0.72,
+          heightRatio: 0.28,
+          widthPx: 2600
+        }), "threshold-204")
+      }
+    ]
   };
+}
+
+async function renderReceiptVariant(baseImage, preset = "normalized") {
+  let image = baseImage
+    .clone()
+    .grayscale()
+    .normalize();
+
+  if (preset === "contrast-strong") {
+    image = image.linear(1.22, -18).sharpen();
+  } else if (preset === "threshold-172") {
+    image = image.blur(0.35).linear(1.18, -10).threshold(172);
+  } else if (preset === "threshold-188") {
+    image = image.blur(0.35).linear(1.16, -8).threshold(188);
+  } else if (preset === "threshold-204") {
+    image = image.blur(0.45).linear(1.14, -6).threshold(204);
+  } else if (preset === "inverted-bw") {
+    image = image.negate().linear(1.12, -8).threshold(176).negate();
+  } else {
+    image = image.linear(1.08, -6).sharpen();
+  }
+
+  return image.png().toBuffer();
 }
 
 function withTimeout(promise, timeoutMs) {
@@ -617,19 +818,26 @@ export class ReceiptOcrService {
 
       let topMerchant = "";
       let topMerchantScore = -Infinity;
-      for (const psm of zonePsms) {
-        await worker.setParameters({
-          tessedit_pageseg_mode: psm,
-          preserve_interword_spaces: "1",
-          user_defined_dpi: "300"
-        });
-        const { data } = await worker.recognize(zoneVariants.top.input);
-        const lines = extractLines(String(data?.text || "").trim());
-        const merchant = extractMerchant(lines);
-        const merchantScore = scoreMerchantLine(merchant) + (merchant ? 25 : 0);
-        if (merchantScore > topMerchantScore) {
-          topMerchantScore = merchantScore;
-          topMerchant = merchant;
+      for (const topVariant of zoneVariants.top) {
+        for (const psm of zonePsms) {
+          await worker.setParameters({
+            tessedit_pageseg_mode: psm,
+            preserve_interword_spaces: "1",
+            user_defined_dpi: "300"
+          });
+          const { data } = await worker.recognize(topVariant.input);
+          const lines = extractLines(String(data?.text || "").trim());
+          const knownMerchant = extractKnownMerchant(lines);
+          const merchant = knownMerchant || extractMerchant(lines);
+          const merchantScore =
+            scoreMerchantLine(merchant) +
+            (merchant ? 25 : 0) +
+            (knownMerchant ? 240 : 0) +
+            Math.round(Number(data?.confidence) || 0);
+          if (merchantScore > topMerchantScore) {
+            topMerchantScore = merchantScore;
+            topMerchant = merchant;
+          }
         }
       }
 
@@ -637,66 +845,85 @@ export class ReceiptOcrService {
       let bottomTotalScore = -Infinity;
       let bottomDate = "";
       let bottomDateScore = -Infinity;
-      for (const psm of zonePsms) {
-        await worker.setParameters({
-          tessedit_pageseg_mode: psm,
-          preserve_interword_spaces: "1",
-          user_defined_dpi: "300"
-        });
-        const { data } = await worker.recognize(zoneVariants.bottom.input);
-        const rawText = String(data?.text || "").trim();
-        const lines = extractLines(rawText);
-        const cashChangeTotal = extractCashChangeTotal(lines);
-        const total = cashChangeTotal || extractTotal(lines);
-        const date = extractDate(rawText);
-        const confidence = Math.round(Number(data?.confidence) || 0);
-        const hasTime = /\d{2}:\d{2}/.test(date);
-        const totalScore =
-          (/(сума|разом|всього|до сплати|підсумок)/i.test(rawText) ? 120 : 0) +
-          (cashChangeTotal > 0 ? 180 : 0) +
-          (total > 0 ? 80 : 0) +
-          confidence;
-        const dateScore =
-          (hasTime ? 120 : 0) +
-          (date ? 60 : 0) +
-          confidence;
+      let vat = { total: 0, entries: [] };
+      let vatScore = -Infinity;
+      for (const bottomVariant of zoneVariants.bottom) {
+        for (const psm of zonePsms) {
+          await worker.setParameters({
+            tessedit_pageseg_mode: psm,
+            preserve_interword_spaces: "1",
+            user_defined_dpi: "300"
+          });
+          const { data } = await worker.recognize(bottomVariant.input);
+          const rawText = String(data?.text || "").trim();
+          const lines = extractLines(rawText);
+          const cashChangeTotal = extractCashChangeTotal(lines);
+          const total = cashChangeTotal || extractTotal(lines);
+          const date = extractDate(rawText);
+          const vatCandidate = extractVat(lines);
+          const confidence = Math.round(Number(data?.confidence) || 0);
+          const hasTime = /\d{2}:\d{2}/.test(date);
+          const totalScore =
+            (/(сума|разом|всього|до сплати|підсумок)/i.test(rawText) ? 120 : 0) +
+            (cashChangeTotal > 0 ? 180 : 0) +
+            (total > 0 ? 80 : 0) +
+            confidence;
+          const dateScore =
+            (hasTime ? 120 : 0) +
+            (date ? 60 : 0) +
+            scoreReceiptDateCandidate(date) +
+            confidence;
+          const vatCandidateScore =
+            (vatCandidate.total > 0 ? 90 : 0) +
+            vatCandidate.entries.length * 30 +
+            confidence;
 
-        if (totalScore > bottomTotalScore) {
-          bottomTotalScore = totalScore;
-          bottomTotal = total;
-        }
-        if (dateScore > bottomDateScore) {
-          bottomDateScore = dateScore;
-          bottomDate = date;
+          if (totalScore > bottomTotalScore) {
+            bottomTotalScore = totalScore;
+            bottomTotal = total;
+          }
+          if (dateScore > bottomDateScore) {
+            bottomDateScore = dateScore;
+            bottomDate = date;
+          }
+          if (vatCandidateScore > vatScore) {
+            vatScore = vatCandidateScore;
+            vat = vatCandidate;
+          }
         }
       }
 
       let middlePositions = [];
       let middlePositionScore = -Infinity;
-      for (const psm of [Tesseract.PSM.AUTO, Tesseract.PSM.SINGLE_BLOCK, Tesseract.PSM.SINGLE_COLUMN]) {
-        await worker.setParameters({
-          tessedit_pageseg_mode: psm,
-          preserve_interword_spaces: "1",
-          user_defined_dpi: "300"
-        });
-        const { data } = await worker.recognize(zoneVariants.middle.input);
-        const lines = extractLines(String(data?.text || "").trim());
-        const positions = extractPositions(lines);
-        const score = positions.length * 40 + Math.round(Number(data?.confidence) || 0);
-        if (score > middlePositionScore) {
-          middlePositionScore = score;
-          middlePositions = positions;
+      for (const middleVariant of zoneVariants.middle) {
+        for (const psm of [Tesseract.PSM.AUTO, Tesseract.PSM.SINGLE_BLOCK, Tesseract.PSM.SINGLE_COLUMN]) {
+          await worker.setParameters({
+            tessedit_pageseg_mode: psm,
+            preserve_interword_spaces: "1",
+            user_defined_dpi: "300"
+          });
+          const { data } = await worker.recognize(middleVariant.input);
+          const lines = extractLines(String(data?.text || "").trim());
+          const positions = extractPositions(lines);
+          const score = positions.length * 40 + Math.round(Number(data?.confidence) || 0);
+          if (score > middlePositionScore) {
+            middlePositionScore = score;
+            middlePositions = positions;
+          }
         }
       }
+
+      const finalMerchant = extractKnownMerchant(best?.lines || []) || topMerchant || best?.merchant || "";
 
       return {
         rawText: best?.rawText || "",
         lines: best?.lines || [],
-        merchant: topMerchant || best?.merchant || "",
+        merchant: finalMerchant,
         date: bottomDate || best?.date || "",
         total: bottomTotal || best?.total || 0,
+        vat,
         positions: middlePositions.length ? middlePositions : (best?.positions || []),
-        suggestedTitle: topMerchant || best?.suggestedTitle || "Чек",
+        suggestedTitle: finalMerchant || best?.suggestedTitle || "Чек",
         confidence: Number(best?.confidence) || 0,
         variant: best?.variant || "",
         score: best?.score || 0

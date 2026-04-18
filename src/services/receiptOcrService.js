@@ -1,6 +1,7 @@
 import { canonicalizeFoodName } from "../data/foodCatalog.js";
 
 const OCR_TIMEOUT_MS = 90000;
+const OCR_PROCESS_BUDGET_MS = 30000;
 const MAX_REASONABLE_RECEIPT_YEAR = new Date().getUTCFullYear() + 1;
 const RECEIPT_ITEM_CANONICAL_RULES = [
   { pattern: /(ковбас|kovbac|kosaca|ko6aca|kobaca)/i, value: "Ковбаса" },
@@ -588,33 +589,13 @@ async function buildReceiptVariants(filePath) {
   const sharp = await loadSharp();
   const prepared = sharp(filePath, { failOn: "none" }).rotate().trim();
   const metadata = await prepared.metadata();
-  const targetWidth = Math.max(Number(metadata.width) || 0, 2200);
+  const targetWidth = Math.max(Number(metadata.width) || 0, 1200);
   const base = prepared.resize({ width: targetWidth, withoutEnlargement: false });
 
   return [
     {
       name: "normalized",
       input: await renderReceiptVariant(base, "normalized")
-    },
-    {
-      name: "contrast-strong",
-      input: await renderReceiptVariant(base, "contrast-strong")
-    },
-    {
-      name: "threshold-172",
-      input: await renderReceiptVariant(base, "threshold-172")
-    },
-    {
-      name: "threshold-188",
-      input: await renderReceiptVariant(base, "threshold-188")
-    },
-    {
-      name: "threshold-204",
-      input: await renderReceiptVariant(base, "threshold-204")
-    },
-    {
-      name: "inverted-bw",
-      input: await renderReceiptVariant(base, "inverted-bw")
     }
   ];
 }
@@ -644,16 +625,8 @@ async function buildReceiptZoneVariants(filePath) {
         input: await renderReceiptVariant(await buildZoneBase({
           topRatio: 0,
           heightRatio: 0.22,
-          widthPx: 2200
+          widthPx: 1200
         }), "normalized")
-      },
-      {
-        name: "top-threshold-188",
-        input: await renderReceiptVariant(await buildZoneBase({
-          topRatio: 0,
-          heightRatio: 0.22,
-          widthPx: 2200
-        }), "threshold-188")
       }
     ],
     middle: [
@@ -662,50 +635,18 @@ async function buildReceiptZoneVariants(filePath) {
         input: await renderReceiptVariant(await buildZoneBase({
           topRatio: 0.16,
           heightRatio: 0.54,
-          widthPx: 3000
+          widthPx: 1600
         }), "normalized")
-      },
-      {
-        name: "middle-contrast-strong",
-        input: await renderReceiptVariant(await buildZoneBase({
-          topRatio: 0.16,
-          heightRatio: 0.54,
-          widthPx: 3000
-        }), "contrast-strong")
-      },
-      {
-        name: "middle-threshold-172",
-        input: await renderReceiptVariant(await buildZoneBase({
-          topRatio: 0.16,
-          heightRatio: 0.54,
-          widthPx: 3000
-        }), "threshold-172")
       }
     ],
     bottom: [
-      {
-        name: "bottom-normalized",
-        input: await renderReceiptVariant(await buildZoneBase({
-          topRatio: 0.72,
-          heightRatio: 0.28,
-          widthPx: 2600
-        }), "normalized")
-      },
       {
         name: "bottom-threshold-188",
         input: await renderReceiptVariant(await buildZoneBase({
           topRatio: 0.72,
           heightRatio: 0.28,
-          widthPx: 2600
+          widthPx: 1400
         }), "threshold-188")
-      },
-      {
-        name: "bottom-threshold-204",
-        input: await renderReceiptVariant(await buildZoneBase({
-          topRatio: 0.72,
-          heightRatio: 0.28,
-          widthPx: 2600
-        }), "threshold-204")
       }
     ]
   };
@@ -743,6 +684,23 @@ function withTimeout(promise, timeoutMs) {
   ]);
 }
 
+function createDeadline(timeoutMs) {
+  const startedAt = Date.now();
+  return {
+    remainingMs() {
+      return Math.max(0, timeoutMs - (Date.now() - startedAt));
+    },
+    isExpired() {
+      return this.remainingMs() <= 0;
+    },
+    throwIfExpired() {
+      if (this.isExpired()) {
+        throw new Error("ocr_timeout");
+      }
+    }
+  };
+}
+
 let sharpModulePromise = null;
 let tesseractModulePromise = null;
 
@@ -767,17 +725,15 @@ export class ReceiptOcrService {
 
   async #recognizeReceiptInternal(filePath) {
     const Tesseract = await loadTesseract();
+    const deadline = createDeadline(Math.min(OCR_TIMEOUT_MS - 5000, OCR_PROCESS_BUDGET_MS));
     const variants = await buildReceiptVariants(filePath);
     const zoneVariants = await buildReceiptZoneVariants(filePath);
     const worker = await Tesseract.createWorker("ukr+eng", 1, {
       logger: () => {}
     });
-    const zonePsms = [
-      Tesseract.PSM.AUTO,
-      Tesseract.PSM.SINGLE_BLOCK,
-      Tesseract.PSM.SINGLE_COLUMN,
-      Tesseract.PSM.SPARSE_TEXT
-    ];
+    const merchantPsms = [Tesseract.PSM.SINGLE_BLOCK];
+    const detailPsms = [Tesseract.PSM.SINGLE_BLOCK];
+    const positionPsms = [Tesseract.PSM.SINGLE_BLOCK];
 
     try {
       await worker.setParameters({
@@ -786,10 +742,38 @@ export class ReceiptOcrService {
         user_defined_dpi: "300"
       });
 
+      let timedOut = false;
+      const safeRecognize = async (input) => {
+        if (timedOut || deadline.isExpired()) {
+          timedOut = true;
+          return null;
+        }
+
+        try {
+          return await withTimeout(
+            worker.recognize(input),
+            Math.max(6000, Math.min(20000, deadline.remainingMs()))
+          );
+        } catch (error) {
+          if (String(error?.message || error) === "ocr_timeout") {
+            timedOut = true;
+            return null;
+          }
+          throw error;
+        }
+      };
+
       let best = null;
 
       for (const variant of variants) {
-        const { data } = await worker.recognize(variant.input);
+        if (best && deadline.isExpired()) {
+          break;
+        }
+        const recognition = await safeRecognize(variant.input);
+        if (!recognition) {
+          break;
+        }
+        const { data } = recognition;
         const rawText = String(data?.text || "").trim();
         const lines = extractLines(rawText);
         const candidate = {
@@ -808,7 +792,19 @@ export class ReceiptOcrService {
         if (!best || candidate.score > best.score) {
           best = candidate;
         }
+
+        if (best && best.score >= 230 && best.total > 0 && best.date && best.merchant && best.positions.length >= 3) {
+          break;
+        }
       }
+
+      if (!best) {
+        throw new Error("ocr_timeout");
+      }
+
+      const needsMerchantRefine = !best?.merchant || best.score < 170;
+      const needsBottomRefine = !best?.total || !best?.date;
+      const needsPositionRefine = (best?.positions || []).length < 2;
 
       await worker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
@@ -816,99 +812,135 @@ export class ReceiptOcrService {
         user_defined_dpi: "300"
       });
 
-      let topMerchant = "";
+      let topMerchant = best?.merchant || "";
       let topMerchantScore = -Infinity;
-      for (const topVariant of zoneVariants.top) {
-        for (const psm of zonePsms) {
-          await worker.setParameters({
-            tessedit_pageseg_mode: psm,
-            preserve_interword_spaces: "1",
-            user_defined_dpi: "300"
-          });
-          const { data } = await worker.recognize(topVariant.input);
-          const lines = extractLines(String(data?.text || "").trim());
-          const knownMerchant = extractKnownMerchant(lines);
-          const merchant = knownMerchant || extractMerchant(lines);
-          const merchantScore =
-            scoreMerchantLine(merchant) +
-            (merchant ? 25 : 0) +
-            (knownMerchant ? 240 : 0) +
-            Math.round(Number(data?.confidence) || 0);
-          if (merchantScore > topMerchantScore) {
-            topMerchantScore = merchantScore;
-            topMerchant = merchant;
+      if (needsMerchantRefine) {
+        for (const topVariant of zoneVariants.top) {
+          for (const psm of merchantPsms) {
+            if (deadline.isExpired()) {
+              break;
+            }
+            await worker.setParameters({
+              tessedit_pageseg_mode: psm,
+              preserve_interword_spaces: "1",
+              user_defined_dpi: "300"
+            });
+            const recognition = await safeRecognize(topVariant.input);
+            if (!recognition) {
+              break;
+            }
+            const { data } = recognition;
+            const lines = extractLines(String(data?.text || "").trim());
+            const knownMerchant = extractKnownMerchant(lines);
+            const merchant = knownMerchant || extractMerchant(lines);
+            const merchantScore =
+              scoreMerchantLine(merchant) +
+              (merchant ? 25 : 0) +
+              (knownMerchant ? 240 : 0) +
+              Math.round(Number(data?.confidence) || 0);
+            if (merchantScore > topMerchantScore) {
+              topMerchantScore = merchantScore;
+              topMerchant = merchant;
+            }
+          }
+          if (deadline.isExpired()) {
+            break;
           }
         }
       }
 
-      let bottomTotal = 0;
+      let bottomTotal = best?.total || 0;
       let bottomTotalScore = -Infinity;
-      let bottomDate = "";
+      let bottomDate = best?.date || "";
       let bottomDateScore = -Infinity;
-      let vat = { total: 0, entries: [] };
+      let vat = extractVat(best?.lines || []);
       let vatScore = -Infinity;
-      for (const bottomVariant of zoneVariants.bottom) {
-        for (const psm of zonePsms) {
-          await worker.setParameters({
-            tessedit_pageseg_mode: psm,
-            preserve_interword_spaces: "1",
-            user_defined_dpi: "300"
-          });
-          const { data } = await worker.recognize(bottomVariant.input);
-          const rawText = String(data?.text || "").trim();
-          const lines = extractLines(rawText);
-          const cashChangeTotal = extractCashChangeTotal(lines);
-          const total = cashChangeTotal || extractTotal(lines);
-          const date = extractDate(rawText);
-          const vatCandidate = extractVat(lines);
-          const confidence = Math.round(Number(data?.confidence) || 0);
-          const hasTime = /\d{2}:\d{2}/.test(date);
-          const totalScore =
-            (/(сума|разом|всього|до сплати|підсумок)/i.test(rawText) ? 120 : 0) +
-            (cashChangeTotal > 0 ? 180 : 0) +
-            (total > 0 ? 80 : 0) +
-            confidence;
-          const dateScore =
-            (hasTime ? 120 : 0) +
-            (date ? 60 : 0) +
-            scoreReceiptDateCandidate(date) +
-            confidence;
-          const vatCandidateScore =
-            (vatCandidate.total > 0 ? 90 : 0) +
-            vatCandidate.entries.length * 30 +
-            confidence;
+      if (needsBottomRefine || vat.entries.length === 0) {
+        for (const bottomVariant of zoneVariants.bottom) {
+          for (const psm of detailPsms) {
+            if (deadline.isExpired()) {
+              break;
+            }
+            await worker.setParameters({
+              tessedit_pageseg_mode: psm,
+              preserve_interword_spaces: "1",
+              user_defined_dpi: "300"
+            });
+            const recognition = await safeRecognize(bottomVariant.input);
+            if (!recognition) {
+              break;
+            }
+            const { data } = recognition;
+            const rawText = String(data?.text || "").trim();
+            const lines = extractLines(rawText);
+            const cashChangeTotal = extractCashChangeTotal(lines);
+            const total = cashChangeTotal || extractTotal(lines);
+            const date = extractDate(rawText);
+            const vatCandidate = extractVat(lines);
+            const confidence = Math.round(Number(data?.confidence) || 0);
+            const hasTime = /\d{2}:\d{2}/.test(date);
+            const totalScore =
+              (/(сума|разом|всього|до сплати|підсумок)/i.test(rawText) ? 120 : 0) +
+              (cashChangeTotal > 0 ? 180 : 0) +
+              (total > 0 ? 80 : 0) +
+              confidence;
+            const dateScore =
+              (hasTime ? 120 : 0) +
+              (date ? 60 : 0) +
+              scoreReceiptDateCandidate(date) +
+              confidence;
+            const vatCandidateScore =
+              (vatCandidate.total > 0 ? 90 : 0) +
+              vatCandidate.entries.length * 30 +
+              confidence;
 
-          if (totalScore > bottomTotalScore) {
-            bottomTotalScore = totalScore;
-            bottomTotal = total;
+            if (totalScore > bottomTotalScore) {
+              bottomTotalScore = totalScore;
+              bottomTotal = total;
+            }
+            if (dateScore > bottomDateScore) {
+              bottomDateScore = dateScore;
+              bottomDate = date;
+            }
+            if (vatCandidateScore > vatScore) {
+              vatScore = vatCandidateScore;
+              vat = vatCandidate;
+            }
           }
-          if (dateScore > bottomDateScore) {
-            bottomDateScore = dateScore;
-            bottomDate = date;
-          }
-          if (vatCandidateScore > vatScore) {
-            vatScore = vatCandidateScore;
-            vat = vatCandidate;
+          if (deadline.isExpired()) {
+            break;
           }
         }
       }
 
-      let middlePositions = [];
+      let middlePositions = best?.positions || [];
       let middlePositionScore = -Infinity;
-      for (const middleVariant of zoneVariants.middle) {
-        for (const psm of [Tesseract.PSM.AUTO, Tesseract.PSM.SINGLE_BLOCK, Tesseract.PSM.SINGLE_COLUMN]) {
-          await worker.setParameters({
-            tessedit_pageseg_mode: psm,
-            preserve_interword_spaces: "1",
-            user_defined_dpi: "300"
-          });
-          const { data } = await worker.recognize(middleVariant.input);
-          const lines = extractLines(String(data?.text || "").trim());
-          const positions = extractPositions(lines);
-          const score = positions.length * 40 + Math.round(Number(data?.confidence) || 0);
-          if (score > middlePositionScore) {
-            middlePositionScore = score;
-            middlePositions = positions;
+      if (needsPositionRefine) {
+        for (const middleVariant of zoneVariants.middle) {
+          for (const psm of positionPsms) {
+            if (deadline.isExpired()) {
+              break;
+            }
+            await worker.setParameters({
+              tessedit_pageseg_mode: psm,
+              preserve_interword_spaces: "1",
+              user_defined_dpi: "300"
+            });
+            const recognition = await safeRecognize(middleVariant.input);
+            if (!recognition) {
+              break;
+            }
+            const { data } = recognition;
+            const lines = extractLines(String(data?.text || "").trim());
+            const positions = extractPositions(lines);
+            const score = positions.length * 40 + Math.round(Number(data?.confidence) || 0);
+            if (score > middlePositionScore) {
+              middlePositionScore = score;
+              middlePositions = positions;
+            }
+          }
+          if (deadline.isExpired()) {
+            break;
           }
         }
       }

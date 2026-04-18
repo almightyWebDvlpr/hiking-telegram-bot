@@ -42,6 +42,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+where npm >nul 2>nul
+if errorlevel 1 (
+  echo npm is required on the server.
+  exit /b 1
+)
+
 where git >nul 2>nul
 if errorlevel 1 (
   echo git is required on the server.
@@ -72,8 +78,29 @@ if not exist "%TARGET_DIR%\.env" (
 )
 
 pushd "%TARGET_DIR%"
+call pm2 stop "%APP_NAME%" >nul 2>nul
+
+if exist "node_modules" (
+  rmdir /S /Q "node_modules"
+)
+
 call npm ci --omit=dev
 if errorlevel 1 exit /b 1
+
+if not exist "node_modules\telegraf\package.json" (
+  echo Missing telegraf after npm ci.
+  exit /b 1
+)
+
+if not exist "node_modules\sharp\package.json" (
+  echo Missing sharp after npm ci.
+  exit /b 1
+)
+
+if not exist "node_modules\tesseract.js\package.json" (
+  echo Missing tesseract.js after npm ci.
+  exit /b 1
+)
 
 set "APP_STAGE=test"
 call pm2 startOrReload ecosystem.config.cjs --only "%APP_NAME%" --update-env

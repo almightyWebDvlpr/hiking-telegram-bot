@@ -11652,7 +11652,7 @@ async function handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService
     const arrayBuffer = await response.arrayBuffer();
     await fs.writeFile(tempPath, Buffer.from(arrayBuffer));
 
-    await ctx.reply("🧠 Розпізнаю чек, це може тривати до 20-30 секунд...");
+    await ctx.reply("🧠 Розпізнаю чек, це може тривати до 30 секунд...");
 
     const result = await receiptOcrService.recognizeReceipt(tempPath);
     if (!result.total && !result.merchant) {
@@ -11677,7 +11677,7 @@ async function handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService
     const message = String(error?.message || "");
     if (message === "ocr_timeout") {
       return ctx.reply(
-        "OCR чека не встиг обробити зображення за 90 секунд. Спробуй чіткіше фото або додай витрату вручну. Якщо це повторюється, значить OCR на сервері зараз не тягне цей файл.",
+        "OCR чека не встиг обробити зображення за відведений час. Спробуй чіткіше фото або додай витрату вручну. Якщо це повторюється, значить OCR на сервері зараз не тягне цей файл.",
         getTripExpensesMenuKeyboard(groupService, flow.tripId)
       );
     }

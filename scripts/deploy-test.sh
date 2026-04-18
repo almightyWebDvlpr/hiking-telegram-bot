@@ -19,6 +19,11 @@ if ! command -v pm2 >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is required on the server."
+  exit 1
+fi
+
 rsync -a --delete \
   --exclude ".git" \
   --exclude ".github" \
@@ -32,7 +37,12 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
 fi
 
 cd "$TARGET_DIR"
+pm2 stop "$APP_NAME" >/dev/null 2>&1 || true
+rm -rf node_modules
 npm ci --omit=dev
+test -f node_modules/telegraf/package.json
+test -f node_modules/sharp/package.json
+test -f node_modules/tesseract.js/package.json
 APP_STAGE=test pm2 startOrReload ecosystem.config.cjs --only "$APP_NAME" --update-env
 pm2 save
 

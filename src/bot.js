@@ -14508,7 +14508,7 @@ export function createBot(store) {
     if (!canManageTripMemberTickets(trip, String(ctx.from.id), member.id)) {
       return ctx.reply("Тобі недоступні квитки цього учасника.");
     }
-    return sendTripMemberTicketsDirectly(ctx, member);
+    return showTripMemberTickets(ctx, groupService, userService, trip, member.id);
   });
   bot.action(/^mtickets\|([^|]+)$/, async (ctx) => {
     await ctx.answerCbQuery();
@@ -14523,7 +14523,7 @@ export function createBot(store) {
     if (!canManageTripMemberTickets(trip, String(ctx.from.id), member.id)) {
       return ctx.reply("Тобі недоступні квитки цього учасника.");
     }
-    return sendTripMemberTicketsDirectly(ctx, member);
+    return showTripMemberTickets(ctx, groupService, userService, trip, member.id);
   });
   bot.action(/^mstatus\|back$/, async (ctx) => handleTripMemberStatusBack(ctx, groupService, userService));
   bot.action(/^mstatus\|([^|]+)\|([^|]+)\|(going|thinking|not_going)$/, async (ctx) =>

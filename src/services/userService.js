@@ -61,6 +61,27 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function buildProfileSnapshot(user, userName = "") {
+  const profile = user?.profile && typeof user.profile === "object" ? user.profile : {};
+  return {
+    fullName: normalizeText(profile.fullName || user?.name || userName),
+    birthDate: normalizeText(profile.birthDate),
+    age: calculateAge(profile.birthDate),
+    gender: normalizeText(profile.gender),
+    bloodType: normalizeText(profile.bloodType),
+    allergies: normalizeText(profile.allergies),
+    medications: normalizeText(profile.medications),
+    healthNotes: normalizeText(profile.healthNotes || profile.chronicConditions || profile.medicalNotes),
+    phone: normalizeText(profile.phone),
+    emergencyContactName: normalizeText(profile.emergencyContactName),
+    emergencyContactPhone: normalizeText(profile.emergencyContactPhone),
+    emergencyContactRelation: normalizeText(profile.emergencyContactRelation),
+    experienceLevel: normalizeText(profile.experienceLevel),
+    city: normalizeText(profile.city),
+    contactVerifiedAt: normalizeText(profile.contactVerifiedAt)
+  };
+}
+
 function hasVerifiedContact(profile = {}) {
   return Boolean(normalizeText(profile.contactVerifiedAt));
 }
@@ -543,23 +564,7 @@ export class UserService {
     return {
       id: user.id,
       name: user.name || userName || "",
-      profile: {
-        fullName: normalizeText(user.profile.fullName || user.name || userName),
-        birthDate: normalizeText(user.profile.birthDate),
-        age: calculateAge(user.profile.birthDate),
-        gender: normalizeText(user.profile.gender),
-        bloodType: normalizeText(user.profile.bloodType),
-        allergies: normalizeText(user.profile.allergies),
-        medications: normalizeText(user.profile.medications),
-        healthNotes: normalizeText(user.profile.healthNotes || user.profile.chronicConditions || user.profile.medicalNotes),
-        phone: normalizeText(user.profile.phone),
-        emergencyContactName: normalizeText(user.profile.emergencyContactName),
-        emergencyContactPhone: normalizeText(user.profile.emergencyContactPhone),
-        emergencyContactRelation: normalizeText(user.profile.emergencyContactRelation),
-        experienceLevel: normalizeText(user.profile.experienceLevel),
-        city: normalizeText(user.profile.city),
-        contactVerifiedAt: normalizeText(user.profile.contactVerifiedAt)
-      },
+      profile: buildProfileSnapshot(user, userName),
       personalGear: user.personalGear,
       awards: [...user.awards]
         .filter((award) => award && typeof award === "object")
@@ -744,7 +749,20 @@ export class UserService {
     const member = Array.isArray(trip.members)
       ? trip.members.find((item) => String(item?.id || "") === String(memberId || ""))
       : null;
-    const profile = this.getProfile(memberId, userName).profile;
+    if (member && String(member.attendanceStatus || "") === "not_going") {
+      this.store.write(data);
+      return {
+        fullName: user.profile.fullName || user.name || userName || "Мандрівник",
+        newAwards: [],
+        allAwards: getVisibleAwardsList(user),
+        stats,
+        currentTitle: getCurrentTitle(stats),
+        xp: buildXpSummary(stats, user, 0, []),
+        latestAwards: getVisibleAwardsList(user).slice(0, 5),
+        formattedNewAwards: []
+      };
+    }
+    const profile = buildProfileSnapshot(user, userName);
     const personalGearCount = user.personalGear.length;
     const preparedLevel = getPreparedProfileLevel(user, profile, personalGearCount);
 

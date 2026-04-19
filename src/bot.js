@@ -8219,7 +8219,7 @@ function getSeriesDynamicDescription(seriesKey, stats, fallbackDescription = "")
     case "hikes":
       return formatUkrainianCount(stats.hikesCount, ["завершений похід", "завершені походи", "завершених походів"]);
     case "distance":
-      return `${stats.totalKm.toFixed(1)} км`;
+      return `${Number(stats.totalKm || 0).toFixed(1)} км`;
     case "nights":
       return formatUkrainianCount(stats.totalNights, ["ночівля", "ночівлі", "ночівель"]);
     case "ascent":
@@ -8291,7 +8291,9 @@ function buildUnifiedAwardLines(awards = [], stats = {}) {
   return [...seriesEntries, ...oneTimeEntries];
 }
 
-function formatProfileAwards(userService, userId, userName) {
+function formatProfileAwards(userService, userId, userName, options = {}) {
+  const historyLimit = Number.isFinite(Number(options.historyLimit)) ? Number(options.historyLimit) : 10;
+  const awardLimit = Number.isFinite(Number(options.awardLimit)) ? Number(options.awardLimit) : null;
   const data = userService.getAwards(userId, userName);
   const dashboard = userService.getDashboard(userId, userName);
   const awards = Array.isArray(data?.awards) ? data.awards.filter((item) => item && typeof item === "object") : [];
@@ -8299,11 +8301,13 @@ function formatProfileAwards(userService, userId, userName) {
   const stats = data?.stats && typeof data.stats === "object" ? data.stats : {};
   const xp = data?.xp && typeof data.xp === "object" ? data.xp : {};
   const xpProgress = xp?.progress && typeof xp.progress === "object" ? xp.progress : {};
-  const awardLines = awards.length
-    ? buildUnifiedAwardLines(awards, stats)
+  const limitedAwards = awardLimit && awardLimit > 0 ? awards.slice(0, awardLimit) : awards;
+  const limitedHistory = historyLimit >= 0 ? history.slice(0, historyLimit) : history;
+  const awardLines = limitedAwards.length
+    ? buildUnifiedAwardLines(limitedAwards, stats)
     : ["• Поки що нагород немає. Заверши перший похід, і вони з’являться тут."];
-  const historyLines = history.length
-    ? history.flatMap((item) => {
+  const historyLines = limitedHistory.length
+    ? limitedHistory.flatMap((item) => {
       const lines = [
         `• <b>${escapeHtml(item.tripName || "Похід")}</b>`,
         `  Маршрут: ${escapeHtml(item.routeName || "маршрут не задано")}`,
@@ -8319,6 +8323,12 @@ function formatProfileAwards(userService, userId, userName) {
       return [...lines, ""];
     }).slice(0, -1)
     : ["• Історія XP поки порожня. Заверши перший реальний похід, і тут з’являться нарахування."];
+  const trimmedHistoryNotice = history.length > limitedHistory.length
+    ? [`• Показано останні ${limitedHistory.length} нарахувань XP із ${history.length}.`]
+    : [];
+  const trimmedAwardsNotice = awards.length > limitedAwards.length
+    ? [`• Показано ${limitedAwards.length} нагород із ${awards.length}.`]
+    : [];
 
   return joinRichLines([
     ...formatCardHeader("🏅 МОЇ ДОСЯГНЕННЯ", data.fullName),
@@ -8349,14 +8359,43 @@ function formatProfileAwards(userService, userId, userName) {
     "",
     formatSectionHeader("🧾", "Останні Нарахування XP"),
     ...historyLines,
+    ...trimmedHistoryNotice,
     "",
     formatSectionHeader("🏆", "Усі Нагороди"),
     ...awardLines,
+    ...trimmedAwardsNotice,
     "",
     "⚠️ Зверни увагу:",
     "• статистика рахується по завершених та архівних походах",
     "• активний похід окремо не додається в пройдену статистику"
   ]);
+}
+
+function buildSafeProfileAwardsMessage(userService, userId, userName) {
+  const variants = [
+    { historyLimit: 10, awardLimit: null },
+    { historyLimit: 6, awardLimit: 24 },
+    { historyLimit: 4, awardLimit: 18 },
+    { historyLimit: 3, awardLimit: 12 }
+  ];
+  let lastError = null;
+
+  for (const variant of variants) {
+    try {
+      const message = formatProfileAwards(userService, userId, userName, variant);
+      if (message.length <= 3900) {
+        return message;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    console.error("Failed to build full awards message", { userId, userName, error: lastError });
+  }
+
+  return formatProfileAwards(userService, userId, userName, { historyLimit: 2, awardLimit: 8 });
 }
 
 function formatProfileAbout(userService, userId, userName) {
@@ -8453,10 +8492,24 @@ function showProfileMedicalCard(ctx, userService) {
 
 function showProfileAwards(ctx, userService) {
   setMenuContext(ctx.from?.id, "profile");
-  return ctx.reply(
-    formatProfileAwards(userService, String(ctx.from.id), getUserLabel(ctx)),
-    { parse_mode: "HTML", ...getProfileKeyboard() }
-  );
+  try {
+    return ctx.reply(
+      buildSafeProfileAwardsMessage(userService, String(ctx.from.id), getUserLabel(ctx)),
+      { parse_mode: "HTML", ...getProfileKeyboard() }
+    );
+  } catch (error) {
+    console.error("Failed to render profile awards", { userId: String(ctx.from?.id || ""), error });
+    return ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🏅 МОЇ ДОСЯГНЕННЯ", getUserLabel(ctx)),
+        "",
+        "Не вдалося показати повну версію досягнень, але профіль і нагороди збережені.",
+        "",
+        "Спробуй ще раз трохи пізніше."
+      ]),
+      { parse_mode: "HTML", ...getProfileKeyboard() }
+    );
+  }
 }
 
 function startProfileEditWizard(ctx, userService) {

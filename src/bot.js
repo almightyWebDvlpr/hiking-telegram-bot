@@ -5373,17 +5373,18 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
 }
 
 async function showTripMemberDetails(ctx, groupService, userService, trip, memberId, items = []) {
-  const member = trip.members.find((item) => item.id === memberId);
+  const resolvedTrip = groupService.getGroup(trip?.id || "") || trip;
+  const member = resolvedTrip?.members?.find((item) => String(item.id) === String(memberId));
   if (!member) {
-    return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(trip, String(ctx.from.id)));
+    return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(resolvedTrip, String(ctx.from.id)));
   }
 
   const viewerId = String(ctx.from.id);
-  const text = formatTripMemberDetailsMessage(trip, member, userService, viewerId);
-  const inlineKeyboard = getTripMemberStatusInlineKeyboard(trip, member.id, viewerId);
+  const text = formatTripMemberDetailsMessage(resolvedTrip, member, userService, viewerId);
+  const inlineKeyboard = getTripMemberStatusInlineKeyboard(resolvedTrip, member.id, viewerId);
   setFlow(viewerId, {
     type: "trip_member_detail",
-    tripId: trip.id,
+    tripId: resolvedTrip.id,
     step: "menu",
     data: {
       memberId,
@@ -5412,16 +5413,8 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
 
   return ctx.reply(
     "Дії з учасником:",
-    getTripMemberDetailsKeyboard(trip, viewerId, member.id)
+    getTripMemberDetailsKeyboard(resolvedTrip, viewerId, member.id)
   );
-}
-
-function buildTripMemberTicketItems(member = {}) {
-  return getMemberTickets(member).map((ticket, index) => ({
-    id: ticket.id,
-    label: truncateButtonLabel(getMemberTicketListLabel(ticket, index), 28),
-    ticket
-  }));
 }
 
 function formatTripMemberTicketsMessage(trip, member, userService) {
@@ -5498,13 +5491,14 @@ async function sendTripMemberTicketsDirectly(ctx, member) {
 }
 
 function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
-  const member = trip.members.find((item) => String(item.id) === String(memberId));
+  const resolvedTrip = groupService.getGroup(trip?.id || "") || trip;
+  const member = resolvedTrip?.members?.find((item) => String(item.id) === String(memberId));
   if (!member) {
-    return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(trip, String(ctx.from.id)));
+    return ctx.reply("Учасника не знайдено в цьому поході.", getTripMembersKeyboard(resolvedTrip, String(ctx.from.id)));
   }
 
   const viewerId = String(ctx.from.id);
-  if (!canManageTripMemberTickets(trip, viewerId, memberId)) {
+  if (!canManageTripMemberTickets(resolvedTrip, viewerId, memberId)) {
     return ctx.reply("Тобі недоступні квитки цього учасника.", getTripMembersListKeyboard([]));
   }
 
@@ -5514,7 +5508,7 @@ function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
 
   return safeReplyTripTicketBlock(
     ctx,
-    formatTripMemberTicketsMessage(trip, member, userService)
+    formatTripMemberTicketsMessage(resolvedTrip, member, userService)
   );
 }
 
@@ -5577,24 +5571,9 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     return ctx.reply("Учасника не знайдено.", getTripMembersKeyboard(trip, viewerId));
   }
 
-  const items = buildTripMemberTicketItems(member);
-
   if (message === MEMBER_TICKETS_BACK_LABEL) {
     clearFlow(viewerId);
     return showTripMembers(ctx, groupService, userService);
-  }
-
-  if (flow.step === "list") {
-    const selected = items.find((item) => item.label === message);
-    if (!selected) {
-      return ctx.reply(
-        "Обери квиток кнопкою нижче.",
-        getTripMemberTicketsKeyboard(items)
-      );
-    }
-
-    await sendTripMemberTicketFile(ctx, member, selected.ticket);
-    return null;
   }
 
   if (message === MEMBER_TICKET_FLOW_BACK_LABEL) {
@@ -5773,15 +5752,6 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
 
   const refreshedTrip = result.group;
   const refreshedMember = refreshedTrip.members.find((item) => String(item.id) === String(member.id)) || member;
-  const refreshedItems = buildTripMemberTicketItems(refreshedMember);
-
-  flow.step = "list";
-  flow.data.items = refreshedItems;
-  flow.data.selectedTicketId = "";
-  flow.data.uploadMode = "";
-  flow.data.ticketDraft = {};
-  setFlow(viewerId, flow);
-
   if (String(flow.data?.returnContext || "") === "member_detail") {
     clearFlow(viewerId);
     const segmentLabel = getMemberTicketSegmentLabel(result.ticket || ticket);
@@ -5797,8 +5767,7 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
       `✅ Квиток для ${escapeHtml(getMemberDisplayName(userService, refreshedMember))} збережено.`,
       "",
       formatTripMemberTicketsMessage(refreshedTrip, refreshedMember, userService)
-    ]),
-    getTripMemberTicketsKeyboard(refreshedItems)
+    ])
   );
 }
 
@@ -5834,7 +5803,6 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
       step: "upload_category",
       data: {
         memberId: member.id,
-        items: buildTripMemberTicketItems(member),
         selectedTicketId: "",
         uploadMode: "create",
         ticketDraft: {},
@@ -5859,7 +5827,6 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
       step: "upload_category",
       data: {
         memberId: member.id,
-        items: buildTripMemberTicketItems(member),
         selectedTicketId: "",
         uploadMode: "create",
         ticketDraft: {},
@@ -5905,7 +5872,6 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
         step: "upload_category",
         data: {
           memberId: member.id,
-          items: buildTripMemberTicketItems(member),
           selectedTicketId: "",
           uploadMode: "create",
           ticketDraft: {},

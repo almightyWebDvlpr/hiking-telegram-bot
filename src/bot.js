@@ -5441,9 +5441,6 @@ function formatTripMemberTicketsMessage(trip, member, userService) {
       lines.push(`• ${escapeHtml(getMemberTicketListLabel(ticket, index))}`);
     }
   }
-
-  lines.push("");
-  lines.push("Обери квиток кнопкою нижче.");
   return joinRichLines(lines);
 }
 
@@ -5511,27 +5508,13 @@ function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
     return ctx.reply("Тобі недоступні квитки цього учасника.", getTripMembersListKeyboard([]));
   }
 
-  const items = buildTripMemberTicketItems(member);
-  if (!items.length) {
+  if (!getMemberTickets(member).length) {
     return ctx.reply("У цього учасника ще немає завантажених квитків.");
   }
-  setFlow(viewerId, {
-    type: "trip_member_ticket_manage",
-    tripId: trip.id,
-    step: "list",
-    data: {
-      memberId,
-      items,
-      selectedTicketId: "",
-      uploadMode: "",
-      returnContext: "member_detail"
-    }
-  });
 
   return safeReplyTripTicketBlock(
     ctx,
-    formatTripMemberTicketsMessage(trip, member, userService),
-    getTripMemberTicketsKeyboard(items)
+    formatTripMemberTicketsMessage(trip, member, userService)
   );
 }
 

@@ -13568,6 +13568,9 @@ async function finishTrip(ctx, groupService, userService, telegram = null) {
         userName: member.name
       })
     }));
+  if (typeof userService.store?.flush === "function") {
+    await userService.store.flush();
+  }
   const hasTrackableRoute = Boolean(
     completed?.routePlan &&
     (

@@ -133,7 +133,6 @@ const TRIP_TRANSFER_INVITE_LABEL = "➕ Запросити нового орга
 const MEMBER_TICKETS_LABEL = "🎫 Квитки";
 const MEMBER_TICKETS_UPLOAD_LABEL = "📤 Завантажити квиток";
 const MEMBER_TICKETS_OPEN_LABEL = "📎 Відкрити файл";
-const MEMBER_TICKETS_REPLACE_LABEL = "🔄 Оновити файл";
 const MEMBER_TICKETS_DELETE_LABEL = "🗑 Видалити квиток";
 const MEMBER_TICKETS_BACK_LABEL = "⬅️ До учасників";
 const MEMBER_TICKETS_LIST_BACK_LABEL = "⬅️ До квитків";
@@ -711,6 +710,23 @@ function getAttendanceStatusEmoji(status) {
 
 function getMemberTickets(member = {}) {
   return Array.isArray(member?.tickets) ? member.tickets.filter((ticket) => ticket?.fileId) : [];
+}
+
+const SUPPORTED_TICKET_DOCUMENT_EXTENSIONS = new Set(["pdf", "png", "jpg", "jpeg"]);
+
+function isSupportedTicketDocument(document = null) {
+  if (!document?.file_id) {
+    return false;
+  }
+
+  const mimeType = String(document.mime_type || "").toLowerCase();
+  if (mimeType === "application/pdf" || mimeType.startsWith("image/")) {
+    return true;
+  }
+
+  const fileName = String(document.file_name || "").trim().toLowerCase();
+  const extension = fileName.includes(".") ? fileName.split(".").pop() || "" : "";
+  return SUPPORTED_TICKET_DOCUMENT_EXTENSIONS.has(extension);
 }
 
 function normalizeTicketSegmentInput(value) {
@@ -5555,11 +5571,7 @@ function renderTripMemberTicketStep(ctx, step, flow, member) {
     const categoryLabel = getMemberTicketCategoryLabel(category);
     const segmentFrom = normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentFrom || "");
     const segmentTo = normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentTo || "");
-    const segmentKey = buildMemberTicketSegmentKey(category, segmentFrom, segmentTo);
-    const existingTicket = getMemberTickets(member).find((item) => String(item.segmentKey || "") === segmentKey);
-    const uploadHint = existingTicket
-      ? `Для квитка ${categoryLabel} ${segmentFrom} → ${segmentTo} уже є файл. Новий файл оновить попередній.\n\nНадішли файл квитка документом або фото.`
-      : `Додаємо окремий квиток ${categoryLabel} для сегмента ${segmentFrom} → ${segmentTo}.\n\nНадішли файл квитка документом або фото.`;
+    const uploadHint = `Додаємо квиток ${categoryLabel} для сегмента ${segmentFrom} → ${segmentTo}.\n\nМожна надсилати кілька квитків у цій самій категорії.\nПідійде фото або документ у форматі PDF / PNG / JPG / JPEG.`;
     return ctx.reply(uploadHint, getTripMemberTicketUploadKeyboard());
   }
 
@@ -5611,7 +5623,6 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
     if (flow.step === "upload_from") {
       flow.step = "upload_category";
       flow.data.ticketDraft = {};
-      flow.data.replaceTicketId = "";
       setFlow(viewerId, flow);
       return renderTripMemberTicketStep(ctx, "upload_category", flow, member);
     }
@@ -5622,14 +5633,12 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
         ...(flow.data.ticketDraft || {}),
         segmentFrom: ""
       };
-      flow.data.replaceTicketId = "";
       setFlow(viewerId, flow);
       return renderTripMemberTicketStep(ctx, "upload_from", flow, member);
     }
 
     if (flow.step === "upload") {
       flow.step = "upload_to";
-      flow.data.replaceTicketId = "";
       setFlow(viewerId, flow);
       return renderTripMemberTicketStep(ctx, "upload_to", flow, member);
     }
@@ -5678,19 +5687,17 @@ async function handleTripMemberTicketFlow(ctx, flow, groupService, userService) 
       );
     }
 
-    const category = normalizeMemberTicketCategory(flow.data?.ticketDraft?.category || "other");
-    const segmentFrom = normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentFrom || "");
-    const segmentKey = buildMemberTicketSegmentKey(category, segmentFrom, segmentTo);
-    const existingTicket = getMemberTickets(member).find((item) => String(item.segmentKey || "") === segmentKey);
-
     flow.step = "upload";
     flow.data.ticketDraft = {
-      category,
-      segmentFrom,
+      category: normalizeMemberTicketCategory(flow.data?.ticketDraft?.category || "other"),
+      segmentFrom: normalizeTicketSegmentInput(flow.data?.ticketDraft?.segmentFrom || ""),
       segmentTo,
-      segmentKey
+      segmentKey: buildMemberTicketSegmentKey(
+        flow.data?.ticketDraft?.category || "other",
+        flow.data?.ticketDraft?.segmentFrom || "",
+        segmentTo
+      )
     };
-    flow.data.replaceTicketId = existingTicket?.id || "";
     setFlow(viewerId, flow);
     return renderTripMemberTicketStep(ctx, "upload", flow, member);
   }
@@ -5725,7 +5732,14 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
 
   if (!document?.file_id && !photo?.file_id) {
-    return ctx.reply("Надішли документ або фото квитка.", getTripMemberTicketUploadKeyboard());
+    return ctx.reply("Надішли фото або документ квитка у форматі PDF / PNG / JPG / JPEG.", getTripMemberTicketUploadKeyboard());
+  }
+
+  if (document?.file_id && !isSupportedTicketDocument(document)) {
+    return ctx.reply(
+      "Підтримуються квитки як фото або документи у форматі PDF / PNG / JPG / JPEG.",
+      getTripMemberTicketUploadKeyboard()
+    );
   }
 
   const ticket = document
@@ -5767,10 +5781,7 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   const result = groupService.addMemberTicket({
     groupId: trip.id,
     targetMemberId: member.id,
-    ticket,
-    replaceTicketId:
-      flow.data?.replaceTicketId
-      || (flow.data?.uploadMode === "replace" ? flow.data?.selectedTicketId || "" : "")
+    ticket
   });
 
   if (!result.ok) {
@@ -5785,7 +5796,6 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
   flow.data.items = refreshedItems;
   flow.data.selectedTicketId = "";
   flow.data.uploadMode = "";
-  flow.data.replaceTicketId = "";
   flow.data.ticketDraft = {};
   setFlow(viewerId, flow);
 
@@ -5844,7 +5854,6 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
         items: buildTripMemberTicketItems(member),
         selectedTicketId: "",
         uploadMode: "create",
-        replaceTicketId: "",
         ticketDraft: {},
         returnContext: "member_detail"
       }
@@ -5870,7 +5879,6 @@ async function startTripMemberTicketUpload(ctx, groupService, userService, tripI
         items: buildTripMemberTicketItems(member),
         selectedTicketId: "",
         uploadMode: "create",
-        replaceTicketId: "",
         ticketDraft: {},
         returnContext: "member_detail"
       }
@@ -5917,7 +5925,6 @@ async function handleTripMemberDetailFlow(ctx, flow, groupService, userService) 
           items: buildTripMemberTicketItems(member),
           selectedTicketId: "",
           uploadMode: "create",
-          replaceTicketId: "",
           ticketDraft: {},
           returnContext: "member_detail"
         }

@@ -701,14 +701,7 @@ export class GroupService {
       ? member.tickets.map((item) => normalizeMemberTicket(item)).filter((item) => item.fileId)
       : [];
 
-    let resolvedReplaceTicketId = String(replaceTicketId || "");
-    if (!resolvedReplaceTicketId && normalizedTicket.segmentKey) {
-      const existingBySegment = member.tickets.find((item) => String(item.segmentKey || "") === normalizedTicket.segmentKey);
-      if (existingBySegment) {
-        resolvedReplaceTicketId = existingBySegment.id;
-      }
-    }
-
+    const resolvedReplaceTicketId = String(replaceTicketId || "");
     if (resolvedReplaceTicketId) {
       const index = member.tickets.findIndex((item) => String(item.id) === resolvedReplaceTicketId);
       if (index === -1) {

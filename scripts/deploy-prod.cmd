@@ -92,16 +92,6 @@ if not exist "node_modules\telegraf\package.json" (
   exit /b 1
 )
 
-if not exist "node_modules\sharp\package.json" (
-  echo Missing sharp after npm ci.
-  exit /b 1
-)
-
-if not exist "node_modules\tesseract.js\package.json" (
-  echo Missing tesseract.js after npm ci.
-  exit /b 1
-)
-
 set "APP_STAGE=prod"
 call pm2 startOrReload ecosystem.config.cjs --only "%APP_NAME%" --update-env
 if errorlevel 1 exit /b 1

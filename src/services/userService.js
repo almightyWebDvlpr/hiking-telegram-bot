@@ -328,7 +328,7 @@ function getPreparedProfileLevel(user, profile, personalGearCount = 0) {
 }
 
 function hasAward(user, key) {
-  return user.awards.some((award) => award.key === key);
+  return (Array.isArray(user?.awards) ? user.awards : []).some((award) => award && award.key === key);
 }
 
 function pushAward(user, award) {
@@ -342,6 +342,7 @@ function pushAward(user, award) {
 
 function getAwardMilestoneThreshold(user, seriesKey, milestones = []) {
   const awardedIndexes = (Array.isArray(user?.awards) ? user.awards : [])
+    .filter((award) => award && typeof award === "object")
     .filter((award) => String(award.key || "").startsWith(`${seriesKey}_`))
     .map((award) => milestones.findIndex((item) => item.tier === award.tier))
     .filter((index) => index >= 0);
@@ -371,12 +372,16 @@ function isVisibleAward(award) {
 
 function getVisibleAwardsList(user) {
   return (Array.isArray(user?.awards) ? user.awards : [])
+    .filter((award) => award && typeof award === "object")
     .filter(isVisibleAward)
-    .sort((left, right) => String(right.earnedAt || "").localeCompare(String(left.earnedAt || "")));
+    .sort((left, right) => String(right?.earnedAt || "").localeCompare(String(left?.earnedAt || "")));
 }
 
 function sumAwardXp(user) {
   return (Array.isArray(user?.awards) ? user.awards : []).reduce((sum, award) => {
+    if (!award || typeof award !== "object") {
+      return sum;
+    }
     if (award?.tier && XP_TIER_BONUSES[award.tier]) {
       return sum + XP_TIER_BONUSES[award.tier];
     }
@@ -579,7 +584,9 @@ export class UserService {
         contactVerifiedAt: normalizeText(user.profile.contactVerifiedAt)
       },
       personalGear: user.personalGear,
-      awards: [...user.awards].sort((left, right) => String(right.earnedAt || "").localeCompare(String(left.earnedAt || "")))
+      awards: [...user.awards]
+        .filter((award) => award && typeof award === "object")
+        .sort((left, right) => String(right?.earnedAt || "").localeCompare(String(left?.earnedAt || "")))
     };
   }
 
@@ -724,7 +731,8 @@ export class UserService {
       xp,
       stats,
       history: [...user.xpHistory]
-        .sort((left, right) => String(right.earnedAt || "").localeCompare(String(left.earnedAt || "")))
+        .filter((item) => item && typeof item === "object")
+        .sort((left, right) => String(right?.earnedAt || "").localeCompare(String(left?.earnedAt || "")))
         .slice(0, 10)
     };
   }
@@ -742,7 +750,8 @@ export class UserService {
       title: getCurrentTitle(stats),
       awards: getVisibleAwardsList(user),
       history: [...user.xpHistory]
-        .sort((left, right) => String(right.earnedAt || "").localeCompare(String(left.earnedAt || "")))
+        .filter((item) => item && typeof item === "object")
+        .sort((left, right) => String(right?.earnedAt || "").localeCompare(String(left?.earnedAt || "")))
         .slice(0, 10),
       stats,
       xp: buildXpSummary(stats, user)

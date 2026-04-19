@@ -154,6 +154,28 @@ function tripHasMember(trip, userId) {
     && trip.finalSummary.members.some((member) => String(member?.id || "") === normalizedUserId);
 }
 
+function tripHasParticipatingMember(trip, userId) {
+  const normalizedUserId = String(userId || "");
+  if (!normalizedUserId) {
+    return false;
+  }
+
+  if (
+    Array.isArray(trip?.members) &&
+    trip.members.some((member) =>
+      String(member?.id || "") === normalizedUserId &&
+      String(member?.attendanceStatus || "") === "going"
+    )
+  ) {
+    return true;
+  }
+
+  return Array.isArray(trip?.finalSummary?.members)
+    && trip.finalSummary.members.some((member) =>
+      String(member?.id || "") === normalizedUserId &&
+      String(member?.attendanceStatus || "") === "going"
+    );
+}
 function getRouteAscent(routePlan) {
   return Number(routePlan?.meta?.ascentGain) || 0;
 }
@@ -749,7 +771,7 @@ export class UserService {
     const member = Array.isArray(trip.members)
       ? trip.members.find((item) => String(item?.id || "") === String(memberId || ""))
       : null;
-    if (member && String(member.attendanceStatus || "") === "not_going") {
+    if (!member || String(member.attendanceStatus || "") !== "going") {
       this.store.write(data);
       return {
         fullName: user.profile.fullName || user.name || userName || "Мандрівник",

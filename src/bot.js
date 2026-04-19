@@ -798,7 +798,7 @@ function canManageTripMemberTickets(trip, viewerId, memberId) {
 }
 
 function isMemberIncludedInCalculations(member) {
-  return String(member?.attendanceStatus || "") !== "not_going";
+  return String(member?.attendanceStatus || "") === "going";
 }
 
 function getTripMembersIncludedInCalculations(trip) {

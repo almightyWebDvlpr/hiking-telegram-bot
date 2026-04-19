@@ -164,7 +164,7 @@ function tripHasParticipatingMember(trip, userId) {
     Array.isArray(trip?.members) &&
     trip.members.some((member) =>
       String(member?.id || "") === normalizedUserId &&
-      String(member?.attendanceStatus || "") !== "not_going"
+      String(member?.attendanceStatus || "") === "going"
     )
   ) {
     return true;
@@ -173,7 +173,7 @@ function tripHasParticipatingMember(trip, userId) {
   return Array.isArray(trip?.finalSummary?.members)
     && trip.finalSummary.members.some((member) =>
       String(member?.id || "") === normalizedUserId &&
-      String(member?.attendanceStatus || "") !== "not_going"
+      String(member?.attendanceStatus || "") === "going"
     );
 }
 
@@ -772,7 +772,7 @@ export class UserService {
     const member = Array.isArray(trip.members)
       ? trip.members.find((item) => String(item?.id || "") === String(memberId || ""))
       : null;
-    if (member && String(member.attendanceStatus || "") === "not_going") {
+    if (!member || String(member.attendanceStatus || "") !== "going") {
       this.store.write(data);
       return {
         fullName: user.profile.fullName || user.name || userName || "Мандрівник",

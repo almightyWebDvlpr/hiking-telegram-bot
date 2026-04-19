@@ -408,7 +408,12 @@ export function getCurrentTitle(stats = {}) {
 
 export function getXpLevel(totalXp = 0) {
   const xp = Number(totalXp) || 0;
-  return XP_LEVELS.findLast((item) => xp >= item.minXp) || XP_LEVELS[0];
+  for (let index = XP_LEVELS.length - 1; index >= 0; index -= 1) {
+    if (xp >= XP_LEVELS[index].minXp) {
+      return XP_LEVELS[index];
+    }
+  }
+  return XP_LEVELS[0];
 }
 
 export function getNextXpLevel(totalXp = 0) {

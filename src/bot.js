@@ -11,7 +11,6 @@ import { UserService } from "./services/userService.js";
 import { WeatherService } from "./services/weatherService.js";
 import { RouteService } from "./services/routeService.js";
 import { AdvisorService } from "./services/advisorService.js";
-import { ReceiptOcrService } from "./services/receiptOcrService.js";
 import { resolveSafetyProfile } from "./data/safetyContacts.js";
 import { VpohidLiveService } from "./services/vpohidLiveService.js";
 import {
@@ -142,9 +141,6 @@ const MEMBER_TICKET_FLOW_BACK_LABEL = "⬅️ Назад";
 const TRIP_LIST_BACK_LABEL = "⬅️ До списку походів";
 const TRIP_REMINDERS_ENABLE_LABEL = "✅ Увімкнути нагадування";
 const TRIP_REMINDERS_DISABLE_LABEL = "⛔️ Вимкнути нагадування";
-const EXPENSE_OCR_LABEL = "🧠 OCR чека";
-const EXPENSE_OCR_SAVE_LABEL = "✅ Зберегти витрату";
-const EXPENSE_OCR_RETRY_LABEL = "🔁 Інший чек";
 const HELP_SECTIONS = [
   "🚀 Як почати і створити похід",
   "📍 Як додати маршрут",
@@ -2064,7 +2060,7 @@ function getTripSafetyInlineKeyboard() {
 }
 
 function getTripExpensesKeyboard({ hasItems = false } = {}) {
-  const rows = [["💸 Додати витрату", EXPENSE_OCR_LABEL]];
+  const rows = [["💸 Додати витрату"]];
   if (hasItems) {
     rows[0].push("🗑 Видалити витрату");
   }
@@ -2081,43 +2077,6 @@ function getTripFoodMenuKeyboard(groupService, tripId) {
 function getTripExpensesMenuKeyboard(groupService, tripId) {
   const hasItems = Boolean(groupService.getExpenseSnapshot(tripId)?.items?.length);
   return getTripExpensesKeyboard({ hasItems });
-}
-
-function getExpenseOcrReviewKeyboard() {
-  return buildKeyboard([
-    [EXPENSE_OCR_SAVE_LABEL, EXPENSE_OCR_RETRY_LABEL],
-    ["❌ Скасувати"]
-  ]);
-}
-
-function formatExpenseOcrSummary(result = {}) {
-  const vatEntries = Array.isArray(result.vat?.entries) ? result.vat.entries : [];
-  const lines = [
-    ...formatCardHeader("🧠 OCR ЧЕКА", result.merchant || "Попередній розбір"),
-    "",
-    `Магазин: ${result.merchant || "не впізнано"}`,
-    `Дата: ${result.date || "не впізнано"}`,
-    `Сума: ${result.total ? formatMoney(result.total) : "не впізнано"}`
-  ];
-
-  if (vatEntries.length) {
-    const vatLabel = vatEntries
-      .map((item) => `${item.rate ? `${item.rate}%` : "ПДВ"} — ${formatMoney(item.amount)}`)
-      .join(", ");
-    lines.push(`ПДВ: ${vatLabel}`);
-  }
-
-  if (Array.isArray(result.positions) && result.positions.length) {
-    lines.push("");
-    lines.push("Позиції:");
-    for (const item of result.positions.slice(0, 12)) {
-      lines.push(`• ${escapeHtml(item.title)} — ${formatMoney(item.amount)}`);
-    }
-  }
-
-  lines.push("");
-  lines.push("Можеш зберегти це як витрату або завантажити інший чек.");
-  return joinRichLines(lines);
 }
 
 function formatSafetySection(trip) {
@@ -7075,29 +7034,6 @@ function startExpenseAddWizard(ctx, groupService) {
   });
 }
 
-function startExpenseReceiptOcrWizard(ctx, groupService) {
-  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
-  if (!trip) {
-    return null;
-  }
-
-  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
-    return replyRestrictedTripSection(ctx, trip);
-  }
-
-  setFlow(String(ctx.from.id), {
-    type: "expense_receipt_ocr",
-    tripId: trip.id,
-    step: "upload",
-    data: {}
-  });
-
-  return ctx.reply(
-    "Надішли фото чека або документ-зображення. Бот спробує витягнути магазин, дату і суму.\n\nПоки що PDF не розпізнаємо, тільки фото або image-файл.",
-    { ...FLOW_CANCEL_KEYBOARD }
-  );
-}
-
 function startExpenseDeleteWizard(ctx, groupService) {
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
@@ -8318,11 +8254,12 @@ function getSeriesDynamicDescription(seriesKey, stats, fallbackDescription = "")
 }
 
 function buildUnifiedAwardLines(awards = [], stats = {}) {
+  const normalizedAwards = (Array.isArray(awards) ? awards : []).filter((award) => award && typeof award === "object");
   const seriesEntries = [];
   const oneTimeEntries = [];
 
   for (const series of BADGE_SERIES) {
-    const awarded = awards
+    const awarded = normalizedAwards
       .filter((award) => String(award.key || "").startsWith(`${series.key}_`))
       .sort((left, right) => {
         const leftIndex = series.milestones.findIndex((item) => item.tier === left.tier);
@@ -8343,7 +8280,7 @@ function buildUnifiedAwardLines(awards = [], stats = {}) {
     seriesEntries.push(`• ${icons} ${series.title}${description ? ` — ${description}` : ""}`);
   }
 
-  for (const award of awards) {
+  for (const award of normalizedAwards) {
     const isSeriesAward = BADGE_SERIES.some((series) => String(award.key || "").startsWith(`${series.key}_`));
     if (isSeriesAward) {
       continue;
@@ -8357,21 +8294,26 @@ function buildUnifiedAwardLines(awards = [], stats = {}) {
 function formatProfileAwards(userService, userId, userName) {
   const data = userService.getAwards(userId, userName);
   const dashboard = userService.getDashboard(userId, userName);
-  const awardLines = data.awards.length
-    ? buildUnifiedAwardLines(data.awards, data.stats)
+  const awards = Array.isArray(data?.awards) ? data.awards.filter((item) => item && typeof item === "object") : [];
+  const history = Array.isArray(data?.history) ? data.history.filter((item) => item && typeof item === "object") : [];
+  const stats = data?.stats && typeof data.stats === "object" ? data.stats : {};
+  const xp = data?.xp && typeof data.xp === "object" ? data.xp : {};
+  const xpProgress = xp?.progress && typeof xp.progress === "object" ? xp.progress : {};
+  const awardLines = awards.length
+    ? buildUnifiedAwardLines(awards, stats)
     : ["• Поки що нагород немає. Заверши перший похід, і вони з’являться тут."];
-  const historyLines = data.history.length
-    ? data.history.flatMap((item) => {
+  const historyLines = history.length
+    ? history.flatMap((item) => {
       const lines = [
         `• <b>${escapeHtml(item.tripName || "Похід")}</b>`,
         `  Маршрут: ${escapeHtml(item.routeName || "маршрут не задано")}`,
-        `  XP: +${item.gainedXp} (база ${item.baseXp}${item.awardBonusXp > 0 ? `, бонус ${item.awardBonusXp}` : ""})`,
-        `  Рівень: ${item.levelBefore} → ${item.levelAfter}`,
-        `  Разом XP: ${item.totalXpAfter}`
+        `  XP: +${Number(item.gainedXp) || 0} (база ${Number(item.baseXp) || 0}${Number(item.awardBonusXp) > 0 ? `, бонус ${Number(item.awardBonusXp)}` : ""})`,
+        `  Рівень: ${Number(item.levelBefore) || 1} → ${Number(item.levelAfter) || 1}`,
+        `  Разом XP: ${Number(item.totalXpAfter) || 0}`
       ];
 
       if (Array.isArray(item.components) && item.components.length) {
-        lines.push(`  Складові: ${item.components.map((part) => `${part.label} +${part.xp}`).join(" • ")}`);
+        lines.push(`  Складові: ${item.components.filter((part) => part && typeof part === "object").map((part) => `${part.label || "XP"} +${Number(part.xp) || 0}`).join(" • ")}`);
       }
 
       return [...lines, ""];
@@ -8383,27 +8325,27 @@ function formatProfileAwards(userService, userId, userName) {
     "",
     formatSectionHeader("🎯", "Титул, Рівень І XP"),
     `• Поточний титул: ${data.title || "ще не відкрито"}`,
-    `• Рівень: ${data.xp.level}`,
-    `• Загальний XP: ${data.xp.totalXp}`,
-    data.xp.progress.next
-      ? `• До наступного рівня: ${data.xp.progress.currentXp} / ${data.xp.progress.nextTargetXp} XP`
-      : `• Максимальний відкритий рівень: ${data.xp.progress.currentXp} XP`,
+    `• Рівень: ${Number(xp.level) || 1}`,
+    `• Загальний XP: ${Number(xp.totalXp) || 0}`,
+    xpProgress.next
+      ? `• До наступного рівня: ${Number(xpProgress.currentXp) || 0} / ${Number(xpProgress.nextTargetXp) || 0} XP`
+      : `• Максимальний відкритий рівень: ${Number(xpProgress.currentXp) || 0} XP`,
     "",
     formatSectionHeader("🥾", "Підсумок По Походах"),
-    `• Пройдених походів: ${dashboard.hikesCount}`,
-    `• Активних походів: ${dashboard.activeTrips}`,
-    `• Архівних походів: ${dashboard.archivedTrips}`,
+    `• Пройдених походів: ${Number(dashboard.hikesCount) || 0}`,
+    `• Активних походів: ${Number(dashboard.activeTrips) || 0}`,
+    `• Архівних походів: ${Number(dashboard.archivedTrips) || 0}`,
     "",
     formatSectionHeader("📍", "Пройдений Обсяг"),
-    `• Кілометри: ${data.stats.totalKm.toFixed(1)} км`,
-    `• Набір висоти: ${Math.round(data.stats.totalAscent || 0)} м`,
-    `• Днів у походах: ${data.stats.totalDays}`,
-    `• Ночівель: ${data.stats.totalNights}`,
+    `• Кілометри: ${Number(stats.totalKm || 0).toFixed(1)} км`,
+    `• Набір висоти: ${Math.round(Number(stats.totalAscent) || 0)} м`,
+    `• Днів у походах: ${Number(stats.totalDays) || 0}`,
+    `• Ночівель: ${Number(stats.totalNights) || 0}`,
     "",
     formatSectionHeader("💸", "Витрати І Спорядження"),
-    `• Сумарні витрати: ${formatMoney(dashboard.totalCost)}`,
-    `• Позицій у моєму спорядженні: ${dashboard.personalGearCount}`,
-    `• Організованих походів: ${dashboard.organizedTrips}`,
+    `• Сумарні витрати: ${formatMoney(Number(dashboard.totalCost) || 0)}`,
+    `• Позицій у моєму спорядженні: ${Number(dashboard.personalGearCount) || 0}`,
+    `• Організованих походів: ${Number(dashboard.organizedTrips) || 0}`,
     "",
     formatSectionHeader("🧾", "Останні Нарахування XP"),
     ...historyLines,
@@ -11554,148 +11496,6 @@ async function handleExpenseAddFlow(ctx, flow, groupService, userService) {
   return null;
 }
 
-async function handleExpenseReceiptOcrFlow(ctx, flow, groupService, userService) {
-  const message = ctx.message.text.trim();
-
-  if (message === "❌ Скасувати") {
-    clearFlow(String(ctx.from.id));
-    return ctx.reply("OCR чека скасовано.", getTripExpensesMenuKeyboard(groupService, flow.tripId));
-  }
-
-  if (flow.step === "review") {
-    if (message === EXPENSE_OCR_RETRY_LABEL) {
-      flow.step = "upload";
-      flow.data = {};
-      setFlow(String(ctx.from.id), flow);
-      return ctx.reply(
-        "Надішли інше фото чека або документ-зображення.",
-        { ...FLOW_CANCEL_KEYBOARD }
-      );
-    }
-
-    if (message === EXPENSE_OCR_SAVE_LABEL) {
-      const total = Number(flow.data?.ocr?.total) || 0;
-      if (!total) {
-        return ctx.reply("Не бачу коректної суми для збереження. Надішли інший чек або додай витрату вручну.", getExpenseOcrReviewKeyboard());
-      }
-
-      const merchant = String(flow.data?.ocr?.merchant || "").trim() || "Чек";
-      const date = String(flow.data?.ocr?.date || "").trim();
-      const positions = Array.isArray(flow.data?.ocr?.positions) ? flow.data.ocr.positions : [];
-      const noteParts = [
-        date ? `Дата: ${date}` : null,
-        positions.length ? `Позиції: ${positions.slice(0, 5).map((item) => `${item.title} (${formatMoney(item.amount)})`).join("; ")}` : null,
-        "Джерело: OCR чека"
-      ].filter(Boolean);
-
-      groupService.addExpense({
-        groupId: flow.tripId,
-        memberId: String(ctx.from.id),
-        memberName: userService.getDisplayName(String(ctx.from.id), getUserLabel(ctx)),
-        expense: {
-          title: canonicalizeExpenseTitle(merchant),
-          quantity: 1,
-          price: total,
-          amount: total,
-          note: noteParts.join(" | ")
-        }
-      });
-
-      clearFlow(String(ctx.from.id));
-      return ctx.reply(
-        `✅ OCR-витрату "${canonicalizeExpenseTitle(merchant)}" додано на ${formatMoney(total)}.`,
-        getTripExpensesMenuKeyboard(groupService, flow.tripId)
-      );
-    }
-
-    return ctx.reply("Обери дію кнопкою нижче.", getExpenseOcrReviewKeyboard());
-  }
-
-  return ctx.reply(
-    "Надішли фото чека або документ-зображення.",
-    { ...FLOW_CANCEL_KEYBOARD }
-  );
-}
-
-async function handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService, receiptOcrService) {
-  const viewerId = String(ctx.from.id);
-  const trip = groupService.getGroup(flow.tripId);
-  if (!trip) {
-    clearFlow(viewerId);
-    return ctx.reply("Похід не знайдено.", getTripKeyboard(null, viewerId));
-  }
-
-  const document = ctx.message?.document || null;
-  const photo = Array.isArray(ctx.message?.photo) ? ctx.message.photo.at(-1) : null;
-  const fileId = photo?.file_id || document?.file_id || "";
-
-  if (!fileId) {
-    return ctx.reply("Надішли фото чека або документ-зображення.", { ...FLOW_CANCEL_KEYBOARD });
-  }
-
-  if (document?.mime_type && !document.mime_type.startsWith("image/")) {
-    return ctx.reply(
-      "Для OCR зараз підійде фото або image-файл. PDF поки не підтримується в цьому flow.",
-      { ...FLOW_CANCEL_KEYBOARD }
-    );
-  }
-
-  const fileLink = await ctx.telegram.getFileLink(fileId);
-  const extension = photo ? ".jpg" : path.extname(document?.file_name || "") || ".jpg";
-  const tempPath = path.join(os.tmpdir(), `receipt-ocr-${crypto.randomUUID()}${extension}`);
-
-  try {
-    const response = await fetch(String(fileLink));
-    if (!response.ok) {
-      throw new Error(`download failed: ${response.status}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    await fs.writeFile(tempPath, Buffer.from(arrayBuffer));
-
-    await ctx.reply("🧠 Розпізнаю чек, це може тривати до 30 секунд...");
-
-    const result = await receiptOcrService.recognizeReceipt(tempPath);
-    if (!result.total && !result.merchant) {
-      return ctx.reply(
-        "Не вдалося надійно розпізнати чек. Спробуй чіткіше фото або додай витрату вручну.",
-        getTripExpensesMenuKeyboard(groupService, flow.tripId)
-      );
-    }
-
-    flow.step = "review";
-    flow.data = {
-      ...flow.data,
-      ocr: result
-    };
-    setFlow(viewerId, flow);
-
-    return ctx.reply(
-      formatExpenseOcrSummary(result),
-      { parse_mode: "HTML", ...getExpenseOcrReviewKeyboard() }
-    );
-  } catch (error) {
-    const message = String(error?.message || "");
-    if (message === "ocr_timeout") {
-      return ctx.reply(
-        "OCR чека не встиг обробити зображення за відведений час. Спробуй чіткіше фото або додай витрату вручну. Якщо це повторюється, значить OCR на сервері зараз не тягне цей файл.",
-        getTripExpensesMenuKeyboard(groupService, flow.tripId)
-      );
-    }
-    if (/Cannot find package 'sharp'|Cannot find package 'tesseract\.js'|ERR_MODULE_NOT_FOUND|Could not load the \"sharp\" module/i.test(message)) {
-      return ctx.reply(
-        "OCR чека зараз недоступний на сервері. Сам бот має працювати далі, але цей режим тимчасово неактивний.",
-        getTripExpensesMenuKeyboard(groupService, flow.tripId)
-      );
-    }
-    return ctx.reply(
-      "Не вдалося розпізнати чек. Спробуй інше фото або додай витрату вручну.",
-      getTripExpensesMenuKeyboard(groupService, flow.tripId)
-    );
-  } finally {
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-  }
-}
-
 async function handleExpenseDeleteFlow(ctx, flow, groupService, userService) {
   const message = ctx.message.text.trim();
 
@@ -12739,7 +12539,7 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
   return null;
 }
 
-async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, receiptOcrService, telegram = null) {
+async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, telegram = null) {
   const flow = getFlow(String(ctx.from.id));
   if (!flow) {
     return false;
@@ -12851,11 +12651,6 @@ async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveServi
 
   if (flow.type === "expense_add") {
     await handleExpenseAddFlow(ctx, flow, groupService, userService);
-    return true;
-  }
-
-  if (flow.type === "expense_receipt_ocr") {
-    await handleExpenseReceiptOcrFlow(ctx, flow, groupService, userService, receiptOcrService);
     return true;
   }
 
@@ -13496,7 +13291,6 @@ function showTripExpensesMenu(ctx, groupService) {
   const hasItems = Boolean(groupService.getExpenseSnapshot(trip.id)?.items?.length);
   const actions = [
     "• `💸 Додати витрату` — ввести назву, кількість і ціну",
-    "• `🧠 OCR чека` — надіслати фото чека, щоб бот спробував витягнути суму, дату і магазин",
     hasItems ? "• `🗑 Видалити витрату` — прибрати зайву або помилкову позицію" : null,
     "• `🧾 Переглянути всі витрати` — повний облік витрат без непорозумінь",
     "• у загальному зведенні автоматично враховуються продукти з розділу харчування"
@@ -13612,6 +13406,12 @@ function showTripExpenses(ctx, groupService, userService) {
 }
 
 function formatMemberAwardsMessage(trip, userService, member, awardSummary) {
+  const safeSummary = awardSummary && typeof awardSummary === "object" ? awardSummary : {};
+  const newAwardsList = Array.isArray(safeSummary.newAwards) ? safeSummary.newAwards.filter((award) => award && typeof award === "object") : [];
+  const latestAwardsList = Array.isArray(safeSummary.latestAwards) ? safeSummary.latestAwards.filter((award) => award && typeof award === "object") : [];
+  const stats = safeSummary.stats && typeof safeSummary.stats === "object" ? safeSummary.stats : {};
+  const xpSummary = safeSummary.xp && typeof safeSummary.xp === "object" ? safeSummary.xp : {};
+  const xpProgress = xpSummary.progress && typeof xpSummary.progress === "object" ? xpSummary.progress : {};
   const routeName = trip.finalSummary?.routeName || formatRouteStatus(trip.routePlan) || trip.name;
   const hasTrackableRoute = Boolean(
     trip?.routePlan &&
@@ -13624,16 +13424,15 @@ function formatMemberAwardsMessage(trip, userService, member, awardSummary) {
       Number(trip.routePlan?.meta?.distance) > 0
     )
   );
-  const newAwards = awardSummary.newAwards.length
-    ? awardSummary.newAwards.map((award) => `• ${formatAwardName(award)}`).join("\n")
+  const newAwards = newAwardsList.length
+    ? newAwardsList.map((award) => `• ${formatAwardName(award)}`).join("\n")
     : hasTrackableRoute
       ? "• Цього разу нових відзнак не відкрито, але прогрес збережено."
       : "• Похід завершено без маршруту, тому прогрес і нагороди не були зараховані.";
-  const latestAwards = awardSummary.latestAwards.length
-    ? awardSummary.latestAwards.slice(0, 5).map((award) => `• ${formatAwardName(award)}`).join("\n")
+  const latestAwards = latestAwardsList.length
+    ? latestAwardsList.slice(0, 5).map((award) => `• ${formatAwardName(award)}`).join("\n")
     : "• Поки що немає нагород";
-  const xpSummary = awardSummary.xp;
-  const xpBonusLine = xpSummary?.awardBonusXp > 0 ? `• Бонус за нові нагороди: +${xpSummary.awardBonusXp} XP` : null;
+  const xpBonusLine = Number(xpSummary?.awardBonusXp) > 0 ? `• Бонус за нові нагороди: +${Number(xpSummary.awardBonusXp)} XP` : null;
 
   return joinRichLines([
     ...formatCardHeader("🎉 ВІТАЄМО І ДЯКУЄМО", userService.getDisplayName(member.id, member.name)),
@@ -13643,15 +13442,15 @@ function formatMemberAwardsMessage(trip, userService, member, awardSummary) {
     "",
     formatSectionHeader("⭐", "XP За Похід"),
     hasTrackableRoute
-      ? `• Ти отримав: +${xpSummary.gainedXp} XP`
+      ? `• Ти отримав: +${Number(xpSummary.gainedXp) || 0} XP`
       : "• XP не нараховано, бо похід завершено без маршруту.",
-    hasTrackableRoute && xpSummary.previousLevel !== xpSummary.level
-      ? `• Рівень: ${xpSummary.previousLevel} → ${xpSummary.level}`
-      : `• Рівень: ${xpSummary.level}`,
+    hasTrackableRoute && Number(xpSummary.previousLevel) !== Number(xpSummary.level)
+      ? `• Рівень: ${Number(xpSummary.previousLevel) || 1} → ${Number(xpSummary.level) || 1}`
+      : `• Рівень: ${Number(xpSummary.level) || 1}`,
     hasTrackableRoute
-      ? (xpSummary.progress.next
-        ? `• Прогрес: ${xpSummary.progress.currentXp} / ${xpSummary.progress.nextTargetXp} XP`
-        : `• Прогрес: ${xpSummary.progress.currentXp} XP`)
+      ? (xpProgress.next
+        ? `• Прогрес: ${Number(xpProgress.currentXp) || 0} / ${Number(xpProgress.nextTargetXp) || 0} XP`
+        : `• Прогрес: ${Number(xpProgress.currentXp) || 0} XP`)
       : null,
     xpBonusLine,
     "",
@@ -13659,12 +13458,12 @@ function formatMemberAwardsMessage(trip, userService, member, awardSummary) {
     newAwards,
     "",
     formatSectionHeader("📈", "Твій Прогрес"),
-    `• Походів: ${awardSummary.stats.hikesCount}`,
-    `• Кілометрів: ${awardSummary.stats.totalKm.toFixed(1)} км`,
-    `• Ночівель: ${awardSummary.stats.totalNights}`,
+    `• Походів: ${Number(stats.hikesCount) || 0}`,
+    `• Кілометрів: ${Number(stats.totalKm || 0).toFixed(1)} км`,
+    `• Ночівель: ${Number(stats.totalNights) || 0}`,
     "",
     formatSectionHeader("🎯", "Поточний Титул"),
-    `• ${awardSummary.currentTitle || "ще не відкрито"}`,
+    `• ${safeSummary.currentTitle || "ще не відкрито"}`,
     "",
     formatSectionHeader("🏅", "Останні Нагороди"),
     latestAwards,
@@ -14234,7 +14033,6 @@ export function createBot(store) {
   const groupService = new GroupService(store);
   const userService = new UserService(store);
   const weatherService = new WeatherService();
-  const receiptOcrService = new ReceiptOcrService();
   const vpohidLiveService = new VpohidLiveService();
   const routeService = new RouteService({
     openRouteServiceApiKey: config.openRouteServiceApiKey,
@@ -14906,7 +14704,6 @@ export function createBot(store) {
   bot.hears("⚖️ Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("🎒 Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("💸 Додати витрату", (ctx) => startExpenseAddWizard(ctx, groupService));
-  bot.hears(EXPENSE_OCR_LABEL, (ctx) => startExpenseReceiptOcrWizard(ctx, groupService));
   bot.hears("🗑 Видалити витрату", (ctx) => startExpenseDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути всі витрати", (ctx) => showTripExpenses(ctx, groupService, userService));
   bot.hears("⬅️ До походу", (ctx) => showTripMenu(ctx, groupService));
@@ -15068,10 +14865,6 @@ export function createBot(store) {
       return ctx.reply("<b>❌ Дію скасовано</b>", { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, activeFlow.tripId) });
     }
 
-    if (activeFlow?.type === "expense_receipt_ocr") {
-      return handleExpenseReceiptOcrFlow(ctx, activeFlow, groupService, userService, receiptOcrService);
-    }
-
     if (menuContext === "trip-route-catalog") {
       return showRouteMenu(ctx, groupService, advisorService);
     }
@@ -15107,7 +14900,7 @@ export function createBot(store) {
   });
 
   bot.on("text", async (ctx) => {
-    const flowHandled = await handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, receiptOcrService, bot.telegram);
+    const flowHandled = await handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, bot.telegram);
     if (flowHandled) {
       return;
     }
@@ -15122,10 +14915,6 @@ export function createBot(store) {
 
   bot.on("photo", async (ctx) => {
     const flow = getFlow(String(ctx.from.id));
-    if (flow?.type === "expense_receipt_ocr" && flow.step === "upload") {
-      await handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService, receiptOcrService);
-      return;
-    }
     if (flow?.type === "trip_member_ticket_manage" && flow.step === "upload") {
       await handleTripMemberTicketMedia(ctx, flow, groupService, userService);
       return;
@@ -15137,10 +14926,6 @@ export function createBot(store) {
 
   bot.on("document", async (ctx) => {
     const flow = getFlow(String(ctx.from.id));
-    if (flow?.type === "expense_receipt_ocr" && flow.step === "upload") {
-      await handleExpenseReceiptOcrMedia(ctx, flow, groupService, userService, receiptOcrService);
-      return;
-    }
     if (flow?.type === "trip_member_ticket_manage" && flow.step === "upload") {
       await handleTripMemberTicketMedia(ctx, flow, groupService, userService);
     }

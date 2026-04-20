@@ -8245,6 +8245,14 @@ const PROFILE_EDIT_FIELDS = [
   {
     key: "city",
     prompt: "Вкажи місто проживання."
+  },
+  {
+    key: "passportNumber",
+    prompt: "Вкажи серію та номер паспорта або ID-документа.\nПриклад: МК123456 або ID 012345678"
+  },
+  {
+    key: "passportIssuedBy",
+    prompt: "Вкажи, ким і коли виданий документ.\nПриклад: Шевченківським РВ УМВС 12.06.2014"
   }
 ];
 
@@ -8264,11 +8272,13 @@ function validateProfileEditValue(fieldKey, message) {
     case "gender":
     case "emergencyContactRelation":
     case "experienceLevel":
+    case "passportNumber":
       return validateShortProfileText(message);
     case "allergies":
     case "medications":
     case "healthNotes":
     case "emergencyContactName":
+    case "passportIssuedBy":
       return validateLongProfileText(message);
     default:
       return { ok: true, value: String(message || "").trim() };
@@ -8608,6 +8618,10 @@ function formatProfileAbout(userService, userId, userName) {
     `Екстрений контакт: ${profile.emergencyContactName || "не вказано"}`,
     `Телефон контакту: ${formatPhoneForDisplay(profile.emergencyContactPhone) || "не вказано"}`,
     `Хто це: ${profile.emergencyContactRelation || "не вказано"}`,
+    "",
+    formatSectionHeader("🪪", "Документ"),
+    `Серія та номер: ${profile.passportNumber || "не вказано"}`,
+    `Ким і коли виданий: ${profile.passportIssuedBy || "не вказано"}`,
     "",
     formatSectionHeader("⛰", "Досвід"),
     `Рівень досвіду: ${profile.experienceLevel || "не вказано"}`,

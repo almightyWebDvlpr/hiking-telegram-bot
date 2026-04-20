@@ -8326,9 +8326,32 @@ function validateProfileEditValue(fieldKey, message) {
 }
 
 function buildProfileEditPrompt(fieldConfig, notice = "• можна пропустити будь-яке поле і повернутися до нього пізніше") {
+  return buildProfileEditPromptWithValue(fieldConfig, "", notice);
+}
+
+function formatProfileEditCurrentValue(fieldKey = "", value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  if (fieldKey === "phone" || fieldKey === "emergencyContactPhone" || fieldKey === "backupEmergencyContactPhone") {
+    return formatPhoneForDisplay(raw) || raw;
+  }
+
+  if (fieldKey === "backupEmergencyContactEnabled") {
+    return raw === "yes" ? "додати резервний контакт" : raw === "no" ? "не додавати резервний контакт" : raw;
+  }
+
+  return raw;
+}
+
+function buildProfileEditPromptWithValue(fieldConfig, currentValue = "", notice = "• можна пропустити будь-яке поле і повернутися до нього пізніше") {
+  const formattedCurrentValue = formatProfileEditCurrentValue(fieldConfig?.key, currentValue);
   return joinRichLines([
     ...formatCardHeader("✏️ РЕДАГУВАННЯ ПРОФІЛЮ", "Анкета користувача"),
     "",
+    formattedCurrentValue ? `Поточне значення: ${formattedCurrentValue}` : null,
     fieldConfig.prompt,
     "",
     "⚠️ Зверни увагу:",
@@ -8339,7 +8362,7 @@ function buildProfileEditPrompt(fieldConfig, notice = "• можна пропу
 function replyProfileEditStepPrompt(ctx, flow, notice) {
   const fieldConfig = PROFILE_EDIT_FIELDS.find((item) => item.key === flow.step) || PROFILE_EDIT_FIELDS[0];
   return ctx.reply(
-    buildProfileEditPrompt(fieldConfig, notice),
+    buildProfileEditPromptWithValue(fieldConfig, flow?.data?.[fieldConfig.key], notice),
     { parse_mode: "HTML", ...getProfileEditKeyboard(flow.step) }
   );
 }
@@ -12050,7 +12073,7 @@ async function handleProfileEditFlow(ctx, flow, userService) {
     const validation = validateProfileEditValue(fieldConfig.key, message);
     if (!validation.ok) {
       return ctx.reply(
-        `${validation.error}\n\n${buildProfileEditPrompt(fieldConfig, "• можна пропустити будь-яке поле і повернутися до нього пізніше")}`,
+        `${validation.error}\n\n${buildProfileEditPromptWithValue(fieldConfig, flow?.data?.[fieldConfig.key], "• можна пропустити будь-яке поле і повернутися до нього пізніше")}`,
         { parse_mode: "HTML", ...getProfileEditKeyboard(flow.step) }
       );
     }

@@ -2111,9 +2111,14 @@ function getTripPhotosKeyboard() {
 
 function getTripSafetyKeyboard() {
   return buildKeyboard([
-    [TRIP_SOS_LABEL],
     [TRIP_BORDER_LETTER_LABEL, TRIP_RESCUE_LETTER_LABEL],
     ["⬅️ До походу"]
+  ]);
+}
+
+function getTripSafetyInlineKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(TRIP_SOS_LABEL, "trip_sos_package")]
   ]);
 }
 
@@ -4766,7 +4771,7 @@ async function handleTripHubFlow(ctx, flow, groupService, userService) {
   );
 }
 
-function showTripSafety(ctx, groupService) {
+async function showTripSafety(ctx, groupService) {
   setMenuContext(ctx.from?.id, "trip-safety");
   const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
   if (!trip) {
@@ -4777,10 +4782,15 @@ function showTripSafety(ctx, groupService) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
-  return replyRichText(ctx, formatSafetySection(trip), {
+  await replyRichText(ctx, formatSafetySection(trip), {
     parse_mode: "HTML",
-    ...getTripSafetyKeyboard()
+    ...getTripSafetyInlineKeyboard()
   });
+
+  return ctx.reply(
+    "Додаткові дії в меню нижче.",
+    getTripSafetyKeyboard()
+  );
 }
 
 function showTripSettings(ctx, groupService) {

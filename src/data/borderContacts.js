@@ -7,6 +7,7 @@ const BORDER_AUTHORITIES = [
     commanderRank: "полковнику",
     commanderName: "Ринькову Костянтину Ігоровичу",
     detachmentName: "Мукачівського прикордонного загону",
+    zoneLabel: "Закарпатської області",
     address: "вул. Недецеї, 45, м. Мукачеве, Закарпатська обл., 89600",
     email: "mukachevo_zagin@dpsu.gov.ua",
     phones: ["+38 (03131) 2-12-61"],
@@ -42,6 +43,7 @@ const BORDER_AUTHORITIES = [
     commanderRank: "полковнику",
     commanderName: "Бабичу Євгенію Юрійовичу",
     detachmentName: "31 прикордонного загону імені генерал-хорунжого Олександра Пилькевича",
+    zoneLabel: "Чернівецької та Івано-Франківської областей",
     address: "вул. Герцена, 2А, м. Чернівці, 58022",
     email: "chernivci_zagin@dpsu.gov.ua",
     phones: ["+38 (0372) 59-19-00"],
@@ -122,4 +124,3 @@ export function resolveBorderAuthorityForTrip(trip) {
 export function isLikelyBorderAreaTrip(trip) {
   return Boolean(resolveBorderAuthorityForTrip(trip));
 }
-

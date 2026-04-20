@@ -5035,7 +5035,7 @@ async function showTripBorderLetterDraft(ctx, groupService, userService) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
-  const draft = buildBorderGuardLetter(trip, userService);
+  const draft = await buildBorderGuardLetter(trip, userService);
   if (!draft) {
     return replyRichText(
       ctx,
@@ -5087,7 +5087,7 @@ async function showTripRescueLetterDraft(ctx, groupService, userService) {
     return replyRestrictedTripSection(ctx, trip);
   }
 
-  const draft = buildRescueLetter(trip, userService);
+  const draft = await buildRescueLetter(trip, userService);
 
   await ctx.replyWithDocument(
     {

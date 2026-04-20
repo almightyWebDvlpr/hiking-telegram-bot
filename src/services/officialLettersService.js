@@ -1,60 +1,26 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveSafetyProfile } from "../data/safetyContacts.js";
 import { resolveBorderAuthorityForTrip } from "../data/borderContacts.js";
 import { formatPhoneForDisplay } from "../utils/phone.js";
+import { createStoredZip } from "../utils/zip.js";
 
-function escapeRtf(value = "") {
-  return String(value || "")
-    .replace(/\\/g, "\\\\")
-    .replace(/{/g, "\\{")
-    .replace(/}/g, "\\}")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/\n/g, "\\par\n")
-    .replace(/[^\x00-\x7F]/g, (character) => {
-      const codePoint = character.charCodeAt(0);
-      const signedValue = codePoint > 32767 ? codePoint - 65536 : codePoint;
-      return `\\u${signedValue}?`;
-    });
-}
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const BORDER_TEMPLATE_ROOT = path.resolve(__dirname, "../../assets/templates/kordon_zajava");
+const DOCX_STATIC_FILES = [
+  "[Content_Types].xml",
+  "_rels/.rels",
+  "word/_rels/document.xml.rels",
+  "word/fontTable.xml",
+  "word/numbering.xml",
+  "word/settings.xml",
+  "word/styles.xml",
+  "word/theme/theme1.xml"
+];
 
-function buildRtfDocument(title, sections = []) {
-  const body = [
-    "{\\rtf1\\ansi\\deff0",
-    "{\\fonttbl{\\f0 Arial;}}",
-    "\\viewkind4\\uc1\\pard\\sa180\\sl276\\slmult1\\f0\\fs24",
-    `\\b ${escapeRtf(title)}\\b0\\par`,
-    "\\par"
-  ];
-
-  for (const section of sections) {
-    if (!section) {
-      continue;
-    }
-
-    if (section.type === "heading") {
-      body.push(`\\b ${escapeRtf(section.text)}\\b0\\par`);
-      continue;
-    }
-
-    if (section.type === "paragraph") {
-      body.push(`${escapeRtf(section.text)}\\par`);
-      continue;
-    }
-
-    if (section.type === "bullet") {
-      body.push(`\\tab - ${escapeRtf(section.text)}\\par`);
-      continue;
-    }
-
-    if (section.type === "blank") {
-      body.push("\\par");
-    }
-  }
-
-  body.push("}");
-  return Buffer.from(body.join("\n"), "utf8");
-}
+let borderTemplateCache = null;
 
 function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -62,6 +28,39 @@ function normalizeText(value) {
 
 function safeDate(value) {
   return normalizeText(value) || "не вказано";
+}
+
+function escapeXml(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function slugifyFileName(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яіїєґ]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || crypto.randomUUID();
+}
+
+async function loadBorderTemplateFiles() {
+  if (borderTemplateCache) {
+    return borderTemplateCache;
+  }
+
+  const loadedEntries = await Promise.all(
+    DOCX_STATIC_FILES.map(async (fileName) => ({
+      name: fileName,
+      data: await fs.readFile(path.join(BORDER_TEMPLATE_ROOT, fileName))
+    }))
+  );
+
+  borderTemplateCache = loadedEntries;
+  return borderTemplateCache;
 }
 
 function buildRouteLine(trip) {
@@ -103,10 +102,6 @@ function getProfileData(userService, member) {
   return profileSnapshot?.profile || {};
 }
 
-function getDisplayName(userService, member) {
-  return userService.getDisplayName(String(member.id), member.name || "Учасник");
-}
-
 function getRelevantMembers(trip = {}) {
   const members = Array.isArray(trip.members) ? trip.members : [];
   const filtered = members.filter((member) => String(member?.attendanceStatus || "") !== "not_going");
@@ -120,9 +115,9 @@ function buildParticipantRows(trip, userService) {
     const phone = formatPhoneForDisplay(profile.phone) || normalizeText(profile.phone) || "не вказано";
     const city = normalizeText(profile.city);
     const birthDate = safeDate(profile.birthDate);
-    const passportNumber = normalizeText(profile.passportNumber || "");
-    const passportIssuedBy = normalizeText(profile.passportIssuedBy || "");
-    const residenceAddress = normalizeText(profile.residenceAddress || city || "");
+    const passportNumber = normalizeText(profile.passportNumber);
+    const passportIssuedBy = normalizeText(profile.passportIssuedBy);
+    const residenceAddress = normalizeText(profile.residenceAddress || city);
 
     return {
       index: index + 1,
@@ -138,6 +133,11 @@ function buildParticipantRows(trip, userService) {
         !fullName ? "ПІБ" : "",
         birthDate === "не вказано" ? "дата народження" : "",
         phone === "не вказано" ? "телефон" : ""
+      ].filter(Boolean),
+      missingBorder: [
+        !passportNumber ? "серія та номер документа" : "",
+        !passportIssuedBy ? "ким і коли виданий документ" : "",
+        !residenceAddress ? "адреса проживання" : ""
       ].filter(Boolean)
     };
   });
@@ -172,15 +172,21 @@ function buildLeaderData(trip, userService) {
   };
 }
 
-function buildMissingDataSummary(participants = []) {
+function buildMissingDataSummary(participants = [], options = {}) {
   const rows = [];
+  const includeBorderFields = Boolean(options.includeBorderFields);
 
   for (const participant of participants) {
-    if (!participant.missingCore.length) {
+    const issues = [
+      ...participant.missingCore,
+      ...(includeBorderFields ? participant.missingBorder : [])
+    ];
+
+    if (!issues.length) {
       continue;
     }
 
-    rows.push(`${participant.fullName}: ${participant.missingCore.join(", ")}`);
+    rows.push(`${participant.fullName}: ${issues.join(", ")}`);
   }
 
   return rows;
@@ -192,15 +198,180 @@ function formatDateRange(trip) {
   return `${startDate} -> ${endDate}`;
 }
 
-function slugifyFileName(value = "") {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9а-яіїєґ]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || crypto.randomUUID();
+function xmlRun(text = "", options = {}) {
+  const escapedText = escapeXml(text);
+  const colorXml = options.color ? `<w:color w:val="${escapeXml(options.color)}"/>` : "";
+  const underlineXml = options.underline ? "<w:u w:val=\"single\"/>" : "";
+  const italicXml = options.italic ? "<w:i w:val=\"1\"/>" : "";
+
+  return `<w:r><w:rPr>${italicXml}${colorXml}${underlineXml}<w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">${escapedText}</w:t></w:r>`;
 }
 
-export function buildBorderGuardLetter(trip, userService) {
+function xmlParagraph(runs = "", options = {}) {
+  const alignment = options.align ? `<w:jc w:val="${options.align}"/>` : "";
+  const italicXml = options.italic ? "<w:i w:val=\"1\"/>" : "";
+  const colorXml = options.color ? `<w:color w:val="${escapeXml(options.color)}"/>` : "";
+
+  return `<w:p><w:pPr>${alignment}<w:rPr>${italicXml}${colorXml}</w:rPr></w:pPr>${runs}</w:p>`;
+}
+
+function xmlTextParagraph(text = "", options = {}) {
+  return xmlParagraph(xmlRun(text, options), options);
+}
+
+function xmlCell(text = "") {
+  return `<w:tc><w:tcPr><w:shd w:fill="auto" w:val="clear"/><w:tcMar><w:top w:w="100.0" w:type="dxa"/><w:left w:w="100.0" w:type="dxa"/><w:bottom w:w="100.0" w:type="dxa"/><w:right w:w="100.0" w:type="dxa"/></w:tcMar><w:vAlign w:val="top"/></w:tcPr><w:p><w:pPr><w:keepNext w:val="0"/><w:keepLines w:val="0"/><w:widowControl w:val="0"/><w:pBdr><w:top w:space="0" w:sz="0" w:val="nil"/><w:left w:space="0" w:sz="0" w:val="nil"/><w:bottom w:space="0" w:sz="0" w:val="nil"/><w:right w:space="0" w:sz="0" w:val="nil"/><w:between w:space="0" w:sz="0" w:val="nil"/></w:pBdr><w:shd w:fill="auto" w:val="clear"/><w:spacing w:after="0" w:before="0" w:line="240" w:lineRule="auto"/><w:ind w:left="0" w:right="0" w:firstLine="0"/><w:jc w:val="left"/><w:rPr/></w:pPr>${text ? xmlRun(text) : "<w:r><w:rPr><w:rtl w:val=\"0\"/></w:rPr></w:r>"}</w:p></w:tc>`;
+}
+
+function xmlTable(rows = []) {
+  return `<w:tbl><w:tblPr><w:tblStyle w:val="Table1"/><w:tblW w:w="9029.0" w:type="dxa"/><w:jc w:val="left"/><w:tblInd w:w="100.0" w:type="pct"/><w:tblBorders><w:top w:color="000000" w:space="0" w:sz="8" w:val="single"/><w:left w:color="000000" w:space="0" w:sz="8" w:val="single"/><w:bottom w:color="000000" w:space="0" w:sz="8" w:val="single"/><w:right w:color="000000" w:space="0" w:sz="8" w:val="single"/><w:insideH w:color="000000" w:space="0" w:sz="8" w:val="single"/><w:insideV w:color="000000" w:space="0" w:sz="8" w:val="single"/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblLook w:val="0600"/></w:tblPr><w:tblGrid><w:gridCol w:w="1829"/><w:gridCol w:w="1425"/><w:gridCol w:w="1515"/><w:gridCol w:w="2175"/><w:gridCol w:w="2085"/></w:tblGrid>${rows.join("")}</w:tbl>`;
+}
+
+function xmlTableRow(cells = []) {
+  return `<w:tr>${cells.join("")}</w:tr>`;
+}
+
+function buildBorderDocXml(trip, authority, leader, participants) {
+  const meetingLine = buildMeetingLine(trip);
+  const routeLine = buildRouteLine(trip);
+  const dateRange = formatDateRange(trip);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const rightAlignedHeader = [
+    xmlTextParagraph(`Начальнику ${authority.detachmentName}`, { align: "right" }),
+    xmlParagraph(
+      `${xmlRun(`${authority.commanderRank} ${authority.commanderName}`, { italic: true, color: "666666" })}`,
+      { align: "right", italic: true }
+    ),
+    xmlTextParagraph("керівника туристичної групи", { align: "right" }),
+    xmlTextParagraph(leader.fullName, { align: "right", italic: true, color: "666666" }),
+    xmlParagraph(
+      `${xmlRun("паспорт ", {})}${xmlRun(leader.passportNumber, { italic: true, color: "666666" })}`,
+      { align: "right" }
+    ),
+    xmlTextParagraph(leader.passportIssuedBy, { align: "right", italic: true, color: "666666" }),
+    xmlParagraph(
+      `${xmlRun("проживає ", {})}${xmlRun(leader.residenceAddress, { italic: true, color: "666666" })}`,
+      { align: "right" }
+    ),
+    xmlTextParagraph(`телефон ${leader.phone}`, { align: "right" }),
+    xmlTextParagraph("", {})
+  ];
+
+  const introParagraphs = [
+    xmlTextParagraph(
+      `Прошу надати дозволу на знаходження групи туристів в прикордонній зоні ${authority.zoneLabel || authority.region} з ${safeDate(trip?.tripCard?.startDate)} по ${safeDate(trip?.tripCard?.endDate)}, яка проходитиме туристичний маршрут: ${routeLine}`
+    ),
+    meetingLine ? xmlTextParagraph(`Точка збору / старт: ${meetingLine}`) : "",
+    xmlTextParagraph("Склад групи:")
+  ].filter(Boolean);
+
+  const tableHeader = xmlTableRow([
+    xmlCell("ПІБ"),
+    xmlCell("Дата народження"),
+    xmlCell("Серія, номер паспорта"),
+    xmlCell("Ким і коли виданий"),
+    xmlCell("Адреса, телефон")
+  ]);
+
+  const tableRows = participants.map((participant) =>
+    xmlTableRow([
+      xmlCell(participant.fullName),
+      xmlCell(participant.birthDate),
+      xmlCell(participant.passportNumber),
+      xmlCell(participant.passportIssuedBy),
+      xmlCell(`${participant.residenceAddress}; ${participant.phone}`)
+    ])
+  );
+
+  const footer = [
+    xmlTextParagraph(""),
+    xmlParagraph(
+      `${xmlRun(today, { italic: true, color: "666666" })}${xmlRun("                                                                 ", {})}${xmlRun(leader.fullName, { italic: true, color: "666666" })}`
+    )
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:sl="http://schemas.openxmlformats.org/schemaLibrary/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:lc="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">
+<w:body>
+${rightAlignedHeader.join("")}
+${introParagraphs.join("")}
+${xmlTable([tableHeader, ...tableRows])}
+${footer.join("")}
+<w:sectPr><w:pgSz w:h="16834" w:w="11909" w:orient="portrait"/><w:pgMar w:bottom="1440" w:top="1440" w:left="1440" w:right="1440" w:header="720" w:footer="720"/><w:pgNumType w:start="1"/></w:sectPr>
+</w:body></w:document>`;
+}
+
+function buildRescueDocXml(trip, safety, leader, participants) {
+  const routeLine = buildRouteLine(trip);
+  const dateRange = formatDateRange(trip);
+  const meetingLine = buildMeetingLine(trip);
+  const rescuers = (safety.contacts || []).map((item) => `${item.label}: ${item.phones.join(" / ")}`);
+
+  const paragraphs = [
+    xmlTextParagraph(`Гірським пошуково-рятувальним підрозділам регіону ${safety.title}`, { align: "right" }),
+    xmlTextParagraph(`Керівник групи: ${leader.fullName}`, { align: "right" }),
+    xmlTextParagraph(`Телефон: ${leader.phone}`, { align: "right" }),
+    xmlTextParagraph(""),
+    xmlTextParagraph("ПОВІДОМЛЕННЯ ПРО ПЛАНОВАНИЙ ПОХІД"),
+    xmlTextParagraph(`Повідомляємо про планований похід у період ${dateRange}.`),
+    xmlTextParagraph(`Маршрут: ${routeLine}.`),
+    xmlTextParagraph(`Регіон: ${trip?.region || safety.title}.`),
+    meetingLine ? xmlTextParagraph(`Точка збору / старт: ${meetingLine}.`) : "",
+    xmlTextParagraph(`Кількість учасників: ${participants.length}.`),
+    xmlTextParagraph(""),
+    xmlTextParagraph("Склад групи:")
+  ].filter(Boolean);
+
+  const tableHeader = xmlTableRow([
+    xmlCell("ПІБ"),
+    xmlCell("Дата народження"),
+    xmlCell("Телефон"),
+    xmlCell("Місто"),
+    xmlCell("Додатково")
+  ]);
+
+  const tableRows = participants.map((participant) =>
+    xmlTableRow([
+      xmlCell(participant.fullName),
+      xmlCell(participant.birthDate),
+      xmlCell(participant.phone),
+      xmlCell(participant.city || "не вказано"),
+      xmlCell("Контакт через керівника групи")
+    ])
+  );
+
+  const footerParagraphs = [
+    xmlTextParagraph(""),
+    xmlTextParagraph("Контакти рятувальників у регіоні:"),
+    ...(rescuers.length ? rescuers.map((item) => xmlTextParagraph(`• ${item}`)) : [xmlTextParagraph("• Використовуй 101 або 112, якщо локальний підрозділ не визначено автоматично.")]),
+    xmlTextParagraph(""),
+    xmlTextParagraph("Дата формування: ____________________"),
+    xmlTextParagraph(`Підпис керівника групи: ${leader.fullName}`)
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:sl="http://schemas.openxmlformats.org/schemaLibrary/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:lc="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">
+<w:body>
+${paragraphs.join("")}
+${xmlTable([tableHeader, ...tableRows])}
+${footerParagraphs.join("")}
+<w:sectPr><w:pgSz w:h="16834" w:w="11909" w:orient="portrait"/><w:pgMar w:bottom="1440" w:top="1440" w:left="1440" w:right="1440" w:header="720" w:footer="720"/><w:pgNumType w:start="1"/></w:sectPr>
+</w:body></w:document>`;
+}
+
+async function buildDocxBuffer(documentXml) {
+  const staticFiles = await loadBorderTemplateFiles();
+  return createStoredZip([
+    ...staticFiles,
+    {
+      name: "word/document.xml",
+      data: Buffer.from(documentXml, "utf8")
+    }
+  ]);
+}
+
+export async function buildBorderGuardLetter(trip, userService) {
   const authority = resolveBorderAuthorityForTrip(trip);
   if (!authority) {
     return null;
@@ -208,108 +379,32 @@ export function buildBorderGuardLetter(trip, userService) {
 
   const leader = buildLeaderData(trip, userService);
   const participants = buildParticipantRows(trip, userService);
-  const missingSummary = buildMissingDataSummary(participants);
-  const routeLine = buildRouteLine(trip);
-  const dateRange = formatDateRange(trip);
-  const meetingLine = buildMeetingLine(trip);
-
-  const sections = [
-    { type: "paragraph", text: `Начальнику ${authority.detachmentName}` },
-    { type: "paragraph", text: `${authority.commanderRank} ${authority.commanderName}` },
-    { type: "paragraph", text: `${authority.address}` },
-    { type: "blank" },
-    { type: "paragraph", text: `Від керівника туристичної групи: ${leader.fullName}` },
-    { type: "paragraph", text: `Телефон: ${leader.phone}` },
-    { type: "paragraph", text: `Місце проживання: ${leader.residenceAddress}` },
-    { type: "paragraph", text: `Паспорт / документ: ${leader.passportNumber}` },
-    { type: "paragraph", text: `Ким і коли виданий: ${leader.passportIssuedBy}` },
-    { type: "blank" },
-    { type: "heading", text: "ЗАЯВА" },
-    { type: "paragraph", text: `Прошу врахувати перебування туристичної групи у прикордонному районі в період ${dateRange}.` },
-    { type: "paragraph", text: `Плановий маршрут: ${routeLine}.` },
-    meetingLine ? { type: "paragraph", text: `Точка / час збору: ${meetingLine}.` } : null,
-    { type: "paragraph", text: `Орієнтовний район проходження: ${authority.areaLabel}.` },
-    { type: "paragraph", text: "Просимо повідомити про можливі обмеження режиму, додаткові вимоги до перепусток або документів, якщо вони потрібні для проходження маршруту." },
-    { type: "blank" },
-    { type: "heading", text: "Склад групи" },
-    ...participants.flatMap((participant) => ([
-      {
-        type: "paragraph",
-        text: `${participant.index}. ${participant.fullName}, ${participant.birthDate}, документ: ${participant.passportNumber}, виданий: ${participant.passportIssuedBy}, адреса: ${participant.residenceAddress}, телефон: ${participant.phone}`
-      }
-    ])),
-    { type: "blank" },
-    { type: "paragraph", text: `Контакт для уточнень: ${leader.fullName}, ${leader.phone}.` },
-    { type: "paragraph", text: "Дата формування чернетки: ____________________" },
-    { type: "paragraph", text: "Підпис керівника групи: ____________________" },
-    { type: "blank" },
-    { type: "heading", text: "Примітка" },
-    { type: "paragraph", text: "Це чернетка, згенерована ботом. Паспортні реквізити та повні адреси проживання, якщо їх немає в профілях, потрібно доповнити вручну перед надсиланням." },
-    { type: "paragraph", text: "Під час воєнного стану правила доступу до прикордонної смуги можуть змінюватися. Перед поданням листа обов'язково перевір актуальний режим у підрозділу." },
-    { type: "paragraph", text: `Контакти підрозділу: ${authority.email}; ${authority.phones.join(" / ")}.` },
-    { type: "paragraph", text: `${authority.checkpointLabel}: ${authority.checkpointPhones.join(" / ")}.` },
-    { type: "paragraph", text: authority.checkpointNote }
-  ].filter(Boolean);
+  const missingSummary = buildMissingDataSummary(participants, { includeBorderFields: true });
+  const documentXml = buildBorderDocXml(trip, authority, leader, participants);
 
   return {
     authority,
     participants,
     missingSummary,
     caption: `🛂 Чернетка листа для ${authority.label}`,
-    fileName: `${slugifyFileName(trip?.name || "trip")}-prikordonnyky.rtf`,
-    buffer: buildRtfDocument(`Лист до ${authority.label}`, sections)
+    fileName: `${slugifyFileName(trip?.name || "trip")}-prikordonnyky.docx`,
+    buffer: await buildDocxBuffer(documentXml)
   };
 }
 
-export function buildRescueLetter(trip, userService) {
+export async function buildRescueLetter(trip, userService) {
   const safety = resolveSafetyProfile(trip);
   const leader = buildLeaderData(trip, userService);
   const participants = buildParticipantRows(trip, userService);
-  const routeLine = buildRouteLine(trip);
-  const dateRange = formatDateRange(trip);
-  const meetingLine = buildMeetingLine(trip);
   const missingSummary = buildMissingDataSummary(participants);
-  const localContacts = (safety.contacts || []).map((item) => `${item.label}: ${item.phones.join(" / ")}`);
-
-  const sections = [
-    { type: "paragraph", text: `До гірського пошуково-рятувального підрозділу регіону ${safety.title}` },
-    { type: "blank" },
-    { type: "heading", text: "ПОВІДОМЛЕННЯ ПРО МАРШРУТ ГРУПИ" },
-    { type: "paragraph", text: `Керівник групи: ${leader.fullName}` },
-    { type: "paragraph", text: `Контактний телефон: ${leader.phone}` },
-    { type: "paragraph", text: `Місто / адреса: ${leader.residenceAddress}` },
-    { type: "blank" },
-    { type: "paragraph", text: `Повідомляємо про планований похід у період ${dateRange}.` },
-    { type: "paragraph", text: `Район походу: ${trip?.region || safety.title}.` },
-    { type: "paragraph", text: `Маршрут: ${routeLine}.` },
-    meetingLine ? { type: "paragraph", text: `Старт / точка збору: ${meetingLine}.` } : null,
-    { type: "paragraph", text: `Кількість учасників: ${participants.length}.` },
-    { type: "blank" },
-    { type: "heading", text: "Склад групи" },
-    ...participants.map((participant) => ({
-      type: "paragraph",
-      text: `${participant.index}. ${participant.fullName}, дата народження: ${participant.birthDate}, телефон: ${participant.phone}, місто: ${participant.city || "не вказано"}`
-    })),
-    { type: "blank" },
-    { type: "heading", text: "Контакти рятувальників у регіоні" },
-    ...(localContacts.length
-      ? localContacts.map((item) => ({ type: "bullet", text: item }))
-      : [{ type: "bullet", text: "Локальний контакт не визначено автоматично, у разі потреби телефонуй 101 або 112." }]),
-    { type: "blank" },
-    { type: "paragraph", text: "Просимо врахувати маршрут групи та, за можливості, повідомити про актуальні обмеження, погодні або безпекові ризики на заявленому напрямку." },
-    { type: "paragraph", text: "Дата формування чернетки: ____________________" },
-    { type: "paragraph", text: "Підпис керівника групи: ____________________" },
-    { type: "blank" },
-    { type: "heading", text: "Примітка" },
-    { type: "paragraph", text: "Це інформаційна чернетка повідомлення, згенерована ботом. За потреби доповни її спорядженням, контрольними строками виходу на зв'язок та резервним планом сходу з маршруту." }
-  ].filter(Boolean);
+  const documentXml = buildRescueDocXml(trip, safety, leader, participants);
 
   return {
     safety,
     participants,
     missingSummary,
     caption: `🚑 Чернетка повідомлення для рятувальників регіону ${safety.title}`,
-    fileName: `${slugifyFileName(trip?.name || "trip")}-riatuvalnyky.rtf`,
-    buffer: buildRtfDocument(`Повідомлення для рятувальників — ${trip?.name || "Похід"}`, sections)
+    fileName: `${slugifyFileName(trip?.name || "trip")}-riatuvalnyky.docx`,
+    buffer: await buildDocxBuffer(documentXml)
   };
 }

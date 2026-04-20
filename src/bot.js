@@ -5750,7 +5750,19 @@ async function handleTripMemberTicketMedia(ctx, flow, groupService, userService)
     return ctx.reply(result.message, getTripMemberTicketUploadKeyboard());
   }
 
-  const refreshedTrip = result.group;
+  try {
+    if (typeof groupService.store?.flush === "function") {
+      await groupService.store.flush();
+    }
+  } catch {
+    clearFlow(viewerId);
+    return ctx.reply(
+      "Не вдалося надійно зберегти квиток у базі даних. Спробуй надіслати файл ще раз.",
+      getTripMemberDetailsKeyboard(trip, viewerId, member.id)
+    );
+  }
+
+  const refreshedTrip = groupService.getGroup(trip.id) || result.group;
   const refreshedMember = refreshedTrip.members.find((item) => String(item.id) === String(member.id)) || member;
   if (String(flow.data?.returnContext || "") === "member_detail") {
     clearFlow(viewerId);

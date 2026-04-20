@@ -22,6 +22,7 @@ export class MongoStore {
     this.collection = null;
     this.cache = normalizeData({});
     this.writeChain = Promise.resolve();
+    this.lastWriteError = null;
   }
 
   async init() {
@@ -61,14 +62,24 @@ export class MongoStore {
     const payload = { _id: "main", ...this.cache, updatedAt: new Date().toISOString() };
 
     this.writeChain = this.writeChain
-      .then(() => this.collection.replaceOne({ _id: "main" }, payload, { upsert: true }))
-      .catch((error) => {
-        console.error("Failed to persist data to MongoDB:", error.message);
+      .catch(() => null)
+      .then(async () => {
+        try {
+          await this.collection.replaceOne({ _id: "main" }, payload, { upsert: true });
+          this.lastWriteError = null;
+        } catch (error) {
+          this.lastWriteError = error;
+          console.error("Failed to persist data to MongoDB:", error.message);
+          throw error;
+        }
       });
   }
 
   async flush() {
     await this.writeChain;
+    if (this.lastWriteError) {
+      throw this.lastWriteError;
+    }
   }
 
   async close() {

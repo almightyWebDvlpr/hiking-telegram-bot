@@ -332,12 +332,12 @@ function buildRescueDocXml(trip, safety, leader, participants) {
   const rescuers = (safety.contacts || []).map((item) => `${item.label}: ${item.phones.join(" / ")}`);
 
   const paragraphs = [
-    xmlTextParagraph(`Гірським пошуково-рятувальним підрозділам регіону ${safety.title}`, { align: "right" }),
+    xmlTextParagraph(`Для реєстрації туристичної групи у рятувальників ДСНС регіону ${safety.title}`, { align: "right" }),
     xmlTextParagraph(`Керівник групи: ${leader.fullName}`, { align: "right" }),
     xmlTextParagraph(`Телефон: ${leader.phone}`, { align: "right" }),
     xmlTextParagraph(""),
-    xmlTextParagraph("ПОВІДОМЛЕННЯ ПРО ПЛАНОВАНИЙ ПОХІД"),
-    xmlTextParagraph(`Повідомляємо про планований похід у період ${dateRange}.`),
+    xmlTextParagraph("ДАНІ ДЛЯ РЕЄСТРАЦІЇ ПОХОДУ В ДСНС"),
+    xmlTextParagraph(`Планований похід у період ${dateRange}.`),
     xmlTextParagraph(`Маршрут: ${routeLine}.`),
     xmlTextParagraph(`Регіон: ${trip?.region || safety.title}.`),
     meetingLine ? xmlTextParagraph(`Точка збору / старт: ${meetingLine}.`) : "",
@@ -366,7 +366,7 @@ function buildRescueDocXml(trip, safety, leader, participants) {
 
   const footerParagraphs = [
     xmlTextParagraph(""),
-    xmlTextParagraph("Контакти рятувальників у регіоні:"),
+    xmlTextParagraph("Контакти рятувальників ДСНС у регіоні:"),
     ...(rescuers.length ? rescuers.map((item) => xmlTextParagraph(`• ${item}`)) : [xmlTextParagraph("• Використовуй 101 або 112, якщо локальний підрозділ не визначено автоматично.")]),
     xmlTextParagraph(""),
     xmlTextParagraph("Дата формування: ____________________"),
@@ -426,8 +426,8 @@ export async function buildRescueLetter(trip, userService) {
     safety,
     participants,
     missingSummary,
-    caption: `🚑 Чернетка повідомлення для рятувальників регіону ${safety.title}`,
-    fileName: `${slugifyFileName(trip?.name || "trip")}-riatuvalnyky.docx`,
+    caption: `🚑 Пакет даних для реєстрації в ДСНС — ${safety.title}`,
+    fileName: `${slugifyFileName(trip?.name || "trip")}-reiestratsiia-dsns.docx`,
     buffer: await buildDocxBuffer(documentXml)
   };
 }

@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveSafetyProfile } from "../data/safetyContacts.js";
 import { resolveBorderAuthorityForTrip } from "../data/borderContacts.js";
-import { formatPhoneForDisplay } from "../utils/phone.js";
+import { formatPhoneForDisplay, normalizePhone } from "../utils/phone.js";
 import { createStoredZip } from "../utils/zip.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -143,6 +143,80 @@ function buildMeetingLine(trip) {
   return chunks.join(" | ");
 }
 
+function buildTripParticipantLookup(trip, userService) {
+  const members = getRelevantMembers(trip);
+  const phones = new Set();
+  const names = new Set();
+
+  for (const member of members) {
+    const profile = getProfileData(userService, member);
+    const phone = normalizePhone(profile.phone || member.phone || "");
+    const name = normalizeText(profile.fullName || member.name || "").toLowerCase();
+
+    if (phone) {
+      phones.add(phone);
+    }
+    if (name) {
+      names.add(name);
+    }
+  }
+
+  return { phones, names };
+}
+
+function isContactInsideTrip({ name = "", phone = "" }, participantLookup) {
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedName = normalizeText(name).toLowerCase();
+
+  return (
+    (normalizedPhone && participantLookup.phones.has(normalizedPhone))
+    || (normalizedName && participantLookup.names.has(normalizedName))
+  );
+}
+
+function formatEmergencyContactLine(contact = {}) {
+  return [
+    normalizeText(contact.name),
+    normalizeText(contact.relation) ? `(${normalizeText(contact.relation)})` : "",
+    formatPhoneForDisplay(contact.phone) || normalizeText(contact.phone)
+  ].filter(Boolean).join(" ");
+}
+
+function pickExternalEmergencyContact(profile = {}, participantLookup) {
+  const primary = {
+    name: normalizeText(profile.emergencyContactName),
+    phone: normalizePhone(profile.emergencyContactPhone),
+    relation: normalizeText(profile.emergencyContactRelation)
+  };
+  const backup = {
+    name: normalizeText(profile.backupEmergencyContactName),
+    phone: normalizePhone(profile.backupEmergencyContactPhone),
+    relation: normalizeText(profile.backupEmergencyContactRelation)
+  };
+
+  const primaryComplete = Boolean(primary.name || primary.phone || primary.relation);
+  const backupComplete = Boolean(backup.name || backup.phone || backup.relation);
+  const primaryInsideTrip = primaryComplete && isContactInsideTrip(primary, participantLookup);
+
+  if (primaryComplete && !primaryInsideTrip) {
+    return { ...primary, source: "primary", requiresBackupBecauseInsideTrip: false };
+  }
+
+  if (primaryInsideTrip && backupComplete) {
+    return { ...backup, source: "backup", requiresBackupBecauseInsideTrip: true };
+  }
+
+  if (primaryComplete) {
+    return { ...primary, source: "primary", requiresBackupBecauseInsideTrip: primaryInsideTrip };
+  }
+
+  if (backupComplete) {
+    return { ...backup, source: "backup", requiresBackupBecauseInsideTrip: false };
+  }
+
+  return { name: "", phone: "", relation: "", source: "", requiresBackupBecauseInsideTrip: false };
+}
+
 function buildControlReturnLine(trip) {
   const tripCard = trip?.tripCard || {};
   const endDate = normalizeText(tripCard.endDate);
@@ -271,7 +345,7 @@ function getRelevantMembers(trip = {}) {
   return filtered.length ? filtered : members;
 }
 
-function buildParticipantRows(trip, userService) {
+function buildParticipantRows(trip, userService, participantLookup = buildTripParticipantLookup(trip, userService)) {
   return getRelevantMembers(trip).map((member, index) => {
     const profile = getProfileData(userService, member);
     const fullName = normalizeText(profile.fullName || member.name || "Учасник");
@@ -281,14 +355,8 @@ function buildParticipantRows(trip, userService) {
     const passportNumber = normalizeText(profile.passportNumber);
     const passportIssuedBy = normalizeText(profile.passportIssuedBy);
     const residenceAddress = normalizeText(profile.residenceAddress || city);
-    const emergencyContactName = normalizeText(profile.emergencyContactName);
-    const emergencyContactPhone = formatPhoneForDisplay(profile.emergencyContactPhone) || normalizeText(profile.emergencyContactPhone);
-    const emergencyContactRelation = normalizeText(profile.emergencyContactRelation);
-    const emergencyContact = [
-      emergencyContactName,
-      emergencyContactRelation ? `(${emergencyContactRelation})` : "",
-      emergencyContactPhone
-    ].filter(Boolean).join(" ");
+    const selectedEmergencyContact = pickExternalEmergencyContact(profile, participantLookup);
+    const emergencyContact = formatEmergencyContactLine(selectedEmergencyContact);
 
     return {
       index: index + 1,
@@ -301,6 +369,7 @@ function buildParticipantRows(trip, userService) {
       passportIssuedBy,
       residenceAddress,
       emergencyContact,
+      selectedEmergencyContact,
       missingCore: [
         !fullName ? "ПІБ" : "",
         birthDate === "не вказано" ? "дата народження" : "",
@@ -312,14 +381,17 @@ function buildParticipantRows(trip, userService) {
         !residenceAddress ? "адреса проживання" : ""
       ].filter(Boolean),
       missingRescue: [
-        !emergencyContactName ? "екстрений контакт" : "",
-        !emergencyContactPhone ? "телефон екстреного контакту" : ""
+        !selectedEmergencyContact.name ? "екстрений контакт" : "",
+        !selectedEmergencyContact.phone ? "телефон екстреного контакту" : "",
+        selectedEmergencyContact.requiresBackupBecauseInsideTrip && selectedEmergencyContact.source !== "backup"
+          ? "резервний екстрений контакт поза складом походу"
+          : ""
       ].filter(Boolean)
     };
   });
 }
 
-function buildLeaderData(trip, userService) {
+function buildLeaderData(trip, userService, participantLookup = buildTripParticipantLookup(trip, userService)) {
   const leader = (trip.members || []).find((member) => String(member.role || "") === "owner")
     || getRelevantMembers(trip)[0]
     || null;
@@ -335,11 +407,13 @@ function buildLeaderData(trip, userService) {
       passportIssuedBy: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
-      emergencyContactRelation: ""
+      emergencyContactRelation: "",
+      selectedEmergencyContact: { name: "", phone: "", relation: "", source: "", requiresBackupBecauseInsideTrip: false }
     };
   }
 
   const profile = getProfileData(userService, leader);
+  const selectedEmergencyContact = pickExternalEmergencyContact(profile, participantLookup);
   return {
     fullName: normalizeText(profile.fullName || leader.name || "Організатор"),
     phone: formatPhoneForDisplay(profile.phone) || normalizeText(profile.phone) || "не вказано",
@@ -350,7 +424,11 @@ function buildLeaderData(trip, userService) {
     passportIssuedBy: normalizeText(profile.passportIssuedBy),
     emergencyContactName: normalizeText(profile.emergencyContactName),
     emergencyContactPhone: formatPhoneForDisplay(profile.emergencyContactPhone) || normalizeText(profile.emergencyContactPhone),
-    emergencyContactRelation: normalizeText(profile.emergencyContactRelation)
+    emergencyContactRelation: normalizeText(profile.emergencyContactRelation),
+    backupEmergencyContactName: normalizeText(profile.backupEmergencyContactName),
+    backupEmergencyContactPhone: formatPhoneForDisplay(profile.backupEmergencyContactPhone) || normalizeText(profile.backupEmergencyContactPhone),
+    backupEmergencyContactRelation: normalizeText(profile.backupEmergencyContactRelation),
+    selectedEmergencyContact
   };
 }
 
@@ -385,11 +463,7 @@ function buildRescueRegistrationSummary(trip, safety, leader) {
   const distanceKm = getTripMetricLabel((Number(trip?.routePlan?.meta?.distance) || 0) / 1000, "км");
   const ascentGain = getTripMetricLabel(trip?.routePlan?.meta?.ascentGain, "м", 0);
   const gearSummaryLines = buildGearSummaryLines(trip);
-  const reserveContactLine = [
-    leader.emergencyContactName,
-    leader.emergencyContactRelation ? `(${leader.emergencyContactRelation})` : "",
-    leader.emergencyContactPhone
-  ].filter(Boolean).join(" ");
+  const reserveContactLine = formatEmergencyContactLine(leader.selectedEmergencyContact);
 
   return [
     { label: "Назва походу", value: normalizeText(trip?.name) },
@@ -586,8 +660,9 @@ export async function buildBorderGuardLetter(trip, userService) {
     return null;
   }
 
-  const leader = buildLeaderData(trip, userService);
-  const participants = buildParticipantRows(trip, userService);
+  const participantLookup = buildTripParticipantLookup(trip, userService);
+  const leader = buildLeaderData(trip, userService, participantLookup);
+  const participants = buildParticipantRows(trip, userService, participantLookup);
   const missingSummary = buildMissingDataSummary(participants, { includeBorderFields: true });
   const documentXml = buildBorderDocXml(trip, authority, leader, participants);
 
@@ -603,10 +678,11 @@ export async function buildBorderGuardLetter(trip, userService) {
 
 export async function buildRescueLetter(trip, userService) {
   const safety = resolveSafetyProfile(trip);
-  const leader = buildLeaderData(trip, userService);
-  const participants = buildParticipantRows(trip, userService);
+  const participantLookup = buildTripParticipantLookup(trip, userService);
+  const leader = buildLeaderData(trip, userService, participantLookup);
+  const participants = buildParticipantRows(trip, userService, participantLookup);
   const missingSummary = buildMissingDataSummary(participants, { includeRescueFields: true });
-  if (!leader.emergencyContactName || !leader.emergencyContactPhone) {
+  if (!leader.selectedEmergencyContact.name || !leader.selectedEmergencyContact.phone) {
     missingSummary.unshift("Керівник групи: заповни резервний контакт і його телефон у профілі.");
   }
   if (!buildMeetingLine(trip) && !getRouteEndpoints(trip).start) {

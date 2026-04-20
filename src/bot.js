@@ -152,13 +152,6 @@ const HELP_SECTIONS = [
   "❓ Як працюють часті питання"
 ];
 
-const MAIN_KEYBOARD = Markup.keyboard([
-  ["👥 Похід", PROFILE_LABEL],
-  ["🔑 Приєднатися до походу", "🗺 Маршрути"],
-  ["🌦 Погода"],
-  [FAQ_LABEL, "ℹ️ Допомога"]
-]).resize().persistent();
-
 const ROUTES_BACK_LABEL = "⬅️ До маршрутів";
 const ROUTES_GENERATE_LABEL = "🧭 Згенерувати маршрут";
 const ROUTES_EXISTING_LABEL = "📚 Знайти в каталозі маршрутів";
@@ -281,6 +274,8 @@ const HELP_TEXT = [
   "/tripreminders"
 ].join("\n");
 
+const OWNER_USERS_STATS_LABEL = "📊 Користувачі бота";
+
 const HELP_CONTENT = {
   "🚀 Як почати і створити похід": [
     "Найпростіший сценарій такий:",
@@ -364,8 +359,44 @@ function buildKeyboard(rows) {
   return Markup.keyboard(rows).resize().persistent();
 }
 
+function resolveViewerId(ctxOrUser = null) {
+  if (ctxOrUser === null || ctxOrUser === undefined) {
+    return "";
+  }
+
+  if (typeof ctxOrUser === "string" || typeof ctxOrUser === "number") {
+    return String(ctxOrUser);
+  }
+
+  if (ctxOrUser?.from?.id !== undefined && ctxOrUser?.from?.id !== null) {
+    return String(ctxOrUser.from.id);
+  }
+
+  if (ctxOrUser?.id !== undefined && ctxOrUser?.id !== null) {
+    return String(ctxOrUser.id);
+  }
+
+  return "";
+}
+
+function isBotOwner(ctxOrUser = null) {
+  const viewerId = resolveViewerId(ctxOrUser);
+  return Boolean(viewerId) && String(config.botOwnerId || "") === viewerId;
+}
+
 function getMainKeyboard(ctxOrUser = null) {
-  return MAIN_KEYBOARD;
+  const rows = [
+    ["👥 Похід", PROFILE_LABEL],
+    ["🔑 Приєднатися до походу", "🗺 Маршрути"],
+    ["🌦 Погода"]
+  ];
+
+  if (isBotOwner(ctxOrUser)) {
+    rows.push([OWNER_USERS_STATS_LABEL]);
+  }
+
+  rows.push([FAQ_LABEL, "ℹ️ Допомога"]);
+  return buildKeyboard(rows);
 }
 
 function getAuthorizationKeyboard(authState = { contactVerified: false }) {
@@ -8477,6 +8508,85 @@ function showProfileAwards(ctx, userService) {
   }
 }
 
+function formatOwnerUsageDate(value = "") {
+  const iso = String(value || "").trim();
+  if (!iso) {
+    return "невідомо";
+  }
+
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) {
+    return iso;
+  }
+
+  return parsed.toLocaleString("uk-UA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatBotUsageStats(userService) {
+  const report = userService.getBotUsageReport();
+  const entries = Array.isArray(report.entries) ? report.entries : [];
+  const visibleEntries = entries.slice(0, 20);
+  const userLines = visibleEntries.length
+    ? visibleEntries.flatMap((item, index) => [
+      `${index + 1}. <b>${escapeHtml(item.fullName)}</b>`,
+      `• ID: <code>${escapeHtml(item.id)}</code>`,
+      `• Контакт: ${item.verified ? "підтверджено" : "не підтверджено"}`,
+      `• Походи: активні ${Number(item.activeTrips) || 0}, завершені ${Number(item.completedTrips) || 0}, архівні ${Number(item.archivedTrips) || 0}`,
+      `• Організатор: ${Number(item.organizedTrips) || 0} | Нагороди: ${Number(item.awardsCount) || 0} | Моє спорядження: ${Number(item.personalGearCount) || 0}`,
+      item.city ? `• Місто: ${escapeHtml(item.city)}` : null,
+      `• Остання активність: ${formatOwnerUsageDate(item.lastActivityAt)}`,
+      ""
+    ].filter(Boolean)).slice(0, -1)
+    : ["• У базі ще немає користувачів."];
+
+  const hiddenCount = Math.max(0, entries.length - visibleEntries.length);
+
+  return joinRichLines([
+    ...formatCardHeader("📊 КОРИСТУВАЧІ БОТА", "Owner-only статистика"),
+    "",
+    formatSectionHeader("👥", "Загальна Статистика"),
+    `• Усього користувачів: ${Number(report.usersTotal) || 0}`,
+    `• З підтвердженим номером: ${Number(report.verifiedUsers) || 0}`,
+    `• Із заповненим профілем: ${Number(report.profileFilledUsers) || 0}`,
+    `• Хоч раз були в походах: ${Number(report.usersWithTrips) || 0}`,
+    `• З активним походом: ${Number(report.usersWithActiveTrips) || 0}`,
+    `• Мають нагороди: ${Number(report.usersWithAwards) || 0}`,
+    `• Мають особисте спорядження: ${Number(report.usersWithGear) || 0}`,
+    "",
+    formatSectionHeader("🥾", "Походи В Системі"),
+    `• Активних: ${Number(report.tripSummary?.active) || 0}`,
+    `• Завершених: ${Number(report.tripSummary?.completed) || 0}`,
+    `• Архівних: ${Number(report.tripSummary?.archived) || 0}`,
+    `• Скасованих: ${Number(report.tripSummary?.cancelled) || 0}`,
+    "",
+    formatSectionHeader("🧾", "Користувачі"),
+    ...userLines,
+    hiddenCount > 0 ? `• Показано перші 20 користувачів із ${entries.length}.` : null
+  ]);
+}
+
+function showBotUsersStats(ctx, userService) {
+  if (!isBotOwner(ctx)) {
+    return ctx.reply("Цей розділ доступний тільки власнику бота.", getMainKeyboard(ctx));
+  }
+
+  setMenuContext(ctx.from?.id, "home");
+  return replyRichText(
+    ctx,
+    formatBotUsageStats(userService),
+    {
+      parse_mode: "HTML",
+      ...getMainKeyboard(ctx)
+    }
+  );
+}
+
 function startProfileEditWizard(ctx, userService) {
   const current = userService.getProfile(String(ctx.from.id), getUserLabel(ctx)).profile;
   setFlow(String(ctx.from.id), {
@@ -14535,6 +14645,7 @@ export function createBot(store) {
   bot.hears("👥 Похід", (ctx) => showTripMenu(ctx, groupService));
   bot.hears(KEYBOARD_PLACEHOLDER, () => null);
   bot.hears(PROFILE_LABEL, (ctx) => showProfileMenu(ctx, userService));
+  bot.hears(OWNER_USERS_STATS_LABEL, (ctx) => showBotUsersStats(ctx, userService));
   bot.hears(PROFILE_DASHBOARD_LABEL, (ctx) => showProfileDashboard(ctx, userService));
   bot.hears(PROFILE_ABOUT_LABEL, (ctx) => showProfileAbout(ctx, userService));
   bot.hears(PROFILE_MEDICAL_LABEL, (ctx) => showProfileMedicalCard(ctx, userService));

@@ -18,6 +18,7 @@ const botUsername =
 export const config = {
   botToken,
   botUsername: String(botUsername).replace(/^@/, ""),
+  botOwnerId: process.env.BOT_OWNER_ID || process.env.OWNER_TELEGRAM_ID || "546357192",
   appStage,
   mongoUri: process.env.MONGODB_URI || "",
   mongoDbName: process.env.MONGODB_DB || "",

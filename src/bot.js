@@ -12,7 +12,9 @@ import { WeatherService } from "./services/weatherService.js";
 import { RouteService } from "./services/routeService.js";
 import { AdvisorService } from "./services/advisorService.js";
 import { resolveSafetyProfile } from "./data/safetyContacts.js";
+import { isLikelyBorderAreaTrip } from "./data/borderContacts.js";
 import { VpohidLiveService } from "./services/vpohidLiveService.js";
+import { buildBorderGuardLetter, buildRescueLetter } from "./services/officialLettersService.js";
 import {
   calculateDaysUntilDateString,
   formatDateTimeForAudit,
@@ -170,6 +172,8 @@ const TRIP_PHOTOS_LABEL = "📸 Фото походу";
 const TRIP_PHOTOS_ADD_LABEL = "📷 Поділитися фото";
 const TRIP_PHOTO_ALBUM_LABEL = "🖼 Фотоальбом";
 const TRIP_SOS_LABEL = "🚨 SOS пакет";
+const TRIP_BORDER_LETTER_LABEL = "🛂 Лист прикордонникам";
+const TRIP_RESCUE_LETTER_LABEL = "🚑 Лист рятувальникам";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
 const GEAR_EDIT_ACTION_LABEL = "✏️ Редагувати";
 const GEAR_EDIT_DELETE_LABEL = "🗑 Видалити";
@@ -2107,12 +2111,10 @@ function getTripPhotosKeyboard() {
 
 function getTripSafetyKeyboard() {
   return buildKeyboard([
+    [TRIP_SOS_LABEL],
+    [TRIP_BORDER_LETTER_LABEL, TRIP_RESCUE_LETTER_LABEL],
     ["⬅️ До походу"]
   ]);
-}
-
-function getTripSafetyInlineKeyboard() {
-  return Markup.inlineKeyboard([[Markup.button.callback(TRIP_SOS_LABEL, "trip_sos_package")]]);
 }
 
 function getTripExpensesKeyboard({ hasItems = false } = {}) {
@@ -2141,6 +2143,7 @@ function formatSafetySection(trip) {
     ...formatCardHeader("🆘 БЕЗПЕКА", trip.name),
     "",
     `Регіон безпеки: ${safety.title}${safety.subtitle ? ` | ${safety.subtitle}` : ""}`,
+    isLikelyBorderAreaTrip(trip) ? "Прикордонний режим: маршрут схожий на прикордонний район, доступна чернетка листа для прикордонників." : null,
     "",
     formatSectionHeader("🚨", "Екстрено"),
     ...safety.general.map((item) => `• ${item.label}: ${item.phones.join(" / ")}`)
@@ -2154,6 +2157,11 @@ function formatSafetySection(trip) {
   }
 
   lines.push(
+    "",
+    formatSectionHeader("📄", "Документи"),
+    `• ${TRIP_SOS_LABEL} — короткий пакет для швидкої пересилки`,
+    `• ${TRIP_BORDER_LETTER_LABEL} — чернетка звернення до прикордонного підрозділу`,
+    `• ${TRIP_RESCUE_LETTER_LABEL} — чернетка маршрутного повідомлення для рятувальників`,
     "",
     formatSectionHeader("⚠️", "Зверни Увагу"),
     "• надішли маршрут і час повернення близьким",
@@ -4771,7 +4779,7 @@ function showTripSafety(ctx, groupService) {
 
   return replyRichText(ctx, formatSafetySection(trip), {
     parse_mode: "HTML",
-    ...getTripSafetyInlineKeyboard()
+    ...getTripSafetyKeyboard()
   });
 }
 
@@ -4984,6 +4992,117 @@ function showTripSosPackage(ctx, groupService, userService) {
     ctx,
     formatTripSosPackage(trip, groupService, userService, String(ctx.from.id)),
     { parse_mode: "HTML" }
+  );
+}
+
+function buildOfficialLetterMetaLines({
+  title,
+  trip,
+  missingSummary = [],
+  extraLines = []
+}) {
+  return joinRichLines([
+    ...formatCardHeader(title, trip.name),
+    "",
+    ...extraLines,
+    "",
+    missingSummary.length
+      ? formatSectionHeader("⚠️", "Перед Надсиланням Перевір")
+      : formatSectionHeader("✅", "Чернетка Готова"),
+    ...(missingSummary.length
+      ? missingSummary.map((item) => `• ${escapeHtml(item)}`)
+      : ["• Базова інформація по учасниках підставлена в чернетку. Перевір фінальну редакцію перед відправкою."])
+  ]);
+}
+
+async function showTripBorderLetterDraft(ctx, groupService, userService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
+  const draft = buildBorderGuardLetter(trip, userService);
+  if (!draft) {
+    return replyRichText(
+      ctx,
+      joinRichLines([
+        ...formatCardHeader("🛂 ПРИКОРДОННИЙ ЛИСТ", trip.name),
+        "",
+        "Бот не визначив, що цей маршрут проходить у прикордонному районі Карпат.",
+        "",
+        "Якщо це все ж прикордонний похід, перевір назву маршруту, регіон і точки маршруту. Після цього спробуй ще раз."
+      ]),
+      { parse_mode: "HTML" }
+    );
+  }
+
+  await ctx.replyWithDocument(
+    {
+      source: draft.buffer,
+      filename: draft.fileName
+    },
+    {
+      caption: draft.caption
+    }
+  );
+
+  return replyRichText(
+    ctx,
+    buildOfficialLetterMetaLines({
+      title: "🛂 ЛИСТ ДО ПРИКОРДОННИКІВ",
+      trip,
+      missingSummary: draft.missingSummary,
+      extraLines: [
+        `Підрозділ: ${escapeHtml(draft.authority.label)}`,
+        `Район: ${escapeHtml(draft.authority.areaLabel)}`,
+        `Контакт: ${escapeHtml(draft.authority.email)} | ${escapeHtml(draft.authority.phones.join(" / "))}`,
+        `Застава: ${escapeHtml(draft.authority.checkpointLabel)} | ${escapeHtml(draft.authority.checkpointPhones.join(" / "))}`
+      ]
+    }),
+    { parse_mode: "HTML", ...getTripSafetyKeyboard() }
+  );
+}
+
+async function showTripRescueLetterDraft(ctx, groupService, userService) {
+  const trip = requireTrip(ctx, groupService, getTripKeyboard(null, String(ctx.from.id)));
+  if (!trip) {
+    return null;
+  }
+
+  if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+    return replyRestrictedTripSection(ctx, trip);
+  }
+
+  const draft = buildRescueLetter(trip, userService);
+
+  await ctx.replyWithDocument(
+    {
+      source: draft.buffer,
+      filename: draft.fileName
+    },
+    {
+      caption: draft.caption
+    }
+  );
+
+  return replyRichText(
+    ctx,
+    buildOfficialLetterMetaLines({
+      title: "🚑 ЛИСТ РЯТУВАЛЬНИКАМ",
+      trip,
+      missingSummary: draft.missingSummary,
+      extraLines: [
+        `Регіон рятувальників: ${escapeHtml(draft.safety.title)}`,
+        ...(draft.safety.contacts.length
+          ? draft.safety.contacts.map((item) => `• ${escapeHtml(item.label)}: ${escapeHtml(item.phones.join(" / "))}`)
+          : ["• Локальний підрозділ не визначено автоматично, у разі потреби використовуй 101 / 112."])
+      ]
+    }),
+    { parse_mode: "HTML", ...getTripSafetyKeyboard() }
   );
 }
 
@@ -14627,6 +14746,14 @@ export function createBot(store) {
     await ctx.answerCbQuery();
     return showTripSosPackage(ctx, groupService, userService);
   });
+  bot.action("trip_border_letter", async (ctx) => {
+    await ctx.answerCbQuery();
+    return showTripBorderLetterDraft(ctx, groupService, userService);
+  });
+  bot.action("trip_rescue_letter", async (ctx) => {
+    await ctx.answerCbQuery();
+    return showTripRescueLetterDraft(ctx, groupService, userService);
+  });
   bot.action("trip_safety_screen", async (ctx) => {
     await ctx.answerCbQuery();
     return showTripSafety(ctx, groupService);
@@ -14853,6 +14980,8 @@ export function createBot(store) {
   bot.hears(TRIP_REMINDERS_DISABLE_LABEL, (ctx) => toggleTripReminders(ctx, groupService, false));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
   bot.hears(TRIP_SOS_LABEL, (ctx) => showTripSosPackage(ctx, groupService, userService));
+  bot.hears(TRIP_BORDER_LETTER_LABEL, (ctx) => showTripBorderLetterDraft(ctx, groupService, userService));
+  bot.hears(TRIP_RESCUE_LETTER_LABEL, (ctx) => showTripRescueLetterDraft(ctx, groupService, userService));
   bot.hears("🌦 Погода походу", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
     if (!trip) {

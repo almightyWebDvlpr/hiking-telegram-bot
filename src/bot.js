@@ -131,6 +131,8 @@ const PROFILE_EDIT_LABEL = "✏️ Редагувати профіль";
 const PROFILE_PHOTO_ALBUMS_LABEL = "🖼 Фотоальбоми";
 const PROFILE_BACK_LABEL = "⬅️ До профілю";
 const PROFILE_SKIP_LABEL = "⏭ Пропустити";
+const PROFILE_BACKUP_CONTACT_YES_LABEL = "✅ Додати";
+const PROFILE_BACKUP_CONTACT_NO_LABEL = "❌ Не додавати";
 const TRIP_MEMBERS_BACK_LABEL = "⬅️ Назад";
 const TRIP_HISTORY_BACK_LABEL = "⬅️ До історії";
 const PROFILE_PHOTO_ALBUMS_BACK_LABEL = "⬅️ До фотоальбомів";
@@ -661,10 +663,15 @@ function getProfileAboutKeyboard() {
   ]);
 }
 
-function getProfileEditKeyboard() {
-  return buildKeyboard([
-    [PROFILE_SKIP_LABEL, "❌ Скасувати"]
-  ]);
+function getProfileEditKeyboard(step = "") {
+  if (step === "backupEmergencyContactEnabled") {
+    return buildKeyboard([
+      [PROFILE_BACKUP_CONTACT_YES_LABEL, PROFILE_BACKUP_CONTACT_NO_LABEL],
+      [PROFILE_SKIP_LABEL, "❌ Скасувати"]
+    ]);
+  }
+
+  return buildKeyboard([[PROFILE_SKIP_LABEL, "❌ Скасувати"]]);
 }
 
 function getTripMember(trip, userId) {
@@ -8242,6 +8249,22 @@ const PROFILE_EDIT_FIELDS = [
     prompt: "Ким тобі є екстрений контакт?\nПриклад: мама / дружина / брат"
   },
   {
+    key: "backupEmergencyContactEnabled",
+    prompt: "Якщо основний екстрений контакт теж іде в той самий похід, краще мати ще один зовнішній контакт.\nДодати резервний екстрений контакт?"
+  },
+  {
+    key: "backupEmergencyContactName",
+    prompt: "Вкажи ПІБ резервного екстреного контакту."
+  },
+  {
+    key: "backupEmergencyContactPhone",
+    prompt: "Вкажи телефон резервного екстреного контакту."
+  },
+  {
+    key: "backupEmergencyContactRelation",
+    prompt: "Ким тобі є резервний екстрений контакт?\nПриклад: тато / сестра / друг"
+  },
+  {
     key: "experienceLevel",
     prompt: "Вкажи свій досвід походів.\nПриклад: початківець / любитель / досвідчений"
   },
@@ -8269,11 +8292,13 @@ function validateProfileEditValue(fieldKey, message) {
       return validateBloodType(message);
     case "phone":
     case "emergencyContactPhone":
+    case "backupEmergencyContactPhone":
       return validatePhone(message);
     case "city":
       return validateCity(message);
     case "gender":
     case "emergencyContactRelation":
+    case "backupEmergencyContactRelation":
     case "experienceLevel":
     case "passportNumber":
       return validateShortProfileText(message);
@@ -8281,8 +8306,20 @@ function validateProfileEditValue(fieldKey, message) {
     case "medications":
     case "healthNotes":
     case "emergencyContactName":
+    case "backupEmergencyContactName":
     case "passportIssuedBy":
       return validateLongProfileText(message);
+    case "backupEmergencyContactEnabled":
+      if (message === PROFILE_BACKUP_CONTACT_YES_LABEL) {
+        return { ok: true, value: "yes" };
+      }
+      if (message === PROFILE_BACKUP_CONTACT_NO_LABEL) {
+        return { ok: true, value: "no" };
+      }
+      return {
+        ok: false,
+        error: "Обери `✅ Додати` або `❌ Не додавати`."
+      };
     default:
       return { ok: true, value: String(message || "").trim() };
   }
@@ -8303,8 +8340,20 @@ function replyProfileEditStepPrompt(ctx, flow, notice) {
   const fieldConfig = PROFILE_EDIT_FIELDS.find((item) => item.key === flow.step) || PROFILE_EDIT_FIELDS[0];
   return ctx.reply(
     buildProfileEditPrompt(fieldConfig, notice),
-    { parse_mode: "HTML", ...getProfileEditKeyboard() }
+    { parse_mode: "HTML", ...getProfileEditKeyboard(flow.step) }
   );
+}
+
+function isBackupEmergencyContactEnabled(flowData = {}) {
+  return String(flowData.backupEmergencyContactEnabled || "").trim() === "yes";
+}
+
+function getProfileEditPreviousStepResolved(flow) {
+  if (flow.step === "experienceLevel" && !isBackupEmergencyContactEnabled(flow.data)) {
+    return "backupEmergencyContactEnabled";
+  }
+
+  return getProfileEditPreviousStep(flow.step);
 }
 
 function replyGearNeedStepPrompt(ctx, flow) {
@@ -8621,6 +8670,9 @@ function formatProfileAbout(userService, userId, userName) {
     `Екстрений контакт: ${profile.emergencyContactName || "не вказано"}`,
     `Телефон контакту: ${formatPhoneForDisplay(profile.emergencyContactPhone) || "не вказано"}`,
     `Хто це: ${profile.emergencyContactRelation || "не вказано"}`,
+    `Резервний контакт: ${profile.backupEmergencyContactName || "не вказано"}`,
+    `Телефон резервного: ${formatPhoneForDisplay(profile.backupEmergencyContactPhone) || "не вказано"}`,
+    `Хто це (резервний): ${profile.backupEmergencyContactRelation || "не вказано"}`,
     "",
     formatSectionHeader("🪪", "Документ"),
     `Серія та номер: ${profile.passportNumber || "не вказано"}`,
@@ -8653,6 +8705,9 @@ function formatProfileMedicalCard(userService, userId, userName) {
     `Екстрений контакт: ${profile.emergencyContactName || "не вказано"}`,
     `Телефон контакту: ${formatPhoneForDisplay(profile.emergencyContactPhone) || "не вказано"}`,
     `Хто це: ${profile.emergencyContactRelation || "не вказано"}`,
+    `Резервний контакт: ${profile.backupEmergencyContactName || "не вказано"}`,
+    `Телефон резервного: ${formatPhoneForDisplay(profile.backupEmergencyContactPhone) || "не вказано"}`,
+    `Хто це (резервний): ${profile.backupEmergencyContactRelation || "не вказано"}`,
     "",
     "⚠️ Зверни увагу:",
     "• ці дані краще тримати актуальними перед кожним походом",
@@ -11973,7 +12028,7 @@ async function handleProfileEditFlow(ctx, flow, userService) {
   const currentIndex = PROFILE_EDIT_FIELDS.findIndex((item) => item.key === flow.step);
 
   if (message === PROFILE_BACK_LABEL || message === "❌ Скасувати") {
-    const previousStep = getProfileEditPreviousStep(flow.step);
+    const previousStep = getProfileEditPreviousStepResolved(flow);
     if (previousStep === flow.step || currentIndex <= 0) {
       clearFlow(String(ctx.from.id));
       return showProfileAbout(ctx, userService);
@@ -11989,18 +12044,29 @@ async function handleProfileEditFlow(ctx, flow, userService) {
     return showProfileMenu(ctx, userService);
   }
 
+  const isBackupPromptStep = flow.step === "backupEmergencyContactEnabled";
+
   if (message !== PROFILE_SKIP_LABEL) {
     const validation = validateProfileEditValue(fieldConfig.key, message);
     if (!validation.ok) {
       return ctx.reply(
         `${validation.error}\n\n${buildProfileEditPrompt(fieldConfig, "• можна пропустити будь-яке поле і повернутися до нього пізніше")}`,
-        { parse_mode: "HTML", ...getProfileEditKeyboard() }
+        { parse_mode: "HTML", ...getProfileEditKeyboard(flow.step) }
       );
     }
     flow.data[fieldConfig.key] = validation.value;
+  } else if (isBackupPromptStep && !flow.data.backupEmergencyContactEnabled) {
+    flow.data.backupEmergencyContactEnabled = "no";
   }
 
-  const nextStep = getProfileEditNextStep(flow.step);
+  let nextStep = getProfileEditNextStep(flow.step);
+
+  if (isBackupPromptStep && !isBackupEmergencyContactEnabled(flow.data)) {
+    flow.data.backupEmergencyContactName = "";
+    flow.data.backupEmergencyContactPhone = "";
+    flow.data.backupEmergencyContactRelation = "";
+    nextStep = "experienceLevel";
+  }
 
   if (nextStep === flow.step || !PROFILE_EDIT_FIELDS[currentIndex + 1]) {
     const updatedProfile = userService.updateProfile({

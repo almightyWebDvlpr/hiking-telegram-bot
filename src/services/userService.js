@@ -62,9 +62,48 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function normalizeNameTokens(value = "") {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s'-]+/gu, " ")
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2);
+}
+
+function areNamesLikelySame(left = "", right = "") {
+  const normalizedLeft = normalizeText(left).toLowerCase();
+  const normalizedRight = normalizeText(right).toLowerCase();
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  const leftTokens = normalizeNameTokens(left);
+  const rightTokens = normalizeNameTokens(right);
+  if (!leftTokens.length || !rightTokens.length) {
+    return false;
+  }
+
+  const shorter = leftTokens.length <= rightTokens.length ? leftTokens : rightTokens;
+  const longer = shorter === leftTokens ? rightTokens : leftTokens;
+
+  if (shorter.length >= 2 && shorter.every((token) => longer.includes(token))) {
+    return true;
+  }
+
+  const commonCount = shorter.filter((token) => longer.includes(token)).length;
+  return commonCount >= 2;
+}
+
 function buildTripParticipantLookup(trip = {}) {
   const phones = new Set();
   const names = new Set();
+  const nameList = [];
 
   for (const member of Array.isArray(trip?.members) ? trip.members : []) {
     const name = normalizeText(member?.name || "").toLowerCase();
@@ -72,20 +111,27 @@ function buildTripParticipantLookup(trip = {}) {
 
     if (name) {
       names.add(name);
+      nameList.push(name);
     }
     if (phone) {
       phones.add(phone);
     }
   }
 
-  return { phones, names };
+  return { phones, names, nameList };
 }
 
 function isContactInsideTrip(contact = {}, lookup = { phones: new Set(), names: new Set() }) {
   const phone = normalizePhone(contact.phone || "");
   const name = normalizeText(contact.name || "").toLowerCase();
 
-  return (phone && lookup.phones.has(phone)) || (name && lookup.names.has(name));
+  return (
+    (phone && lookup.phones.has(phone))
+    || (name && (
+      lookup.names.has(name)
+      || (Array.isArray(lookup.nameList) && lookup.nameList.some((candidate) => areNamesLikelySame(name, candidate)))
+    ))
+  );
 }
 
 function formatEmergencyContactTitle(contact = {}) {

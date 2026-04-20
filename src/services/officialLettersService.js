@@ -26,6 +26,44 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function normalizeNameTokens(value = "") {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s'-]+/gu, " ")
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2);
+}
+
+function areNamesLikelySame(left = "", right = "") {
+  const normalizedLeft = normalizeText(left).toLowerCase();
+  const normalizedRight = normalizeText(right).toLowerCase();
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  const leftTokens = normalizeNameTokens(left);
+  const rightTokens = normalizeNameTokens(right);
+  if (!leftTokens.length || !rightTokens.length) {
+    return false;
+  }
+
+  const shorter = leftTokens.length <= rightTokens.length ? leftTokens : rightTokens;
+  const longer = shorter === leftTokens ? rightTokens : leftTokens;
+
+  if (shorter.length >= 2 && shorter.every((token) => longer.includes(token))) {
+    return true;
+  }
+
+  const commonCount = shorter.filter((token) => longer.includes(token)).length;
+  return commonCount >= 2;
+}
+
 function safeDate(value) {
   return normalizeText(value) || "не вказано";
 }
@@ -147,6 +185,7 @@ function buildTripParticipantLookup(trip, userService) {
   const members = getRelevantMembers(trip);
   const phones = new Set();
   const names = new Set();
+  const nameList = [];
 
   for (const member of members) {
     const profile = getProfileData(userService, member);
@@ -158,10 +197,11 @@ function buildTripParticipantLookup(trip, userService) {
     }
     if (name) {
       names.add(name);
+      nameList.push(name);
     }
   }
 
-  return { phones, names };
+  return { phones, names, nameList };
 }
 
 function isContactInsideTrip({ name = "", phone = "" }, participantLookup) {
@@ -170,7 +210,10 @@ function isContactInsideTrip({ name = "", phone = "" }, participantLookup) {
 
   return (
     (normalizedPhone && participantLookup.phones.has(normalizedPhone))
-    || (normalizedName && participantLookup.names.has(normalizedName))
+    || (normalizedName && (
+      participantLookup.names.has(normalizedName)
+      || (Array.isArray(participantLookup.nameList) && participantLookup.nameList.some((candidate) => areNamesLikelySame(normalizedName, candidate)))
+    ))
   );
 }
 
@@ -206,14 +249,8 @@ function pickExternalEmergencyContact(profile = {}, participantLookup) {
     return { ...backup, source: "backup", requiresBackupBecauseInsideTrip: true };
   }
 
-  if (primaryInsideTrip) {
-    return {
-      name: "",
-      phone: "",
-      relation: "",
-      source: "",
-      requiresBackupBecauseInsideTrip: true
-    };
+  if (primaryComplete) {
+    return { ...primary, source: "primary", requiresBackupBecauseInsideTrip: primaryInsideTrip };
   }
 
   if (backupComplete) {

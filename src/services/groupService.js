@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { canonicalizeGearName, categorizeGearName, enrichGearItem, resolveGearProfile, resolveGearSynonymGroup } from "../data/gearCatalog.js";
 import { canonicalizeFoodName, categorizeFoodName } from "../data/foodCatalog.js";
 import { canonicalizeExpenseTitle, categorizeExpenseTitle } from "../data/expenseCatalog.js";
+import { calculateDaysUntilDateString, nowIso } from "../utils/dateTime.js";
 
 function createInviteCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -79,10 +80,16 @@ function normalizeTripPhotoEntry(entry = {}) {
     authorMemberId: entry.authorMemberId || "",
     authorMemberName: entry.authorMemberName || "",
     fileId: entry.fileId || "",
+    fileUniqueId: entry.fileUniqueId || "",
     caption: normalizeTripPhotoCaption(entry.caption),
     momentKey: entry.momentKey || moment.key,
     momentLabel: entry.momentLabel || moment.label,
-    createdAt: entry.createdAt || new Date().toISOString()
+    width: Number(entry.width) || 0,
+    height: Number(entry.height) || 0,
+    takenAt: entry.takenAt || "",
+    imageHash: entry.imageHash || "",
+    fileSizeBytes: Number(entry.fileSizeBytes) || 0,
+    createdAt: entry.createdAt || nowIso()
   };
 }
 
@@ -329,19 +336,7 @@ function isMemberIncludedInCalculations(member) {
 }
 
 function calculateDaysUntil(dateString) {
-  if (!dateString) {
-    return null;
-  }
-
-  const today = new Date();
-  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  const target = new Date(`${dateString}T00:00:00Z`);
-
-  if (Number.isNaN(target.getTime())) {
-    return null;
-  }
-
-  return Math.round((target.getTime() - todayUtc) / (24 * 60 * 60 * 1000));
+  return calculateDaysUntilDateString(dateString);
 }
 
 function hasGroupAttendanceRestrictionWindow(group) {
@@ -1608,7 +1603,9 @@ export class GroupService {
     const preparedGroup = createEmptyGroupFields(group);
     const items = [...preparedGroup.tripPhotos]
       .filter((item) => item.fileId)
-      .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+      .sort((left, right) =>
+        String(right.takenAt || right.createdAt || "").localeCompare(String(left.takenAt || left.createdAt || ""))
+      );
     const safeLimit = Math.max(1, Number(limit) || 12);
     const byMomentMap = new Map();
     const byAuthorMap = new Map();
@@ -1643,7 +1640,7 @@ export class GroupService {
       totalCount: items.length,
       byMoment: [...byMomentMap.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label)),
       byAuthor: [...byAuthorMap.values()].sort((left, right) => right.count - left.count || left.authorMemberName.localeCompare(right.authorMemberName)),
-      latestAt: items[0]?.createdAt || null
+      latestAt: items[0]?.takenAt || items[0]?.createdAt || null
     };
   }
 

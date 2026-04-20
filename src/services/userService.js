@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { canonicalizeGearName, enrichGearItem } from "../data/gearCatalog.js";
+import { formatPhoneForDisplay, normalizePhone } from "../utils/phone.js";
 import {
   BADGE_SERIES,
   ONE_TIME_AWARDS,
@@ -72,9 +73,9 @@ function buildProfileSnapshot(user, userName = "") {
     allergies: normalizeText(profile.allergies),
     medications: normalizeText(profile.medications),
     healthNotes: normalizeText(profile.healthNotes || profile.chronicConditions || profile.medicalNotes),
-    phone: normalizeText(profile.phone),
+    phone: normalizePhone(profile.phone),
     emergencyContactName: normalizeText(profile.emergencyContactName),
-    emergencyContactPhone: normalizeText(profile.emergencyContactPhone),
+    emergencyContactPhone: normalizePhone(profile.emergencyContactPhone),
     emergencyContactRelation: normalizeText(profile.emergencyContactRelation),
     experienceLevel: normalizeText(profile.experienceLevel),
     city: normalizeText(profile.city),
@@ -614,12 +615,12 @@ export class UserService {
     };
 
     for (const [key, value] of Object.entries(patch || {})) {
-      nextProfile[key] = normalizeText(value);
+      nextProfile[key] = key === "phone" ? normalizePhone(value) : normalizeText(value);
     }
 
     if (Object.prototype.hasOwnProperty.call(patch || {}, "phone")) {
-      const previousPhone = normalizeText(user.profile.phone);
-      const nextPhone = normalizeText(nextProfile.phone);
+      const previousPhone = normalizePhone(user.profile.phone);
+      const nextPhone = normalizePhone(nextProfile.phone);
       if (previousPhone !== nextPhone) {
         nextProfile.contactVerifiedAt = "";
       }
@@ -640,7 +641,7 @@ export class UserService {
   confirmOwnContact({ userId, userName = "", phone = "" }) {
     const data = withUsers(this.store.read());
     const user = ensureUser(data.users, userId, userName);
-    const normalizedPhone = normalizeText(phone);
+    const normalizedPhone = normalizePhone(phone);
 
     user.profile = {
       ...user.profile,
@@ -675,7 +676,7 @@ export class UserService {
   getTripMemberView(member, viewerCanManage = false) {
     const profile = this.getProfile(member.id, member.name);
     const fullName = profile.profile.fullName || profile.name || member.name || "Учасник";
-    const phone = profile.profile.phone || "не вказано";
+    const phone = formatPhoneForDisplay(profile.profile.phone) || "не вказано";
 
     if (!viewerCanManage) {
       return {
@@ -696,7 +697,7 @@ export class UserService {
       profile.profile.emergencyContactName
         ? `• Екстрений контакт: ${profile.profile.emergencyContactName}${profile.profile.emergencyContactRelation ? ` (${profile.profile.emergencyContactRelation})` : ""}`
         : null,
-      profile.profile.emergencyContactPhone ? `• Телефон контакту: ${profile.profile.emergencyContactPhone}` : null,
+      profile.profile.emergencyContactPhone ? `• Телефон контакту: ${formatPhoneForDisplay(profile.profile.emergencyContactPhone) || profile.profile.emergencyContactPhone}` : null,
     ].filter(Boolean);
 
     return {

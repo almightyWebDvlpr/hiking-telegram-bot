@@ -83,16 +83,29 @@ function buildRouteLine(trip) {
 }
 
 function buildBorderRouteDescription(trip) {
+  const routePlan = trip?.routePlan || {};
+  const stops = Array.isArray(routePlan.stops)
+    ? routePlan.stops.map((item) => normalizeText(item)).filter(Boolean)
+    : [];
+
+  if (stops.length) {
+    return `Маршрут проходить через проміжні точки: ${stops.join(" • ")}.`;
+  }
+
   const points = getRoutePoints(trip);
-  if (!points.length) {
+  if (points.length < 2) {
     return "Маршрут ще не задано";
   }
 
-  if (points.length > 2) {
-    return points.join(" -> ");
-  }
-
   return `${points[0]} -> ${points[points.length - 1]}`;
+}
+
+function buildBorderRouteSentence(trip) {
+  const routeDescription = buildBorderRouteDescription(trip);
+  if (routeDescription.startsWith("Маршрут проходить через проміжні точки:")) {
+    return routeDescription;
+  }
+  return `Маршрут: ${routeDescription}.`;
 }
 
 function buildMeetingLine(trip) {
@@ -247,7 +260,6 @@ function xmlTableRow(cells = []) {
 }
 
 function buildBorderDocXml(trip, authority, leader, participants) {
-  const routeLine = buildBorderRouteDescription(trip);
   const dateRange = formatDateRange(trip);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -274,8 +286,9 @@ function buildBorderDocXml(trip, authority, leader, participants) {
 
   const introParagraphs = [
     xmlTextParagraph(
-      `Прошу надати дозволу на знаходження групи туристів в прикордонній зоні ${authority.zoneLabel || authority.region} з ${safeDate(trip?.tripCard?.startDate)} по ${safeDate(trip?.tripCard?.endDate)}, яка проходитиме туристичний маршрут: ${routeLine}`
+      `Прошу надати дозволу на знаходження групи туристів в прикордонній зоні ${authority.zoneLabel || authority.region} з ${safeDate(trip?.tripCard?.startDate)} по ${safeDate(trip?.tripCard?.endDate)}.`
     ),
+    xmlTextParagraph(buildBorderRouteSentence(trip)),
     xmlTextParagraph("Склад групи:")
   ].filter(Boolean);
 

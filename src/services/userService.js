@@ -79,6 +79,9 @@ function buildProfileSnapshot(user, userName = "") {
     emergencyContactRelation: normalizeText(profile.emergencyContactRelation),
     experienceLevel: normalizeText(profile.experienceLevel),
     city: normalizeText(profile.city),
+    passportNumber: normalizeText(profile.passportNumber),
+    passportIssuedBy: normalizeText(profile.passportIssuedBy),
+    residenceAddress: normalizeText(profile.residenceAddress),
     contactVerifiedAt: normalizeText(profile.contactVerifiedAt)
   };
 }

@@ -13,7 +13,9 @@ export const PROFILE_EDIT_STEPS = [
   "emergencyContactPhone",
   "emergencyContactRelation",
   "experienceLevel",
-  "city"
+  "city",
+  "passportNumber",
+  "passportIssuedBy"
 ];
 
 export const profileEditMachine = createMachine({
@@ -32,7 +34,9 @@ export const profileEditMachine = createMachine({
     emergencyContactPhone: { on: { NEXT: "emergencyContactRelation", BACK: "emergencyContactName" } },
     emergencyContactRelation: { on: { NEXT: "experienceLevel", BACK: "emergencyContactPhone" } },
     experienceLevel: { on: { NEXT: "city", BACK: "emergencyContactRelation" } },
-    city: { on: { BACK: "experienceLevel" } }
+    city: { on: { NEXT: "passportNumber", BACK: "experienceLevel" } },
+    passportNumber: { on: { NEXT: "passportIssuedBy", BACK: "city" } },
+    passportIssuedBy: { on: { BACK: "passportNumber" } }
   }
 });
 

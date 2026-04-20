@@ -108,6 +108,24 @@ function buildBorderRouteSentence(trip) {
   return `Маршрут: ${routeDescription}.`;
 }
 
+function buildRescueRouteDescription(trip) {
+  const routePlan = trip?.routePlan || {};
+  const stops = Array.isArray(routePlan.stops)
+    ? routePlan.stops.map((item) => normalizeText(item)).filter(Boolean)
+    : [];
+
+  if (stops.length) {
+    return `через проміжні точки: ${stops.join(" • ")}`;
+  }
+
+  const endpoints = getRouteEndpoints(trip);
+  if (endpoints.start && endpoints.finish) {
+    return `${endpoints.start} -> ${endpoints.finish}`;
+  }
+
+  return buildRouteLine(trip);
+}
+
 function buildMeetingLine(trip) {
   const tripCard = trip?.tripCard || {};
   const meetingPoint = normalizeText(tripCard.meetingPoint);
@@ -123,6 +141,123 @@ function buildMeetingLine(trip) {
   }
 
   return chunks.join(" | ");
+}
+
+function buildControlReturnLine(trip) {
+  const tripCard = trip?.tripCard || {};
+  const endDate = normalizeText(tripCard.endDate);
+
+  if (!endDate) {
+    return "";
+  }
+
+  return endDate;
+}
+
+function getRouteEndpoints(trip) {
+  const points = getRoutePoints(trip);
+  return {
+    start: points[0] || "",
+    finish: points[points.length - 1] || ""
+  };
+}
+
+function getTripDurationLabel(trip) {
+  const nights = Number(trip?.tripCard?.nights);
+  if (Number.isFinite(nights) && nights >= 0) {
+    const days = nights + 1;
+    return `${days} дн. / ${nights} ноч.`;
+  }
+  return "";
+}
+
+function getTripMetricLabel(value, unit = "", digits = 1) {
+  const numeric = Number(value) || 0;
+  if (!numeric) {
+    return "";
+  }
+
+  const formatted = digits > 0
+    ? numeric.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1")
+    : String(Math.round(numeric));
+
+  return unit ? `${formatted} ${unit}` : formatted;
+}
+
+function getRelevantGearItems(trip = {}) {
+  const gear = Array.isArray(trip?.gear) ? trip.gear : [];
+  const allowedMemberIds = new Set(getRelevantMembers(trip).map((member) => String(member.id || "")));
+
+  return gear.filter((item) => {
+    const memberId = String(item?.memberId || "");
+    return !memberId || allowedMemberIds.has(memberId);
+  });
+}
+
+function sumGearQuantity(items = [], matcher) {
+  return items.reduce((sum, item) => {
+    if (!matcher(item)) {
+      return sum;
+    }
+
+    return sum + (Number(item?.quantity) || 0);
+  }, 0);
+}
+
+function buildGearSummaryLines(trip) {
+  const gearItems = getRelevantGearItems(trip);
+  const tents = sumGearQuantity(gearItems, (item) => item?.profileKey === "tent");
+  const tarps = sumGearQuantity(gearItems, (item) => item?.profileKey === "tarp");
+  const cookSystems = sumGearQuantity(gearItems, (item) => item?.profileKey === "cook_system");
+  const burners = sumGearQuantity(gearItems, (item) => item?.profileKey === "stove");
+  const firstAidKits = sumGearQuantity(gearItems, (item) => item?.profileKey === "first_aid");
+  const waterFilters = sumGearQuantity(gearItems, (item) => item?.profileKey === "water_filter");
+  const headlamps = sumGearQuantity(gearItems, (item) => item?.profileKey === "headlamp");
+  const powerbanks = sumGearQuantity(gearItems, (item) => item?.profileKey === "powerbank");
+  const navigationDevices = sumGearQuantity(gearItems, (item) =>
+    item?.profileKey === "navigation_device" ||
+    normalizeText(item?.name).toLowerCase().includes("gps") ||
+    normalizeText(item?.name).toLowerCase().includes("навіг")
+  );
+  const communicationDevices = sumGearQuantity(gearItems, (item) =>
+    item?.profileKey === "communication" ||
+    normalizeText(item?.name).toLowerCase().includes("раці") ||
+    normalizeText(item?.name).toLowerCase().includes("супутников")
+  );
+
+  const lines = [];
+
+  if (tents || tarps) {
+    lines.push(`Бівак: намети ${tents || 0}${tarps ? `, тенти ${tarps}` : ""}`);
+  }
+  if (cookSystems || burners || waterFilters) {
+    lines.push(`Кухня і вода: системи ${cookSystems || 0}${burners ? `, пальники ${burners}` : ""}${waterFilters ? `, фільтри ${waterFilters}` : ""}`);
+  }
+  if (firstAidKits || headlamps || powerbanks) {
+    const parts = [];
+    if (firstAidKits) {
+      parts.push(`аптечки ${firstAidKits}`);
+    }
+    if (headlamps) {
+      parts.push(`ліхтарі ${headlamps}`);
+    }
+    if (powerbanks) {
+      parts.push(`павербанки ${powerbanks}`);
+    }
+    lines.push(`Базове спорядження: ${parts.join(", ")}`);
+  }
+  if (navigationDevices || communicationDevices) {
+    const parts = [];
+    if (navigationDevices) {
+      parts.push(`навігаційні пристрої ${navigationDevices}`);
+    }
+    if (communicationDevices) {
+      parts.push(`засоби зв'язку ${communicationDevices}`);
+    }
+    lines.push(`Навігація і зв'язок: ${parts.join(", ")}`);
+  }
+
+  return lines;
 }
 
 function getProfileData(userService, member) {
@@ -146,6 +281,14 @@ function buildParticipantRows(trip, userService) {
     const passportNumber = normalizeText(profile.passportNumber);
     const passportIssuedBy = normalizeText(profile.passportIssuedBy);
     const residenceAddress = normalizeText(profile.residenceAddress || city);
+    const emergencyContactName = normalizeText(profile.emergencyContactName);
+    const emergencyContactPhone = formatPhoneForDisplay(profile.emergencyContactPhone) || normalizeText(profile.emergencyContactPhone);
+    const emergencyContactRelation = normalizeText(profile.emergencyContactRelation);
+    const emergencyContact = [
+      emergencyContactName,
+      emergencyContactRelation ? `(${emergencyContactRelation})` : "",
+      emergencyContactPhone
+    ].filter(Boolean).join(" ");
 
     return {
       index: index + 1,
@@ -157,6 +300,7 @@ function buildParticipantRows(trip, userService) {
       passportNumber,
       passportIssuedBy,
       residenceAddress,
+      emergencyContact,
       missingCore: [
         !fullName ? "ПІБ" : "",
         birthDate === "не вказано" ? "дата народження" : "",
@@ -166,6 +310,10 @@ function buildParticipantRows(trip, userService) {
         !passportNumber ? "серія та номер документа" : "",
         !passportIssuedBy ? "ким і коли виданий документ" : "",
         !residenceAddress ? "адреса проживання" : ""
+      ].filter(Boolean),
+      missingRescue: [
+        !emergencyContactName ? "екстрений контакт" : "",
+        !emergencyContactPhone ? "телефон екстреного контакту" : ""
       ].filter(Boolean)
     };
   });
@@ -184,7 +332,10 @@ function buildLeaderData(trip, userService) {
       birthDate: "не вказано",
       residenceAddress: "",
       passportNumber: "",
-      passportIssuedBy: ""
+      passportIssuedBy: "",
+      emergencyContactName: "",
+      emergencyContactPhone: "",
+      emergencyContactRelation: ""
     };
   }
 
@@ -196,17 +347,22 @@ function buildLeaderData(trip, userService) {
     birthDate: safeDate(profile.birthDate),
     residenceAddress: normalizeText(profile.residenceAddress || profile.city),
     passportNumber: normalizeText(profile.passportNumber),
-    passportIssuedBy: normalizeText(profile.passportIssuedBy)
+    passportIssuedBy: normalizeText(profile.passportIssuedBy),
+    emergencyContactName: normalizeText(profile.emergencyContactName),
+    emergencyContactPhone: formatPhoneForDisplay(profile.emergencyContactPhone) || normalizeText(profile.emergencyContactPhone),
+    emergencyContactRelation: normalizeText(profile.emergencyContactRelation)
   };
 }
 
 function buildMissingDataSummary(participants = [], options = {}) {
   const rows = [];
   const includeBorderFields = Boolean(options.includeBorderFields);
+  const includeRescueFields = Boolean(options.includeRescueFields);
 
   for (const participant of participants) {
     const issues = [
       ...participant.missingCore,
+      ...(includeRescueFields ? participant.missingRescue : []),
       ...(includeBorderFields ? participant.missingBorder : [])
     ];
 
@@ -218,6 +374,41 @@ function buildMissingDataSummary(participants = [], options = {}) {
   }
 
   return rows;
+}
+
+function buildRescueRegistrationSummary(trip, safety, leader) {
+  const routeDescription = buildRescueRouteDescription(trip);
+  const meetingLine = buildMeetingLine(trip);
+  const controlReturnLine = buildControlReturnLine(trip);
+  const routeEndpoints = getRouteEndpoints(trip);
+  const durationLabel = getTripDurationLabel(trip);
+  const distanceKm = getTripMetricLabel((Number(trip?.routePlan?.meta?.distance) || 0) / 1000, "км");
+  const ascentGain = getTripMetricLabel(trip?.routePlan?.meta?.ascentGain, "м", 0);
+  const gearSummaryLines = buildGearSummaryLines(trip);
+  const reserveContactLine = [
+    leader.emergencyContactName,
+    leader.emergencyContactRelation ? `(${leader.emergencyContactRelation})` : "",
+    leader.emergencyContactPhone
+  ].filter(Boolean).join(" ");
+
+  return [
+    { label: "Назва походу", value: normalizeText(trip?.name) },
+    { label: "Регіон реєстрації", value: normalizeText(safety?.title) },
+    { label: "Дати походу", value: formatDateRange(trip) },
+    { label: "Тривалість", value: durationLabel },
+    { label: "Точка старту / збору", value: meetingLine || routeEndpoints.start },
+    { label: "Точка завершення", value: routeEndpoints.finish },
+    { label: "Контрольний строк повернення", value: controlReturnLine },
+    { label: "Маршрут", value: routeDescription },
+    { label: "Дистанція", value: distanceKm },
+    { label: "Набір висоти", value: ascentGain },
+    { label: "Керівник групи", value: leader.fullName },
+    { label: "Телефон керівника", value: leader.phone },
+    { label: "Резервний контакт", value: reserveContactLine },
+    { label: "Доїзд до старту", value: "" },
+    { label: "Виїзд з фінішу", value: "" },
+    { label: "Навігація / зв'язок / спорядження", value: gearSummaryLines.join("; ") }
+  ];
 }
 
 function formatDateRange(trip) {
@@ -326,9 +517,7 @@ ${footer.join("")}
 }
 
 function buildRescueDocXml(trip, safety, leader, participants) {
-  const routeLine = buildRouteLine(trip);
-  const dateRange = formatDateRange(trip);
-  const meetingLine = buildMeetingLine(trip);
+  const registrationSummary = buildRescueRegistrationSummary(trip, safety, leader);
   const rescuers = (safety.contacts || []).map((item) => `${item.label}: ${item.phones.join(" / ")}`);
 
   const paragraphs = [
@@ -337,10 +526,7 @@ function buildRescueDocXml(trip, safety, leader, participants) {
     xmlTextParagraph(`Телефон: ${leader.phone}`, { align: "right" }),
     xmlTextParagraph(""),
     xmlTextParagraph("ДАНІ ДЛЯ РЕЄСТРАЦІЇ ПОХОДУ В ДСНС"),
-    xmlTextParagraph(`Планований похід у період ${dateRange}.`),
-    xmlTextParagraph(`Маршрут: ${routeLine}.`),
-    xmlTextParagraph(`Регіон: ${trip?.region || safety.title}.`),
-    meetingLine ? xmlTextParagraph(`Точка збору / старт: ${meetingLine}.`) : "",
+    ...registrationSummary.map((item) => xmlTextParagraph(`${item.label}: ${item.value || "________________________________"}`)),
     xmlTextParagraph(`Кількість учасників: ${participants.length}.`),
     xmlTextParagraph(""),
     xmlTextParagraph("Склад групи:")
@@ -360,7 +546,7 @@ function buildRescueDocXml(trip, safety, leader, participants) {
       xmlCell(participant.birthDate),
       xmlCell(participant.phone),
       xmlCell(participant.city || "не вказано"),
-      xmlCell("Контакт через керівника групи")
+      xmlCell(participant.emergencyContact || "")
     ])
   );
 
@@ -419,7 +605,16 @@ export async function buildRescueLetter(trip, userService) {
   const safety = resolveSafetyProfile(trip);
   const leader = buildLeaderData(trip, userService);
   const participants = buildParticipantRows(trip, userService);
-  const missingSummary = buildMissingDataSummary(participants);
+  const missingSummary = buildMissingDataSummary(participants, { includeRescueFields: true });
+  if (!leader.emergencyContactName || !leader.emergencyContactPhone) {
+    missingSummary.unshift("Керівник групи: заповни резервний контакт і його телефон у профілі.");
+  }
+  if (!buildMeetingLine(trip) && !getRouteEndpoints(trip).start) {
+    missingSummary.unshift("Похід: не задано точку старту / збору.");
+  }
+  if (!buildControlReturnLine(trip)) {
+    missingSummary.unshift("Похід: перевір контрольний строк повернення.");
+  }
   const documentXml = buildRescueDocXml(trip, safety, leader, participants);
 
   return {

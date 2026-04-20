@@ -5506,10 +5506,7 @@ function showTripMemberTickets(ctx, groupService, userService, trip, memberId) {
     return ctx.reply("У цього учасника ще немає завантажених квитків.");
   }
 
-  return safeReplyTripTicketBlock(
-    ctx,
-    formatTripMemberTicketsMessage(resolvedTrip, member, userService)
-  );
+  return sendTripMemberTicketsDirectly(ctx, member);
 }
 
 async function sendTripMemberTicketFile(ctx, member, ticket) {

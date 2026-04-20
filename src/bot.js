@@ -140,6 +140,8 @@ const TRIP_DETAILS_LABEL = "🪪 Деталі походу";
 const TRIP_DETAILS_BACK_LABEL = "⬅️ Назад";
 const TRIP_SETTINGS_LABEL = "⚙️ Налаштування";
 const TRIP_SETTINGS_BACK_LABEL = "⬅️ До походу";
+const TRIP_MODE_LABEL = "🍻 Режим походу";
+const TRIP_MODE_ALCO_LABEL = "🍺 Алко";
 const TRIP_TRANSFER_ORGANIZER_LABEL = "🔁 Передати похід";
 const TRIP_TRANSFER_BACK_LABEL = "⬅️ До налаштувань";
 const TRIP_TRANSFER_INVITE_LABEL = "➕ Запросити нового організатора";
@@ -1199,13 +1201,20 @@ function getTripSettingsKeyboard(trip, userId = "") {
     return buildKeyboard([[TRIP_SETTINGS_BACK_LABEL]]);
   }
 
-  const rows = [["🔔 Нагадування"]];
+  const rows = [["🔔 Нагадування"], [TRIP_MODE_LABEL]];
   if (isTripOwner(trip, userId)) {
     rows.push([TRIP_TRANSFER_ORGANIZER_LABEL]);
     rows.push(["🛡 Права редагування"]);
   }
   rows.push([TRIP_SETTINGS_BACK_LABEL]);
   return buildKeyboard(rows);
+}
+
+function getTripModeKeyboard() {
+  return buildKeyboard([
+    [TRIP_MODE_ALCO_LABEL],
+    [TRIP_TRANSFER_BACK_LABEL]
+  ]);
 }
 
 function getTransferOrganizerKeyboard(items = [], { includeInvite = false } = {}) {
@@ -1238,6 +1247,15 @@ function getTripRemindersKeyboard(trip) {
   }
   rows.push([TRIP_DETAILS_BACK_LABEL]);
   return buildKeyboard(rows);
+}
+
+function buildTripModeToggleInlineKeyboard(trip) {
+  return Markup.inlineKeyboard([
+    [
+      ...(trip?.tripModes?.alco === true ? [] : [Markup.button.callback("✅ Увімкнути", `tmode|${trip.id}|alco|on`)]),
+      ...(trip?.tripModes?.alco === true ? [Markup.button.callback("⛔️ Вимкнути", `tmode|${trip.id}|alco|off`)] : [])
+    ].filter(Boolean)
+  ]);
 }
 
 function getTripDetailsKeyboard(trip, userId = "") {
@@ -3420,6 +3438,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     `Код походу: ${trip.inviteCode}`,
     `Твоя роль: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
     `Статус походу: ${getTripLifecycleLabel(trip.status)}`,
+    `Режим походу: ${isTripAlcoModeEnabled(trip) ? "🍺 Алко" : "базовий"}`,
     `Маршрут: ${routeLine}`,
     trip.routePlan?.stops?.length ? `Проміжні точки: ${trip.routePlan.stops.join(" • ")}` : null,
     `Статус маршруту: ${routeStatus}`,
@@ -3906,6 +3925,54 @@ function getTripContextDifficulty(routeMeta, tripCard) {
     timePerDay,
     ascentPerDay
   };
+}
+
+function isTripAlcoModeEnabled(trip) {
+  return trip?.tripModes?.alco === true;
+}
+
+function getTripAlcoholSnapshot(groupService, tripId = "") {
+  const snapshot = groupService.getFoodSnapshot(tripId);
+  const items = Array.isArray(snapshot?.items)
+    ? snapshot.items.filter((item) => String(item?.categoryKey || "") === "alcohol")
+    : [];
+
+  return {
+    count: items.length,
+    items,
+    totalCost: items.reduce((sum, item) => sum + (Number(item.cost) || 0), 0)
+  };
+}
+
+function buildAlcoModeNotes(trip, groupService) {
+  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
+  const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
+  const lines = [];
+
+  if (!alcohol.count) {
+    lines.push("• Алко-режим увімкнено, але в харчуванні походу ще немає жодної алкогольної позиції.");
+  } else {
+    lines.push(`• У харчуванні вже є ${alcohol.count} алко-позицій на ${formatMoney(alcohol.totalCost)}.`);
+  }
+
+  if (routeContext?.difficulty === "висока") {
+    lines.push("• Поточний маршрут зависокий для алко-режиму. Краще дивитись у бік простіших варіантів: Кукул, Кострича, Хом'як.");
+  } else if (routeContext?.difficulty === "середня") {
+    lines.push("• Маршрут середньої складності. Краще не робити алко-формат перед важким ранковим переходом.");
+  } else if (routeContext?.difficulty === "низька") {
+    lines.push("• По складності маршрут зараз виглядає адекватно для relaxed-формату.");
+  } else {
+    lines.push("• Якщо маршрут ще не обрано, для алко-режиму краще брати короткі та простіші варіанти без технічних ділянок.");
+  }
+
+  lines.push("• Алкоголь тільки після постановки табору, а не під час переходу.");
+  lines.push("• Для такого формату краще робити коротший перший день і ставати табором ближче до води.");
+  lines.push("• Домовтесь про одну тверезу чергу на вечір і ранок: пальник, вода, старт зборів.");
+  lines.push("• Закладіть більше води, ізотоніка і простий ранковий сніданок.");
+  lines.push("• До алко-набору добре працюють прості речі: ковбаса, сало, сир, паштет, намазки, солоні перекуси.");
+  lines.push("• Добре працює правило: жодних амбітних добивок маршруту після вечірнього застілля.");
+
+  return lines;
 }
 
 function formatDurationShort(seconds) {
@@ -4815,7 +4882,8 @@ function showTripSettings(ctx, groupService) {
     "",
     "Тут зібрані службові дії для керування походом.",
     "",
-    "• `🔔 Нагадування` — план і тексти автоматичних повідомлень учасникам"
+    "• `🔔 Нагадування` — план і тексти автоматичних повідомлень учасникам",
+    `• \`${TRIP_MODE_LABEL}\` — спеціальні режими походу. Зараз: ${isTripAlcoModeEnabled(trip) ? "🍺 Алко увімкнено" : "базовий режим"}`
   ];
 
   if (isTripOwner(trip, String(ctx.from.id))) {
@@ -4832,6 +4900,77 @@ function showTripSettings(ctx, groupService) {
     joinRichLines(lines),
     { parse_mode: "HTML", ...getTripSettingsKeyboard(trip, String(ctx.from.id)) }
   );
+}
+
+function showTripModeScreen(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-mode");
+  const trip = requireManageTrip(ctx, groupService);
+  if (!trip) {
+    return null;
+  }
+
+  return ctx.reply(
+    joinRichLines([
+      ...formatCardHeader("🍻 РЕЖИМ ПОХОДУ", trip.name),
+      "",
+      "Тут зібрані спеціальні режими з окремою логікою і підказками під формат компанії.",
+      "",
+      `• ${TRIP_MODE_ALCO_LABEL} — ${isTripAlcoModeEnabled(trip) ? "увімкнено" : "вимкнено"}`,
+      "",
+      "⚠️ Зверни увагу:",
+      "• режими не просто декоративні, вони впливають на підказки бота",
+      "• першим режимом уже доступний алко-формат"
+    ]),
+    { parse_mode: "HTML", ...getTripModeKeyboard() }
+  );
+}
+
+async function showTripAlcoMode(ctx, groupService) {
+  setMenuContext(ctx.from?.id, "trip-mode");
+  const trip = requireManageTrip(ctx, groupService);
+  if (!trip) {
+    return null;
+  }
+
+  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
+  const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
+
+  await replyRichText(
+    ctx,
+    joinRichLines([
+      ...formatCardHeader("🍺 АЛКО-РЕЖИМ", trip.name),
+      "",
+      `Статус: ${isTripAlcoModeEnabled(trip) ? "увімкнено" : "вимкнено"}`,
+      `Алко у харчуванні: ${alcohol.count ? `${alcohol.count} позицій` : "не знайдено"}`,
+      routeContext ? `Складність маршруту: ${routeContext.emoji} ${routeContext.difficulty}` : "Складність маршруту: ще не визначено",
+      "",
+      formatSectionHeader("🧠", "Що Дає Цей Режим"),
+      ...buildAlcoModeNotes(trip, groupService)
+    ]),
+    {
+      parse_mode: "HTML",
+      ...buildTripModeToggleInlineKeyboard(trip)
+    }
+  );
+
+  return ctx.reply("Додаткові режими в меню нижче.", getTripModeKeyboard());
+}
+
+async function toggleTripModeAction(ctx, groupService, tripId, modeKey, enabled) {
+  const trip = groupService.getGroup(tripId);
+  if (!trip) {
+    await ctx.answerCbQuery("Активний похід не знайдено.", { show_alert: true });
+    return null;
+  }
+
+  if (!canManageTrip(trip, String(ctx.from.id))) {
+    await ctx.answerCbQuery("Тобі недоступні налаштування цього походу.", { show_alert: true });
+    return null;
+  }
+
+  groupService.setTripMode({ groupId: tripId, modeKey, enabled });
+  await ctx.answerCbQuery(enabled ? "Режим увімкнено." : "Режим вимкнено.");
+  return showTripAlcoMode(ctx, groupService);
 }
 
 function startOrganizerTransferWizard(ctx, groupService, userService, options = {}) {
@@ -13374,6 +13513,7 @@ function showTripFoodMenu(ctx, groupService) {
   }
 
   const hasItems = Boolean(groupService.getFoodSnapshot(trip.id)?.items?.length);
+  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
   const actions = [
     "• `🥘 Додати продукт` — додати позицію в загальний список продуктів походу",
     hasItems ? "• `🗑 Видалити продукт` — прибрати позицію, якщо її внесли помилково" : null,
@@ -13390,7 +13530,14 @@ function showTripFoodMenu(ctx, groupService) {
       "",
       "⚠️ Зверни увагу:",
       "• продукти автоматично потрапляють і в загальні витрати походу",
-      "• вага продуктів використовується для попереднього розрахунку ваги рюкзака"
+      "• вага продуктів використовується для попереднього розрахунку ваги рюкзака",
+      ...(isTripAlcoModeEnabled(trip)
+        ? [
+            alcohol.count
+              ? `• алко-режим увімкнено: зараз у списку ${alcohol.count} алкогольних позицій`
+              : "• алко-режим увімкнено: бот не бачить у списку жодної алкогольної позиції"
+          ]
+        : [])
     ]),
     { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }
   );
@@ -13552,6 +13699,7 @@ function showTripFood(ctx, groupService, userService) {
   }
 
   const snapshot = groupService.getFoodSnapshot(trip.id);
+  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
 
   if (!snapshot || !snapshot.items.length) {
     return ctx.reply(
@@ -13587,7 +13735,12 @@ function showTripFood(ctx, groupService, userService) {
       "",
       formatSectionHeader("🧾", "Разом"),
       `• Загальна вага: ${formatWeightGrams(snapshot.totalWeight)}`,
-      `• Загальні витрати: ${formatMoney(snapshot.totalCost)}`
+      `• Загальні витрати: ${formatMoney(snapshot.totalCost)}`,
+      ...(isTripAlcoModeEnabled(trip)
+        ? [alcohol.count
+            ? `• Алко-режим: знайдено ${alcohol.count} алкогольних позицій`
+            : "• Алко-режим: жодної алкогольної позиції поки не знайдено"]
+        : [])
     ]),
     { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }
   );
@@ -14877,6 +15030,15 @@ export function createBot(store) {
     await ctx.answerCbQuery();
     return showTripSafety(ctx, groupService);
   });
+  bot.action(/^tmode\|([^|]+)\|([a-z_]+)\|(on|off)$/, async (ctx) =>
+    toggleTripModeAction(
+      ctx,
+      groupService,
+      ctx.match?.[1] || "",
+      ctx.match?.[2] || "",
+      (ctx.match?.[3] || "") === "on"
+    )
+  );
   bot.action(/^towner\|(a|d)\|([^|]+)$/, async (ctx) =>
     handleOrganizerTransferAction(ctx, groupService, userService, ctx.match?.[1] || "", ctx.match?.[2] || "")
   );
@@ -15015,6 +15177,8 @@ export function createBot(store) {
   bot.hears("👤 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("📋 Список учасників", (ctx) => showTripMembers(ctx, groupService, userService));
   bot.hears(TRIP_SETTINGS_LABEL, (ctx) => showTripSettings(ctx, groupService));
+  bot.hears(TRIP_MODE_LABEL, (ctx) => showTripModeScreen(ctx, groupService));
+  bot.hears(TRIP_MODE_ALCO_LABEL, (ctx) => showTripAlcoMode(ctx, groupService));
   bot.hears(TRIP_TRANSFER_ORGANIZER_LABEL, (ctx) => startOrganizerTransferWizard(ctx, groupService, userService));
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
   bot.hears(TRIP_DETAILS_BACK_LABEL, (ctx) => {
@@ -15045,6 +15209,9 @@ export function createBot(store) {
       return showTripMembersMenu(ctx, groupService, userService);
     }
     if (getMenuContext(ctx.from?.id) === "trip-reminders") {
+      return showTripSettings(ctx, groupService);
+    }
+    if (getMenuContext(ctx.from?.id) === "trip-mode") {
       return showTripSettings(ctx, groupService);
     }
     if (getMenuContext(ctx.from?.id) === "trip-settings") {

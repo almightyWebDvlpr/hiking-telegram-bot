@@ -14,6 +14,15 @@ import { AdvisorService } from "./services/advisorService.js";
 import { resolveSafetyProfile } from "./data/safetyContacts.js";
 import { VpohidLiveService } from "./services/vpohidLiveService.js";
 import {
+  calculateDaysUntilDateString,
+  formatDateTimeForAudit,
+  formatIsoDateTimeShort
+} from "./utils/dateTime.js";
+import { detectChangedFields, hasMeaningfulChange } from "./utils/changeTracking.js";
+import { extractTelegramPhotoMetadata } from "./utils/photoMetadata.js";
+import { consumeUserRateLimit, runWithLock } from "./utils/concurrency.js";
+import { formatPhoneForDisplay, normalizePhone } from "./utils/phone.js";
+import {
   PROFILE_AWARDS_LABEL,
   BADGE_SERIES,
   AWARD_RULES_OVERVIEW,
@@ -2258,14 +2267,24 @@ function buildMemberJoinedNotification(trip, memberName) {
 
 function buildTripCardChangedNotification(trip, actorName, previousTripCard = {}) {
   const nextTripCard = trip.tripCard || {};
-  const datesChanged =
-    previousTripCard?.startDate !== nextTripCard?.startDate ||
-    previousTripCard?.endDate !== nextTripCard?.endDate;
-  const meetingPointChanged =
-    normalizeLocationLabel(previousTripCard?.meetingPoint || "") !==
-    normalizeLocationLabel(nextTripCard?.meetingPoint || "");
-  const meetingDateTimeChanged =
-    formatTripMeetingDateTime(previousTripCard || {}) !== formatTripMeetingDateTime(nextTripCard || {});
+  const changedFields = detectChangedFields(
+    {
+      startDate: previousTripCard?.startDate || "",
+      endDate: previousTripCard?.endDate || "",
+      meetingPoint: normalizeLocationLabel(previousTripCard?.meetingPoint || ""),
+      meetingDateTime: formatTripMeetingDateTime(previousTripCard || {})
+    },
+    {
+      startDate: nextTripCard?.startDate || "",
+      endDate: nextTripCard?.endDate || "",
+      meetingPoint: normalizeLocationLabel(nextTripCard?.meetingPoint || ""),
+      meetingDateTime: formatTripMeetingDateTime(nextTripCard || {})
+    },
+    ["startDate", "endDate", "meetingPoint", "meetingDateTime"]
+  );
+  const datesChanged = changedFields.includes("startDate") || changedFields.includes("endDate");
+  const meetingPointChanged = changedFields.includes("meetingPoint");
+  const meetingDateTimeChanged = changedFields.includes("meetingDateTime");
 
   const lines = [
     ...formatCardHeader("🪪", "ЗМІНЕНО ДАНІ ПОХОДУ"),
@@ -2312,14 +2331,65 @@ function buildTripCardChangedNotification(trip, actorName, previousTripCard = {}
 
 function buildTripRouteChangedNotification(trip, actorName, previousRoutePlan = null) {
   const hadRouteBefore = Boolean(previousRoutePlan);
-  return joinRichLines([
+  const previousSummary = previousRoutePlan
+    ? {
+        label: formatRouteStatus(previousRoutePlan),
+        from: previousRoutePlan?.from || previousRoutePlan?.meta?.labels?.from || "",
+        to: previousRoutePlan?.to || previousRoutePlan?.meta?.labels?.to || "",
+        distance: Math.round((Number(previousRoutePlan?.meta?.distance) || 0) / 100) / 10,
+        ascent: Math.round(Number(previousRoutePlan?.meta?.ascentGain) || 0)
+      }
+    : null;
+  const nextSummary = trip.routePlan
+    ? {
+        label: formatRouteStatus(trip.routePlan),
+        from: trip.routePlan?.from || trip.routePlan?.meta?.labels?.from || "",
+        to: trip.routePlan?.to || trip.routePlan?.meta?.labels?.to || "",
+        distance: Math.round((Number(trip.routePlan?.meta?.distance) || 0) / 100) / 10,
+        ascent: Math.round(Number(trip.routePlan?.meta?.ascentGain) || 0)
+      }
+    : null;
+  const changedFields = hadRouteBefore && previousSummary && nextSummary
+    ? detectChangedFields(previousSummary, nextSummary, ["label", "from", "to", "distance", "ascent"])
+    : [];
+  const lines = [
     ...formatCardHeader("🗺", hadRouteBefore ? "ОНОВЛЕНО МАРШРУТ ПОХОДУ" : "ДОДАНО МАРШРУТ ПОХОДУ"),
     "",
-    `У поході <b>${escapeHtml(trip.name)}</b> ${hadRouteBefore ? "змінено" : "додано"} маршрут.`,
-    hadRouteBefore ? `Було: <b>${escapeHtml(formatRouteStatus(previousRoutePlan))}</b>` : null,
-    `Стало: <b>${escapeHtml(formatRouteStatus(trip.routePlan))}</b>`,
-    `Змінив: <b>${escapeHtml(actorName)}</b>`
-  ].filter(Boolean));
+    `У поході <b>${escapeHtml(trip.name)}</b> ${hadRouteBefore ? "змінено" : "додано"} маршрут.`
+  ];
+  const pushChangedBlock = (label, previousValue, nextValue) => {
+    lines.push(
+      "",
+      `<b>${escapeHtml(label)}</b>`,
+      `Було: <b>${escapeHtml(previousValue || "не вказано")}</b>`,
+      `Стало: <b>${escapeHtml(nextValue || "не вказано")}</b>`
+    );
+  };
+
+  if (!hadRouteBefore) {
+    pushChangedBlock("Маршрут", "", nextSummary?.label || "");
+  } else {
+    if (changedFields.includes("label")) {
+      pushChangedBlock("Маршрут", previousSummary?.label || "", nextSummary?.label || "");
+    }
+    if (changedFields.includes("from") || changedFields.includes("to")) {
+      pushChangedBlock(
+        "Точки маршруту",
+        [previousSummary?.from || "?", previousSummary?.to || "?"].join(" → "),
+        [nextSummary?.from || "?", nextSummary?.to || "?"].join(" → ")
+      );
+    }
+    if (changedFields.includes("distance")) {
+      pushChangedBlock("Відстань", `${previousSummary?.distance || 0} км`, `${nextSummary?.distance || 0} км`);
+    }
+    if (changedFields.includes("ascent")) {
+      pushChangedBlock("Набір висоти", `${previousSummary?.ascent || 0} м`, `${nextSummary?.ascent || 0} м`);
+    }
+  }
+
+  lines.push("");
+  lines.push(`Змінив: <b>${escapeHtml(actorName)}</b>`);
+  return joinRichLines(lines);
 }
 
 function hasTripRouteChanged(previousRoutePlan, nextRoutePlan) {
@@ -2335,7 +2405,7 @@ function hasTripRouteChanged(previousRoutePlan, nextRoutePlan) {
     return false;
   }
 
-  const previousSignature = JSON.stringify({
+  const previousSignature = {
     from: previousRoutePlan?.from || "",
     to: previousRoutePlan?.to || "",
     points: Array.isArray(previousRoutePlan?.points) ? previousRoutePlan.points : [],
@@ -2343,8 +2413,8 @@ function hasTripRouteChanged(previousRoutePlan, nextRoutePlan) {
     sourceRouteId: previousRoutePlan?.sourceRouteId || "",
     sourceTitle: previousRoutePlan?.sourceTitle || "",
     status: previousRoutePlan?.status || ""
-  });
-  const nextSignature = JSON.stringify({
+  };
+  const nextSignature = {
     from: nextRoutePlan?.from || "",
     to: nextRoutePlan?.to || "",
     points: Array.isArray(nextRoutePlan?.points) ? nextRoutePlan.points : [],
@@ -2352,9 +2422,9 @@ function hasTripRouteChanged(previousRoutePlan, nextRoutePlan) {
     sourceRouteId: nextRoutePlan?.sourceRouteId || "",
     sourceTitle: nextRoutePlan?.sourceTitle || "",
     status: nextRoutePlan?.status || ""
-  });
+  };
 
-  return previousSignature !== nextSignature;
+  return hasMeaningfulChange(previousSignature, nextSignature);
 }
 
 async function notifyTripMembers(telegram, trip, text, { excludeMemberId = "" } = {}) {
@@ -2959,11 +3029,6 @@ function formatTripMeetingDateTime(tripCard = {}) {
   return effectiveDate || meetingTime || "";
 }
 
-function formatIsoDateTimeShort(value = "") {
-  const raw = String(value || "").trim();
-  return raw ? raw.slice(0, 16).replace("T", " ") : "не вказано";
-}
-
 function truncateListForMessage(items = [], limit = 3) {
   if (!items.length) {
     return [];
@@ -3039,7 +3104,7 @@ function getTripSosMedicalLines(trip, userService, viewerCanManage = false) {
       profile.medications ? `ліки: ${profile.medications}` : null,
       profile.healthNotes ? `важливо: ${profile.healthNotes}` : null,
       profile.emergencyContactName
-        ? `контакт: ${profile.emergencyContactName}${profile.emergencyContactPhone ? `, ${profile.emergencyContactPhone}` : ""}`
+        ? `контакт: ${profile.emergencyContactName}${profile.emergencyContactPhone ? `, ${formatPhoneForDisplay(profile.emergencyContactPhone) || profile.emergencyContactPhone}` : ""}`
         : null
     ].filter(Boolean);
 
@@ -3058,7 +3123,7 @@ function formatTripSosPackage(trip, groupService, userService, viewerId = "") {
   const safetyPhones = [...new Set((safety.general || []).flatMap((item) => item.phones || []))];
   const members = (trip.members || []).map((member) => {
     const profile = userService.getProfile(member.id, member.name).profile;
-    const phone = profile.phone || "телефон не вказано";
+    const phone = formatPhoneForDisplay(profile.phone) || "телефон не вказано";
     return `• ${escapeHtml(userService.getDisplayName(member.id, member.name))} — ${escapeHtml(phone)}`;
   });
   const routeLine = formatRouteStatus(trip.routePlan);
@@ -8409,10 +8474,10 @@ function formatProfileAbout(userService, userId, userName) {
     `Місто: ${profile.city || "не вказано"}`,
     "",
     formatSectionHeader("📞", "Контакти"),
-    `Мій телефон: ${profile.phone || "не вказано"}`,
+    `Мій телефон: ${formatPhoneForDisplay(profile.phone) || "не вказано"}`,
     `Номер підтверджено: ${authState.contactVerified ? "так" : "ні"}`,
     `Екстрений контакт: ${profile.emergencyContactName || "не вказано"}`,
-    `Телефон контакту: ${profile.emergencyContactPhone || "не вказано"}`,
+    `Телефон контакту: ${formatPhoneForDisplay(profile.emergencyContactPhone) || "не вказано"}`,
     `Хто це: ${profile.emergencyContactRelation || "не вказано"}`,
     "",
     formatSectionHeader("⛰", "Досвід"),
@@ -8438,9 +8503,9 @@ function formatProfileMedicalCard(userService, userId, userName) {
     `Інші важливі особливості: ${profile.healthNotes || "не вказано"}`,
     "",
     formatSectionHeader("📞", "Екстрений Звʼязок"),
-    `Мій телефон: ${profile.phone || "не вказано"}`,
+    `Мій телефон: ${formatPhoneForDisplay(profile.phone) || "не вказано"}`,
     `Екстрений контакт: ${profile.emergencyContactName || "не вказано"}`,
-    `Телефон контакту: ${profile.emergencyContactPhone || "не вказано"}`,
+    `Телефон контакту: ${formatPhoneForDisplay(profile.emergencyContactPhone) || "не вказано"}`,
     `Хто це: ${profile.emergencyContactRelation || "не вказано"}`,
     "",
     "⚠️ Зверни увагу:",
@@ -8509,23 +8574,7 @@ function showProfileAwards(ctx, userService) {
 }
 
 function formatOwnerUsageDate(value = "") {
-  const iso = String(value || "").trim();
-  if (!iso) {
-    return "невідомо";
-  }
-
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) {
-    return iso;
-  }
-
-  return parsed.toLocaleString("uk-UA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return formatDateTimeForAudit(value);
 }
 
 function formatBotUsageStats(userService) {
@@ -9979,6 +10028,7 @@ async function handleTripPhotoMessage(ctx, flow, groupService, userService, tele
 
   const caption = String(ctx.message?.caption || "").trim();
   const authorName = userService.getDisplayName(senderId, getUserLabel(ctx));
+  const photoMetadata = await extractTelegramPhotoMetadata(telegram, photo.file_id);
   const delivery = await shareTripPhotoWithMembers(
     telegram,
     trip,
@@ -9993,7 +10043,9 @@ async function handleTripPhotoMessage(ctx, flow, groupService, userService, tele
       authorMemberId: senderId,
       authorMemberName: authorName,
       fileId: photo.file_id,
-      caption
+      fileUniqueId: photo.file_unique_id || "",
+      caption,
+      ...photoMetadata
     }
   });
   const album = groupService.getTripPhotoAlbum(trip.id, { limit: 10 });
@@ -10017,6 +10069,8 @@ async function handleTripPhotoMessage(ctx, flow, groupService, userService, tele
       "",
       `Надіслав: ${authorName}`,
       `Подія: ${savedPhoto.momentLabel}`,
+      savedPhoto.takenAt ? `Час зйомки: ${formatIsoDateTimeShort(savedPhoto.takenAt)}` : null,
+      savedPhoto.width && savedPhoto.height ? `Розмір: ${savedPhoto.width}×${savedPhoto.height}` : null,
       `Отримали учасників: ${delivery.delivered} із ${delivery.recipients}`,
       `Фотоальбом: ${album?.totalCount || 1} фото`,
       caption ? `Підпис: ${caption}` : null,
@@ -13823,19 +13877,7 @@ async function handleFinishTripConfirmFlow(ctx, flow, groupService, userService,
 }
 
 function calculateDaysUntil(dateString) {
-  if (!dateString) {
-    return null;
-  }
-
-  const today = new Date();
-  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  const target = new Date(`${dateString}T00:00:00Z`);
-
-  if (Number.isNaN(target.getTime())) {
-    return null;
-  }
-
-  return Math.round((target.getTime() - todayUtc) / (24 * 60 * 60 * 1000));
+  return calculateDaysUntilDateString(dateString);
 }
 
 function buildAutoReminderMessage(trip, reminderKey) {
@@ -14249,7 +14291,7 @@ export function createBot(store) {
     userService.confirmOwnContact({
       userId: String(ctx.from.id),
       userName: getUserLabel(ctx),
-      phone: contact.phone_number || ""
+      phone: normalizePhone(contact.phone_number || "")
     });
 
     const authState = userService.getAuthorizationState(String(ctx.from.id), getUserLabel(ctx));
@@ -14306,6 +14348,35 @@ export function createBot(store) {
     }
 
     return showAuthorizationRequired(ctx, userService);
+  });
+
+  bot.use(async (ctx, next) => {
+    const userId = String(ctx.from?.id || "");
+    if (!userId) {
+      return next();
+    }
+
+    const actionKey = ctx.callbackQuery
+      ? "callback"
+      : ctx.message?.photo
+        ? "photo"
+        : ctx.message?.document
+          ? "document"
+          : ctx.message?.contact
+            ? "contact"
+            : "text";
+    const rateLimit = await consumeUserRateLimit(userId, actionKey);
+    if (!rateLimit.allowed) {
+      const retrySeconds = Math.max(1, Math.ceil((rateLimit.retryAfterMs || 2000) / 1000));
+      if (ctx.callbackQuery) {
+        await ctx.answerCbQuery(`Занадто багато дій підряд. Спробуй ще раз через ${retrySeconds} с.`, { show_alert: true });
+        return null;
+      }
+
+      return ctx.reply(`Занадто багато дій підряд. Спробуй ще раз через ${retrySeconds} с.`, getMainKeyboard(ctx));
+    }
+
+    return runWithLock(`user:${userId}`, next);
   });
 
   bot.command("newgroup", (ctx) => {

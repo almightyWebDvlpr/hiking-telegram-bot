@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validatePhoneInput } from "../utils/phone.js";
 
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const MEETING_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -185,7 +186,18 @@ export function validateLongProfileText(value) {
 }
 
 export function validatePhone(value) {
-  return buildResult(phoneSchema.safeParse(value));
+  const result = validatePhoneInput(value);
+  if (result.ok) {
+    return {
+      ok: true,
+      value: result.normalized
+    };
+  }
+
+  return {
+    ok: false,
+    error: result.error
+  };
 }
 
 export function validateBloodType(value) {

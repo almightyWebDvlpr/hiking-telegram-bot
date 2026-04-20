@@ -154,9 +154,9 @@ function buildParticipantRows(trip, userService) {
       birthDate,
       phone,
       city,
-      passportNumber: passportNumber || "[внеси вручну]",
-      passportIssuedBy: passportIssuedBy || "[внеси вручну]",
-      residenceAddress: residenceAddress || "[внеси вручну]",
+      passportNumber,
+      passportIssuedBy,
+      residenceAddress,
       missingCore: [
         !fullName ? "ПІБ" : "",
         birthDate === "не вказано" ? "дата народження" : "",
@@ -182,9 +182,9 @@ function buildLeaderData(trip, userService) {
       phone: "не вказано",
       city: "не вказано",
       birthDate: "не вказано",
-      residenceAddress: "[внеси вручну]",
-      passportNumber: "[внеси вручну]",
-      passportIssuedBy: "[внеси вручну]"
+      residenceAddress: "",
+      passportNumber: "",
+      passportIssuedBy: ""
     };
   }
 
@@ -194,9 +194,9 @@ function buildLeaderData(trip, userService) {
     phone: formatPhoneForDisplay(profile.phone) || normalizeText(profile.phone) || "не вказано",
     city: normalizeText(profile.city) || "не вказано",
     birthDate: safeDate(profile.birthDate),
-    residenceAddress: normalizeText(profile.residenceAddress || profile.city) || "[внеси вручну]",
-    passportNumber: normalizeText(profile.passportNumber) || "[внеси вручну]",
-    passportIssuedBy: normalizeText(profile.passportIssuedBy) || "[внеси вручну]"
+    residenceAddress: normalizeText(profile.residenceAddress || profile.city),
+    passportNumber: normalizeText(profile.passportNumber),
+    passportIssuedBy: normalizeText(profile.passportIssuedBy)
   };
 }
 

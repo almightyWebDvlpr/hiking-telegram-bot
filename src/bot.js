@@ -3118,14 +3118,17 @@ function getTripSosMedicalLines(trip, userService, viewerCanManage = false) {
 
   for (const member of trip.members || []) {
     const profile = userService.getProfile(member.id, member.name).profile;
+    const emergencyContacts = userService.getTripEmergencyContactEntries(member, trip);
     const details = [
       profile.bloodType ? `група крові: ${profile.bloodType}` : null,
       profile.allergies ? `алергії: ${profile.allergies}` : null,
       profile.medications ? `ліки: ${profile.medications}` : null,
       profile.healthNotes ? `важливо: ${profile.healthNotes}` : null,
-      profile.emergencyContactName
-        ? `контакт: ${profile.emergencyContactName}${profile.emergencyContactPhone ? `, ${formatPhoneForDisplay(profile.emergencyContactPhone) || profile.emergencyContactPhone}` : ""}`
-        : null
+      ...emergencyContacts.map((contact) => {
+        const phoneLabel = contact.phoneDisplay ? `, ${contact.phoneDisplay}` : "";
+        const insideTripLabel = contact.isInsideTrip ? " [у цьому поході]" : "";
+        return `${contact.kind === "backup" ? "резервний контакт" : "контакт"}: ${contact.title || "не вказано"}${phoneLabel}${insideTripLabel}`;
+      })
     ].filter(Boolean);
 
     if (!details.length) {
@@ -5582,7 +5585,7 @@ function showTripMembers(ctx, groupService, userService) {
 function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
   const canSeeFull = canManageTrip(trip, viewerId) || member.id === viewerId;
   const role = member.role === "owner" ? "організатор" : member.canManage ? "редактор" : "учасник";
-  const memberView = userService.getTripMemberView(member, canSeeFull);
+  const memberView = userService.getTripMemberView(member, canSeeFull, trip);
   const titleName = `${getAttendanceStatusEmoji(member.attendanceStatus) ? `${getAttendanceStatusEmoji(member.attendanceStatus)} ` : ""}${getMemberDisplayName(userService, member)}`;
   const tickets = getMemberTickets(member);
   const ticketLines = tickets.length

@@ -206,8 +206,14 @@ function pickExternalEmergencyContact(profile = {}, participantLookup) {
     return { ...backup, source: "backup", requiresBackupBecauseInsideTrip: true };
   }
 
-  if (primaryComplete) {
-    return { ...primary, source: "primary", requiresBackupBecauseInsideTrip: primaryInsideTrip };
+  if (primaryInsideTrip) {
+    return {
+      name: "",
+      phone: "",
+      relation: "",
+      source: "",
+      requiresBackupBecauseInsideTrip: true
+    };
   }
 
   if (backupComplete) {

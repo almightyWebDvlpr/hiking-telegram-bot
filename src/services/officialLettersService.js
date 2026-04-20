@@ -63,21 +63,36 @@ async function loadBorderTemplateFiles() {
   return borderTemplateCache;
 }
 
-function buildRouteLine(trip) {
+function getRoutePoints(trip) {
   const routePlan = trip?.routePlan || {};
-  if (routePlan.source === "vpohid" && routePlan.sourceTitle) {
-    return routePlan.sourceTitle;
-  }
-
   const points = Array.isArray(routePlan.points) && routePlan.points.length
     ? routePlan.points
     : [routePlan.from, ...(routePlan.stops || []), routePlan.to].filter(Boolean);
+
+  return points.map((item) => normalizeText(item)).filter(Boolean);
+}
+
+function buildRouteLine(trip) {
+  const points = getRoutePoints(trip);
 
   if (!points.length) {
     return "Маршрут ще не задано";
   }
 
   return points.join(" -> ");
+}
+
+function buildBorderRouteDescription(trip) {
+  const points = getRoutePoints(trip);
+  if (!points.length) {
+    return "Маршрут ще не задано";
+  }
+
+  if (points.length > 2) {
+    return points.join(" -> ");
+  }
+
+  return `${points[0]} -> ${points[points.length - 1]}`;
 }
 
 function buildMeetingLine(trip) {
@@ -232,8 +247,7 @@ function xmlTableRow(cells = []) {
 }
 
 function buildBorderDocXml(trip, authority, leader, participants) {
-  const meetingLine = buildMeetingLine(trip);
-  const routeLine = buildRouteLine(trip);
+  const routeLine = buildBorderRouteDescription(trip);
   const dateRange = formatDateRange(trip);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -262,7 +276,6 @@ function buildBorderDocXml(trip, authority, leader, participants) {
     xmlTextParagraph(
       `Прошу надати дозволу на знаходження групи туристів в прикордонній зоні ${authority.zoneLabel || authority.region} з ${safeDate(trip?.tripCard?.startDate)} по ${safeDate(trip?.tripCard?.endDate)}, яка проходитиме туристичний маршрут: ${routeLine}`
     ),
-    meetingLine ? xmlTextParagraph(`Точка збору / старт: ${meetingLine}`) : "",
     xmlTextParagraph("Склад групи:")
   ].filter(Boolean);
 

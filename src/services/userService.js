@@ -86,6 +86,17 @@ function hasVerifiedContact(profile = {}) {
   return Boolean(normalizeText(profile.contactVerifiedAt));
 }
 
+function hasFilledProfile(profile = {}) {
+  return Boolean(
+    normalizeText(profile.fullName) ||
+    normalizeText(profile.city) ||
+    normalizeText(profile.birthDate) ||
+    normalizeText(profile.gender) ||
+    normalizeText(profile.bloodType) ||
+    normalizeText(profile.phone)
+  );
+}
+
 function isValidDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
 }
@@ -760,6 +771,91 @@ export class UserService {
         .slice(0, 10),
       stats,
       xp: buildXpSummary(stats, user)
+    };
+  }
+
+  getBotUsageReport() {
+    const data = withUsers(this.store.read());
+    const users = Array.isArray(data.users) ? data.users : [];
+    const groups = Array.isArray(data.groups) ? data.groups : [];
+
+    const tripSummary = groups.reduce((summary, trip) => {
+      if (trip?.status === "active") {
+        summary.active += 1;
+      } else if (trip?.status === "completed") {
+        summary.completed += 1;
+      } else if (trip?.status === "archived") {
+        summary.archived += 1;
+      }
+
+      if (String(trip?.closeReason || "") === "cancelled") {
+        summary.cancelled += 1;
+      }
+
+      return summary;
+    }, {
+      active: 0,
+      completed: 0,
+      archived: 0,
+      cancelled: 0
+    });
+
+    const entries = users.map((user) => {
+      const profile = buildProfileSnapshot(user, user?.name || "");
+      const relatedTrips = groups.filter((trip) => tripHasMember(trip, user.id));
+      const participatingTrips = groups.filter((trip) => tripHasParticipatingMember(trip, user.id));
+      const activeTrips = relatedTrips.filter((trip) => trip.status === "active").length;
+      const completedTrips = relatedTrips.filter((trip) => trip.status === "completed").length;
+      const archivedTrips = relatedTrips.filter((trip) => trip.status === "archived").length;
+      const organizedTrips = groups.filter((trip) => String(trip?.ownerId || "") === String(user.id || "")).length;
+      const awards = getVisibleAwardsList(user);
+      const verified = hasVerifiedContact(profile);
+      const profileFilled = hasFilledProfile(profile);
+      const lastActivityAt = normalizeText(
+        user.profileUpdatedAt ||
+        profile.contactVerifiedAt ||
+        awards[0]?.earnedAt ||
+        user?.xpHistory?.[0]?.earnedAt
+      );
+
+      return {
+        id: String(user.id || ""),
+        fullName: profile.fullName || user.name || "Користувач",
+        verified,
+        profileFilled,
+        phone: profile.phone,
+        city: profile.city,
+        activeTrips,
+        completedTrips,
+        archivedTrips,
+        tripsCount: relatedTrips.length,
+        participatingTripsCount: participatingTrips.length,
+        organizedTrips,
+        personalGearCount: Array.isArray(user.personalGear) ? user.personalGear.length : 0,
+        awardsCount: awards.length,
+        xpHistoryCount: Array.isArray(user.xpHistory) ? user.xpHistory.length : 0,
+        lastActivityAt
+      };
+    }).sort((left, right) => {
+      const scoreLeft = (left.activeTrips * 1000) + (left.completedTrips * 100) + (left.awardsCount * 10) + (left.verified ? 1 : 0);
+      const scoreRight = (right.activeTrips * 1000) + (right.completedTrips * 100) + (right.awardsCount * 10) + (right.verified ? 1 : 0);
+      if (scoreLeft !== scoreRight) {
+        return scoreRight - scoreLeft;
+      }
+
+      return String(right.lastActivityAt || "").localeCompare(String(left.lastActivityAt || ""));
+    });
+
+    return {
+      usersTotal: users.length,
+      verifiedUsers: entries.filter((item) => item.verified).length,
+      profileFilledUsers: entries.filter((item) => item.profileFilled).length,
+      usersWithTrips: entries.filter((item) => item.tripsCount > 0).length,
+      usersWithActiveTrips: entries.filter((item) => item.activeTrips > 0).length,
+      usersWithAwards: entries.filter((item) => item.awardsCount > 0).length,
+      usersWithGear: entries.filter((item) => item.personalGearCount > 0).length,
+      tripSummary,
+      entries
     };
   }
 

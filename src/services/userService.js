@@ -62,6 +62,41 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function buildTripParticipantLookup(trip = {}) {
+  const phones = new Set();
+  const names = new Set();
+
+  for (const member of Array.isArray(trip?.members) ? trip.members : []) {
+    const name = normalizeText(member?.name || "").toLowerCase();
+    const phone = normalizePhone(member?.phone || "");
+
+    if (name) {
+      names.add(name);
+    }
+    if (phone) {
+      phones.add(phone);
+    }
+  }
+
+  return { phones, names };
+}
+
+function isContactInsideTrip(contact = {}, lookup = { phones: new Set(), names: new Set() }) {
+  const phone = normalizePhone(contact.phone || "");
+  const name = normalizeText(contact.name || "").toLowerCase();
+
+  return (phone && lookup.phones.has(phone)) || (name && lookup.names.has(name));
+}
+
+function formatEmergencyContactTitle(contact = {}) {
+  const parts = [
+    normalizeText(contact.name),
+    normalizeText(contact.relation) ? `(${normalizeText(contact.relation)})` : ""
+  ].filter(Boolean);
+
+  return parts.join(" ");
+}
+
 function buildProfileSnapshot(user, userName = "") {
   const profile = user?.profile && typeof user.profile === "object" ? user.profile : {};
   return {
@@ -679,7 +714,43 @@ export class UserService {
     return normalizeText(profile.profile.fullName || profile.name || fallbackName || "Учасник");
   }
 
-  getTripMemberView(member, viewerCanManage = false) {
+  getTripEmergencyContactEntries(member, trip = null) {
+    const profile = this.getProfile(member.id, member.name).profile;
+    const primary = {
+      kind: "primary",
+      label: "Екстрений контакт",
+      name: profile.emergencyContactName,
+      phone: profile.emergencyContactPhone,
+      relation: profile.emergencyContactRelation
+    };
+    const backup = {
+      kind: "backup",
+      label: "Резервний контакт",
+      name: profile.backupEmergencyContactName,
+      phone: profile.backupEmergencyContactPhone,
+      relation: profile.backupEmergencyContactRelation
+    };
+    const lookup = trip ? buildTripParticipantLookup(trip) : null;
+    const entries = [];
+
+    for (const contact of [primary, backup]) {
+      const hasData = Boolean(normalizeText(contact.name) || normalizeText(contact.phone) || normalizeText(contact.relation));
+      if (!hasData) {
+        continue;
+      }
+
+      entries.push({
+        ...contact,
+        title: formatEmergencyContactTitle(contact),
+        phoneDisplay: formatPhoneForDisplay(contact.phone) || normalizeText(contact.phone),
+        isInsideTrip: lookup ? isContactInsideTrip(contact, lookup) : false
+      });
+    }
+
+    return entries;
+  }
+
+  getTripMemberView(member, viewerCanManage = false, trip = null) {
     const profile = this.getProfile(member.id, member.name);
     const fullName = profile.profile.fullName || profile.name || member.name || "Учасник";
     const phone = formatPhoneForDisplay(profile.profile.phone) || "не вказано";
@@ -700,10 +771,10 @@ export class UserService {
       profile.profile.medications ? `• Ліки: ${profile.profile.medications}` : null,
       profile.profile.healthNotes ? `• Важливо для походу: ${profile.profile.healthNotes}` : null,
       `• Телефон: ${phone}`,
-      profile.profile.emergencyContactName
-        ? `• Екстрений контакт: ${profile.profile.emergencyContactName}${profile.profile.emergencyContactRelation ? ` (${profile.profile.emergencyContactRelation})` : ""}`
-        : null,
-      profile.profile.emergencyContactPhone ? `• Телефон контакту: ${formatPhoneForDisplay(profile.profile.emergencyContactPhone) || profile.profile.emergencyContactPhone}` : null,
+      ...this.getTripEmergencyContactEntries(member, trip).flatMap((contact) => [
+        `• ${contact.label}: ${contact.title || "не вказано"}${contact.isInsideTrip ? " [у цьому поході]" : ""}`,
+        contact.phoneDisplay ? `• Телефон ${contact.kind === "backup" ? "резервного" : "контакту"}: ${contact.phoneDisplay}` : null
+      ])
     ].filter(Boolean);
 
     return {

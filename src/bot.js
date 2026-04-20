@@ -173,7 +173,7 @@ const TRIP_PHOTOS_ADD_LABEL = "📷 Поділитися фото";
 const TRIP_PHOTO_ALBUM_LABEL = "🖼 Фотоальбом";
 const TRIP_SOS_LABEL = "🚨 SOS пакет";
 const TRIP_BORDER_LETTER_LABEL = "🛂 Лист прикордонникам";
-const TRIP_RESCUE_LETTER_LABEL = "🚑 Лист рятувальникам";
+const TRIP_RESCUE_LETTER_LABEL = "🚑 Реєстрація в ДСНС";
 const GEAR_DELETE_CONFIRM_LABEL = "✅ Так, видалити";
 const GEAR_EDIT_ACTION_LABEL = "✏️ Редагувати";
 const GEAR_EDIT_DELETE_LABEL = "🗑 Видалити";
@@ -2166,7 +2166,7 @@ function formatSafetySection(trip) {
     formatSectionHeader("📄", "Документи"),
     `• ${TRIP_SOS_LABEL} — короткий пакет для швидкої пересилки`,
     `• ${TRIP_BORDER_LETTER_LABEL} — чернетка звернення до прикордонного підрозділу`,
-    `• ${TRIP_RESCUE_LETTER_LABEL} — чернетка маршрутного повідомлення для рятувальників`,
+    `• ${TRIP_RESCUE_LETTER_LABEL} — пакет даних для ручної реєстрації походу у рятувальників ДСНС`,
     "",
     formatSectionHeader("⚠️", "Зверни Увагу"),
     "• надішли маршрут і час повернення близьким",
@@ -5103,10 +5103,12 @@ async function showTripRescueLetterDraft(ctx, groupService, userService) {
   return replyRichText(
     ctx,
     buildOfficialLetterMetaLines({
-      title: "🚑 ЛИСТ РЯТУВАЛЬНИКАМ",
+      title: "🚑 РЕЄСТРАЦІЯ В ДСНС",
       trip,
       missingSummary: draft.missingSummary,
       extraLines: [
+        "Бот сформував DOCX з даними походу для ручної реєстрації у рятувальників ДСНС.",
+        "Пряму інтеграцію з Google Form / RitM бот не виконує.",
         `Регіон рятувальників: ${escapeHtml(draft.safety.title)}`,
         ...(draft.safety.contacts.length
           ? draft.safety.contacts.map((item) => `• ${escapeHtml(item.label)}: ${escapeHtml(item.phones.join(" / "))}`)

@@ -265,19 +265,16 @@ function buildBorderDocXml(trip, authority, leader, participants) {
 
   const rightAlignedHeader = [
     xmlTextParagraph(`Начальнику ${authority.detachmentName}`, { align: "right" }),
-    xmlParagraph(
-      `${xmlRun(`${authority.commanderRank} ${authority.commanderName}`, { italic: true, color: "666666" })}`,
-      { align: "right", italic: true }
-    ),
+    xmlTextParagraph(`${authority.commanderRank} ${authority.commanderName}`, { align: "right" }),
     xmlTextParagraph("керівника туристичної групи", { align: "right" }),
-    xmlTextParagraph(leader.fullName, { align: "right", italic: true, color: "666666" }),
+    xmlTextParagraph(leader.fullName, { align: "right" }),
     xmlParagraph(
-      `${xmlRun("паспорт ", {})}${xmlRun(leader.passportNumber, { italic: true, color: "666666" })}`,
+      `${xmlRun("паспорт ", {})}${xmlRun(leader.passportNumber, {})}`,
       { align: "right" }
     ),
-    xmlTextParagraph(leader.passportIssuedBy, { align: "right", italic: true, color: "666666" }),
+    xmlTextParagraph(leader.passportIssuedBy, { align: "right" }),
     xmlParagraph(
-      `${xmlRun("проживає ", {})}${xmlRun(leader.residenceAddress, { italic: true, color: "666666" })}`,
+      `${xmlRun("проживає ", {})}${xmlRun(leader.residenceAddress, {})}`,
       { align: "right" }
     ),
     xmlTextParagraph(`телефон ${leader.phone}`, { align: "right" }),
@@ -313,7 +310,7 @@ function buildBorderDocXml(trip, authority, leader, participants) {
   const footer = [
     xmlTextParagraph(""),
     xmlParagraph(
-      `${xmlRun(today, { italic: true, color: "666666" })}${xmlRun("                                                                 ", {})}${xmlRun(leader.fullName, { italic: true, color: "666666" })}`
+      `${xmlRun(today, {})}${xmlRun("                                                                 ", {})}${xmlRun(leader.fullName, {})}`
     )
   ];
 

@@ -15179,6 +15179,18 @@ export function createBot(store) {
   bot.hears(TRIP_SETTINGS_LABEL, (ctx) => showTripSettings(ctx, groupService));
   bot.hears(TRIP_MODE_LABEL, (ctx) => showTripModeScreen(ctx, groupService));
   bot.hears(TRIP_MODE_ALCO_LABEL, (ctx) => showTripAlcoMode(ctx, groupService));
+  bot.hears(TRIP_TRANSFER_BACK_LABEL, (ctx) => {
+    const activeFlow = getFlow(String(ctx.from?.id));
+    if (activeFlow?.type === "transfer_organizer") {
+      return handleOrganizerTransferFlow(ctx, activeFlow, groupService, userService, bot.telegram);
+    }
+
+    if (getMenuContext(ctx.from?.id) === "trip-mode") {
+      return showTripSettings(ctx, groupService);
+    }
+
+    return showTripSettings(ctx, groupService);
+  });
   bot.hears(TRIP_TRANSFER_ORGANIZER_LABEL, (ctx) => startOrganizerTransferWizard(ctx, groupService, userService));
   bot.hears("✏️ Редагувати дані походу", (ctx) => handleTripDataAction(ctx, groupService));
   bot.hears(TRIP_DETAILS_BACK_LABEL, (ctx) => {

@@ -3944,33 +3944,55 @@ function getTripAlcoholSnapshot(groupService, tripId = "") {
   };
 }
 
+function getAlcoModeRank(alcoholCount = 0) {
+  if (alcoholCount >= 8) {
+    return "👑 Магістр синьої полонини";
+  }
+  if (alcoholCount >= 5) {
+    return "🥃 Старший по привалу";
+  }
+  if (alcoholCount >= 3) {
+    return "🍺 Заслужений пивозавр";
+  }
+  if (alcoholCount >= 1) {
+    return "🫗 Молодий дегустатор";
+  }
+  return "🧃 Тверезий ревізор";
+}
+
+function getAlcoModeRouteJoke(routeContext) {
+  if (routeContext?.difficulty === "висока") {
+    return "• Маршрут лютий. Це вже не пивце на привалі, а заявка на драму. Краще Кукул, Кострича або щось без подвигів.";
+  }
+  if (routeContext?.difficulty === "середня") {
+    return "• Маршрут норм, але без героїки з вечора. Інакше ранок буде схожий на покарання.";
+  }
+  if (routeContext?.difficulty === "низька") {
+    return "• Маршрут лагідний. Для культурного барного туризму під наметом виглядає пристойно.";
+  }
+  return "• Маршрут ще не обрано. Для цього режиму краще коротко, красиво і без альпінізму в голові.";
+}
+
 function buildAlcoModeNotes(trip, groupService) {
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
   const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
+  const rank = getAlcoModeRank(alcohol.count);
   const lines = [];
 
   if (!alcohol.count) {
-    lines.push("• Алко-режим увімкнено, але в харчуванні походу ще немає жодної алкогольної позиції.");
+    lines.push("• У харчах сухо як у казармі. Ні краплі. Бот вважає, що одне пивце на привалі проситься саме собою.");
   } else {
-    lines.push(`• У харчуванні вже є ${alcohol.count} алко-позицій на ${formatMoney(alcohol.totalCost)}.`);
+    lines.push(`• На борту вже ${alcohol.count} алко-позицій на ${formatMoney(alcohol.totalCost)}. Ранг компанії: ${rank}.`);
   }
 
-  if (routeContext?.difficulty === "висока") {
-    lines.push("• Поточний маршрут зависокий для алко-режиму. Краще дивитись у бік простіших варіантів: Кукул, Кострича, Хом'як.");
-  } else if (routeContext?.difficulty === "середня") {
-    lines.push("• Маршрут середньої складності. Краще не робити алко-формат перед важким ранковим переходом.");
-  } else if (routeContext?.difficulty === "низька") {
-    lines.push("• По складності маршрут зараз виглядає адекватно для relaxed-формату.");
-  } else {
-    lines.push("• Якщо маршрут ще не обрано, для алко-режиму краще брати короткі та простіші варіанти без технічних ділянок.");
+  if (!alcohol.count) {
+    lines.push(`• Поточний ранг компанії: ${rank}. Ситуація виправна, але поки що дух заходу не розкрито.`);
   }
 
-  lines.push("• Алкоголь тільки після постановки табору, а не під час переходу.");
-  lines.push("• Для такого формату краще робити коротший перший день і ставати табором ближче до води.");
-  lines.push("• Домовтесь про одну тверезу чергу на вечір і ранок: пальник, вода, старт зборів.");
-  lines.push("• Закладіть більше води, ізотоніка і простий ранковий сніданок.");
-  lines.push("• До алко-набору добре працюють прості речі: ковбаса, сало, сир, паштет, намазки, солоні перекуси.");
-  lines.push("• Добре працює правило: жодних амбітних добивок маршруту після вечірнього застілля.");
+  lines.push(getAlcoModeRouteJoke(routeContext));
+  lines.push("• Канон режиму простий: до табору йдемо людьми, після табору вже філософами.");
+  lines.push("• На ранок потрібні вода, щось солоне, паштет/намазка і хоча б одна твереза душа біля пальника.");
+  lines.push("• Якщо дуже кортить романтики, то краще добрий привал і вид, ніж епічний маршрут через страждання.");
 
   return lines;
 }
@@ -4909,17 +4931,17 @@ function showTripModeScreen(ctx, groupService) {
     return null;
   }
 
+  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("🍻 РЕЖИМ ПОХОДУ", trip.name),
       "",
-      "Тут зібрані спеціальні режими з окремою логікою і підказками під формат компанії.",
-      "",
       `• ${TRIP_MODE_ALCO_LABEL} — ${isTripAlcoModeEnabled(trip) ? "увімкнено" : "вимкнено"}`,
-      "",
-      "⚠️ Зверни увагу:",
-      "• режими не просто декоративні, вони впливають на підказки бота",
-      "• першим режимом уже доступний алко-формат"
+      `• Ранг компанії: ${getAlcoModeRank(alcohol.count)}`,
+      alcohol.count
+        ? `• У харчах уже є ${alcohol.count} алко-позицій`
+        : "• У харчах поки сухо. Бот підозріло дивиться на такий склад продуктів."
     ]),
     { parse_mode: "HTML", ...getTripModeKeyboard() }
   );
@@ -4941,10 +4963,11 @@ async function showTripAlcoMode(ctx, groupService) {
       ...formatCardHeader("🍺 АЛКО-РЕЖИМ", trip.name),
       "",
       `Статус: ${isTripAlcoModeEnabled(trip) ? "увімкнено" : "вимкнено"}`,
-      `Алко у харчуванні: ${alcohol.count ? `${alcohol.count} позицій` : "не знайдено"}`,
+      `Ранг: ${getAlcoModeRank(alcohol.count)}`,
+      `Алко у харчуванні: ${alcohol.count ? `${alcohol.count} позицій` : "ні краплі"}`,
       routeContext ? `Складність маршруту: ${routeContext.emoji} ${routeContext.difficulty}` : "Складність маршруту: ще не визначено",
       "",
-      formatSectionHeader("🧠", "Що Дає Цей Режим"),
+      formatSectionHeader("🍻", "Що Каже Бот"),
       ...buildAlcoModeNotes(trip, groupService)
     ]),
     {
@@ -13542,8 +13565,8 @@ function showTripFoodMenu(ctx, groupService) {
       ...(isTripAlcoModeEnabled(trip)
         ? [
             alcohol.count
-              ? `• алко-режим увімкнено: зараз у списку ${alcohol.count} алкогольних позицій`
-              : "• алко-режим увімкнено: бот не бачить у списку жодної алкогольної позиції"
+              ? `• алко-режим: у списку вже ${alcohol.count} веселих позицій, колектив працює не дарма`
+              : "• алко-режим: у списку жодної краплі. Бот вважає, що це підозріло і трохи сумно"
           ]
         : [])
     ]),
@@ -13746,8 +13769,8 @@ function showTripFood(ctx, groupService, userService) {
       `• Загальні витрати: ${formatMoney(snapshot.totalCost)}`,
       ...(isTripAlcoModeEnabled(trip)
         ? [alcohol.count
-            ? `• Алко-режим: знайдено ${alcohol.count} алкогольних позицій`
-            : "• Алко-режим: жодної алкогольної позиції поки не знайдено"]
+            ? `• Алко-режим: знайдено ${alcohol.count} позицій, ранг компанії — ${getAlcoModeRank(alcohol.count)}`
+            : "• Алко-режим: нуль позицій. На привалі буде надто вже культурно"]
         : [])
     ]),
     { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }

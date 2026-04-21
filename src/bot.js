@@ -2206,48 +2206,35 @@ function getTripExpensesMenuKeyboard(groupService, tripId) {
 }
 
 function formatSafetySection(trip) {
-  const toneMode = resolveTripToneMode(trip);
   const safety = resolveSafetyProfile(trip);
-  const tripQuip = maybeQuip("trip", toneMode, {}, toneMode === "drunk" ? 0.62 : null);
   const lines = [
-    ...formatCardHeader(toneMode === "drunk" ? "🆘 ЯКЩО ПИЗДА" : "🆘 БЕЗПЕКА", trip.name),
+    ...formatCardHeader("🆘 БЕЗПЕКА", trip.name),
     "",
-    ...(tripQuip ? [tripQuip, ""] : []),
-    `${toneMode === "drunk" ? "Рятувальний район" : "Регіон безпеки"}: ${safety.title}${safety.subtitle ? ` | ${safety.subtitle}` : ""}`,
-    isLikelyBorderAreaTrip(trip)
-      ? toneMode === "drunk"
-        ? "Прикордонна тема тут виглядає серйозно: бот уже тримає чернетку листа прикордонникам, шоб панство не стояло там, як гуси в тумані."
-        : "Прикордонний режим: маршрут схожий на прикордонний район, доступна чернетка листа для прикордонників."
-      : null,
+    `Регіон безпеки: ${safety.title}${safety.subtitle ? ` | ${safety.subtitle}` : ""}`,
+    isLikelyBorderAreaTrip(trip) ? "Прикордонний режим: маршрут схожий на прикордонний район, доступна чернетка листа для прикордонників." : null,
     "",
-    formatSectionHeader("🚨", toneMode === "drunk" ? "Хто Рятує Цю Зграю" : "Екстрено"),
+    formatSectionHeader("🚨", "Екстрено"),
     ...safety.general.map((item) => `• ${item.label}: ${item.phones.join(" / ")}`)
   ];
 
   if (safety.contacts.length) {
-    lines.push("", formatSectionHeader("⛰", toneMode === "drunk" ? "Вуйки Зі Схилу" : "Гірські Рятувальники"));
+    lines.push("", formatSectionHeader("⛰", "Гірські Рятувальники"));
     lines.push(...safety.contacts.map((item) => `• ${item.label}: ${item.phones.join(" / ")}`));
   } else {
-    lines.push(
-      "",
-      formatSectionHeader("⛰", toneMode === "drunk" ? "Вуйки Зі Схилу" : "Гірські Рятувальники"),
-      toneMode === "drunk"
-        ? "• Локальний підрозділ бот не вичислив. Якщо вже зовсім пизда, дзвони 101 або 112 і не корчи з себе безсмертного гуся."
-        : "• Локальний підрозділ не визначено автоматично. У разі загрози життю телефонуй 101 або 112."
-    );
+    lines.push("", formatSectionHeader("⛰", "Гірські Рятувальники"), "• Локальний підрозділ не визначено автоматично. У разі загрози життю телефонуй 101 або 112.");
   }
 
   lines.push(
     "",
-    formatSectionHeader("📄", toneMode === "drunk" ? "Папери, Шоб Не Вити" : "Документи"),
-    `• ${TRIP_SOS_LABEL} — ${toneMode === "drunk" ? "короткий пакет, коли вже нема часу на лірику" : "короткий пакет для швидкої пересилки"}`,
-    `• ${TRIP_BORDER_LETTER_LABEL} — ${toneMode === "drunk" ? "чернетка до прикордонників, шоб не стояти там песюном" : "чернетка звернення до прикордонного підрозділу"}`,
-    `• ${TRIP_RESCUE_LETTER_LABEL} — ${toneMode === "drunk" ? "пакет даних для ручної реєстрації в ДСНС" : "пакет даних для ручної реєстрації походу у рятувальників ДСНС"}`,
+    formatSectionHeader("📄", "Документи"),
+    `• ${TRIP_SOS_LABEL} — короткий пакет для швидкої пересилки`,
+    `• ${TRIP_BORDER_LETTER_LABEL} — чернетка звернення до прикордонного підрозділу`,
+    `• ${TRIP_RESCUE_LETTER_LABEL} — пакет даних для ручної реєстрації походу у рятувальників ДСНС`,
     "",
-    formatSectionHeader("⚠️", toneMode === "drunk" ? "Шо Не Проїбати" : "Зверни Увагу"),
-    toneMode === "drunk" ? "• маршрут і час повернення скинь близьким, бо телепатів у Карпатах небагато, панове" : "• надішли маршрут і час повернення близьким",
-    toneMode === "drunk" ? "• офлайн GPX/KML і заряджений телефон — це не романтика, а база, друже" : "• тримай офлайн GPX/KML і заряджений телефон",
-    toneMode === "drunk" ? "• якщо погода чи травма вже несуться в сраку, не тяни зі зверненням до рятувальників" : "• при погіршенні погоди або травмі не затягуй зі зверненням до рятувальників"
+    formatSectionHeader("⚠️", "Зверни Увагу"),
+    "• надішли маршрут і час повернення близьким",
+    "• тримай офлайн GPX/KML і заряджений телефон",
+    "• при погіршенні погоди або травмі не затягуй зі зверненням до рятувальників"
   );
 
   return joinRichLines(lines);
@@ -15567,7 +15554,6 @@ export function createBot(store) {
   bot.hears(TRIP_REMINDERS_ENABLE_LABEL, (ctx) => toggleTripReminders(ctx, groupService, true));
   bot.hears(TRIP_REMINDERS_DISABLE_LABEL, (ctx) => toggleTripReminders(ctx, groupService, false));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
-  bot.hears("🆘 Якщо пизда", (ctx) => showTripSafety(ctx, groupService));
   bot.hears(TRIP_SOS_LABEL, (ctx) => showTripSosPackage(ctx, groupService, userService));
   bot.hears(TRIP_BORDER_LETTER_LABEL, (ctx) => showTripBorderLetterDraft(ctx, groupService, userService));
   bot.hears(TRIP_RESCUE_LETTER_LABEL, (ctx) => showTripRescueLetterDraft(ctx, groupService, userService));

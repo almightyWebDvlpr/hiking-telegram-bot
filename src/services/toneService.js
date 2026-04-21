@@ -7,9 +7,18 @@ const __dirname = path.dirname(__filename);
 const toneDir = path.resolve(__dirname, "../tone");
 const lastRandomSelections = new Map();
 
-function readToneFile(name) {
+function readToneFile(name, options = {}) {
+  const { optional = false } = options;
   const filePath = path.join(toneDir, `${name}.json`);
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    if (optional && error?.code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
 }
 
 const toneDictionaries = {
@@ -17,7 +26,7 @@ const toneDictionaries = {
   drunk: readToneFile("drunk")
 };
 const tonePacks = {
-  drunk: readToneFile("drunk-pack")
+  drunk: readToneFile("drunk-pack", { optional: true })
 };
 
 function resolveMode(mode = "default") {

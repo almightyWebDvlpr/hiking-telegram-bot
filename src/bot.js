@@ -1136,6 +1136,8 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
     joinRichLines([
       ...formatCardHeader("👥 ПОХІД", trip.name),
       "",
+      ...buildDrunkardModeBannerLines(trip, groupService),
+      ...(isTripAlcoModeEnabled(trip) ? [""] : []),
       `Твоя роль: ${role}`,
       `Статус походу: ${getTripLifecycleLabel(trip.status)}`,
       `Маршрут: ${route}`,
@@ -2742,6 +2744,15 @@ function formatReminderPlan(trip) {
   const meetingDateTime = formatTripMeetingDateTime(trip.tripCard || {});
   const lines = [...formatCardHeader("🔔 НАГАДУВАННЯ", trip.name), ""];
 
+  if (isTripAlcoModeEnabled(trip)) {
+    const alcoholItems = Array.isArray(trip.food)
+      ? trip.food.filter((item) => String(item?.categoryKey || "") === "alcohol")
+      : [];
+    const alcoholCost = alcoholItems.reduce((sum, item) => sum + (Number(item?.cost) || 0), 0);
+    lines.push(...buildDrunkardModeBannerFromValues(alcoholItems.length, alcoholCost));
+    lines.push("");
+  }
+
   lines.push(`Статус нагадувань: ${trip.remindersEnabled === true ? "увімкнено" : "вимкнено"}`);
   lines.push("");
 
@@ -3478,6 +3489,8 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
   return joinRichLines([
     ...formatCardHeader("🪪 ДЕТАЛІ ПОХОДУ", trip.name),
     "",
+    ...buildDrunkardModeBannerLines(trip, groupService),
+    ...(isTripAlcoModeEnabled(trip) ? [""] : []),
     `Код походу: ${trip.inviteCode}`,
     `Твоя роль: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
     `Статус походу: ${getTripLifecycleLabel(trip.status)}`,
@@ -4040,6 +4053,25 @@ function getAlcoModeWeatherJoke(routeContext) {
     return "• Під такий формат краще легкий маршрут, красивий вид і жодної дурної героїки.";
   }
   return "• Спершу короткий маршрут, потім культурний привал. Усе інше вже пахне авантюрою.";
+}
+
+function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
+  return [
+    "🍺 АКТИВНИЙ РЕЖИМ: ПʼЯНИЦЯ",
+    `• Ранг компанії: ${getAlcoModeRank(alcoholCount)}`,
+    alcoholCount
+      ? `• Алкоголь у поході: ${alcoholCount} позицій на ${formatMoney(totalCost)}`
+      : "• Алкоголь у поході: ні краплі. Бот уже натякає на пивце на привалі."
+  ];
+}
+
+function buildDrunkardModeBannerLines(trip, groupService) {
+  if (!isTripAlcoModeEnabled(trip)) {
+    return [];
+  }
+
+  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
+  return buildDrunkardModeBannerFromValues(alcohol.count, alcohol.totalCost);
 }
 
 function buildAlcoModeNotes(trip, groupService) {
@@ -7577,6 +7609,8 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
     joinRichLines([
       ...formatCardHeader("📍 МАРШРУТ ПОХОДУ", trip.name),
       "",
+      ...buildDrunkardModeBannerLines(trip, groupService),
+      ...(isTripAlcoModeEnabled(trip) ? [""] : []),
       `Поточний маршрут: ${formatRouteStatus(trip.routePlan)}`,
       ...(isTripAlcoModeEnabled(trip) ? ["", getAlcoModeRouteJoke(getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard))] : []),
       "",
@@ -13643,6 +13677,8 @@ function showTripFoodMenu(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader("🍲 ХАРЧУВАННЯ ПОХОДУ", trip.name),
       "",
+      ...buildDrunkardModeBannerLines(trip, groupService),
+      ...(isTripAlcoModeEnabled(trip) ? [""] : []),
       formatSectionHeader("🧭", "Що Тут Можна Зробити"),
       ...actions,
       "",
@@ -13845,6 +13881,8 @@ function showTripFood(ctx, groupService, userService) {
     joinRichLines([
       ...formatCardHeader("🍲 ХАРЧУВАННЯ ПОХОДУ", trip.name),
       "",
+      ...buildDrunkardModeBannerLines(trip, groupService),
+      ...(isTripAlcoModeEnabled(trip) ? [""] : []),
       formatSectionHeader("🥘", "Перелік Продуктів"),
       items,
       "",

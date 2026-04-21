@@ -1124,6 +1124,14 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
     hintLines.push("• У Налаштуваннях зібрані нагадування і службові дії по походу");
   }
 
+  if (!isRestricted && isTripAlcoModeEnabled(trip)) {
+    const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
+    hintLines.push(`• 🍺 Алко-режим: ${getAlcoModeRank(alcohol.count)}`);
+    hintLines.push(alcohol.count
+      ? `• У харчах уже ${alcohol.count} алко-позицій. Моральний стан табору стабільний.`
+      : "• У харчах поки сухо. Бот делікатно натякає, що пивце на привал не завадило б.");
+  }
+
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("👥 ПОХІД", trip.name),
@@ -2660,7 +2668,7 @@ function formatTripCard(trip, gearSnapshot) {
   const missingCount = gearSnapshot.gearNeeds.length;
   const totalGear = gearSnapshot.sharedGear.length + gearSnapshot.personalGear.length;
   const meetingDateTime = formatTripMeetingDateTime(tripCard);
-  return joinRichLines([
+  const lines = [
       ...formatCardHeader("🗂 ДАНІ ПОХОДУ", trip.name),
     "",
     `Дати: ${tripCard.startDate} -> ${tripCard.endDate}`,
@@ -2670,7 +2678,21 @@ function formatTripCard(trip, gearSnapshot) {
     meetingDateTime ? `Дата та Час збору: ${meetingDateTime}` : null,
     `Додано спорядження: ${totalGear}`,
     `Активних запитів: ${missingCount}`
-  ].filter(Boolean));
+  ].filter(Boolean);
+
+  if (isTripAlcoModeEnabled(trip)) {
+    const alcoholItems = Array.isArray(trip.food)
+      ? trip.food.filter((item) => String(item?.categoryKey || "") === "alcohol")
+      : [];
+    const alcoholCost = alcoholItems.reduce((sum, item) => sum + (Number(item?.cost) || 0), 0);
+    lines.push("");
+    lines.push(`🍺 Режим: ${getAlcoModeRank(alcoholItems.length)}`);
+    lines.push(alcoholItems.length
+      ? `Бар походу: ${alcoholItems.length} позицій на ${formatMoney(alcoholCost)}.`
+      : "Бар походу: порожній. На привалі буде аж надто виховано.");
+  }
+
+  return joinRichLines(lines);
 }
 
 function buildReminderPlan(trip) {
@@ -2679,24 +2701,32 @@ function buildReminderPlan(trip) {
     return [];
   }
 
+  const alcoMode = isTripAlcoModeEnabled(trip);
+
   return [
     {
       key: "d3",
       title: "За 3 дні до старту",
       date: tripCard.startDate,
-      text: "Перевір погоду, спорядження і закрий відкриті запити по речах."
+      text: alcoMode
+        ? "Перевір погоду, воду, спорядження і чи не вийшов список привалу надто вже аскетичним."
+        : "Перевір погоду, спорядження і закрий відкриті запити по речах."
     },
     {
       key: "d1",
       title: "За 1 день до старту",
       date: tripCard.startDate,
-      text: "Завантаж GPX/KML, перевір офлайн-карту і логістику до старту."
+      text: alcoMode
+        ? "Завантаж трек, перевір логістику, воду на ранок і хто в таборі чергує біля пальника."
+        : "Завантаж GPX/KML, перевір офлайн-карту і логістику до старту."
     },
     {
       key: "d0",
       title: "У день старту",
       date: tripCard.startDate,
-      text: "Перевір контакти рятувальників, маршрут, воду і фінальний статус готовності."
+      text: alcoMode
+        ? "Перевір воду, маршрут, контакти рятувальників і не влаштовуй цирк до постановки табору."
+        : "Перевір контакти рятувальників, маршрут, воду і фінальний статус готовності."
     }
   ];
 }
@@ -2732,6 +2762,18 @@ function formatReminderPlan(trip) {
     lines.push(`• Дата походу: ${formatDateShort(item.date)}`);
     lines.push(`• Що нагадає бот: ${item.text}`);
     lines.push(`• Статус: ${sentAt ? `вже надіслано (${String(sentAt).slice(0, 16).replace("T", " ")})` : "очікує"}`);
+    lines.push("");
+  }
+
+  if (isTripAlcoModeEnabled(trip)) {
+    const alcoholItems = Array.isArray(trip.food)
+      ? trip.food.filter((item) => String(item?.categoryKey || "") === "alcohol")
+      : [];
+    lines.push("🍺 Алко-режим");
+    lines.push(`• Ранг компанії: ${getAlcoModeRank(alcoholItems.length)}`);
+    lines.push(alcoholItems.length
+      ? `• У списку вже ${alcoholItems.length} веселих позицій. Бот просить тільки без дурних подвигів зранку.`
+      : "• У списку досі ні краплі. Бот нагадує: культурне пивце на привал ще ніхто не забороняв.");
     lines.push("");
   }
 
@@ -3419,6 +3461,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
   const safety = resolveSafetyProfile(trip);
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
   const ticketSummary = summarizeTripTickets(trip);
+  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
   const members = trip.members.map((member) => {
     const name = getMemberDisplayName(userService, member);
     const emoji = getAttendanceStatusEmoji(member.attendanceStatus);
@@ -3439,6 +3482,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     `Твоя роль: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
     `Статус походу: ${getTripLifecycleLabel(trip.status)}`,
     `Режим походу: ${isTripAlcoModeEnabled(trip) ? "🍺 Алко" : "базовий"}`,
+    ...(isTripAlcoModeEnabled(trip) ? [`Ранг компанії: ${getAlcoModeRank(alcohol.count)}`] : []),
     `Маршрут: ${routeLine}`,
     trip.routePlan?.stops?.length ? `Проміжні точки: ${trip.routePlan.stops.join(" • ")}` : null,
     `Статус маршруту: ${routeStatus}`,
@@ -3931,6 +3975,18 @@ function isTripAlcoModeEnabled(trip) {
   return trip?.tripModes?.alco === true;
 }
 
+function getTripAlcoholSnapshotFromTrip(trip = {}) {
+  const items = Array.isArray(trip?.food)
+    ? trip.food.filter((item) => String(item?.categoryKey || "") === "alcohol")
+    : [];
+
+  return {
+    count: items.length,
+    items,
+    totalCost: items.reduce((sum, item) => sum + (Number(item?.cost) || 0), 0)
+  };
+}
+
 function getTripAlcoholSnapshot(groupService, tripId = "") {
   const snapshot = groupService.getFoodSnapshot(tripId);
   const items = Array.isArray(snapshot?.items)
@@ -3971,6 +4027,19 @@ function getAlcoModeRouteJoke(routeContext) {
     return "• Маршрут лагідний. Для культурного барного туризму під наметом виглядає пристойно.";
   }
   return "• Маршрут ще не обрано. Для цього режиму краще коротко, красиво і без альпінізму в голові.";
+}
+
+function getAlcoModeWeatherJoke(routeContext) {
+  if (routeContext?.difficulty === "висока") {
+    return "• Погоду тут треба читати тверезою головою. Якщо дощ, вітер і каша, то краще менше пафосу і більше розуму.";
+  }
+  if (routeContext?.difficulty === "середня") {
+    return "• Якщо небо починає мутити, то вечір хай буде веселий, а ранок дуже дисциплінований.";
+  }
+  if (routeContext?.difficulty === "низька") {
+    return "• Під такий формат краще легкий маршрут, красивий вид і жодної дурної героїки.";
+  }
+  return "• Спершу короткий маршрут, потім культурний привал. Усе інше вже пахне авантюрою.";
 }
 
 function buildAlcoModeNotes(trip, groupService) {
@@ -4941,7 +5010,7 @@ function showTripModeScreen(ctx, groupService) {
       `• Ранг компанії: ${getAlcoModeRank(alcohol.count)}`,
       alcohol.count
         ? `• У харчах уже є ${alcohol.count} алко-позицій`
-        : "• У харчах поки сухо. Бот підозріло дивиться на такий склад продуктів."
+        : "• У харчах поки сухо. Бот дивиться на це з легким осудом."
     ]),
     { parse_mode: "HTML", ...getTripModeKeyboard() }
   );
@@ -7509,6 +7578,7 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
       ...formatCardHeader("📍 МАРШРУТ ПОХОДУ", trip.name),
       "",
       `Поточний маршрут: ${formatRouteStatus(trip.routePlan)}`,
+      ...(isTripAlcoModeEnabled(trip) ? ["", getAlcoModeRouteJoke(getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard))] : []),
       "",
       !trip.routePlan && canManageTrip(trip, String(ctx.from.id))
         ? "Тут можна згенерувати власний маршрут або знайти готовий у каталозі маршрутів."
@@ -7568,7 +7638,10 @@ function startTripWeatherSelection(ctx, groupService) {
       "Обери населений пункт для погоди в районі маршруту.",
       `Доступні варіанти: ${settlements.join(" • ")}`,
       "",
-      "⚠️ Краще дивитися той пункт, який ближчий до старту або ключової ділянки маршруту."
+      "⚠️ Краще дивитися той пункт, який ближчий до старту або ключової ділянки маршруту.",
+      ...(isTripAlcoModeEnabled(trip)
+        ? ["• У цьому режимі погоду краще не недооцінювати: слизьке, мокре і веселе поєднуються погано."]
+        : [])
     ]),
     { parse_mode: "HTML", ...getTripWeatherSelectionKeyboard(settlements) }
   );
@@ -9196,6 +9269,20 @@ async function showWeather(ctx, weatherService, location, keyboard = undefined, 
 
   const summary = await weatherService.getWeatherSummary(location);
   const response = await ctx.reply(summary, { parse_mode: "HTML", ...(targetKeyboard || {}) });
+  if (faqContext?.trip && isTripAlcoModeEnabled(faqContext.trip)) {
+    const routeContext = getTripContextDifficulty(faqContext.trip?.routePlan?.meta, faqContext.trip?.tripCard);
+    await ctx.reply(
+      joinRichLines([
+        ...formatCardHeader("🍺 ПОГОДА І РЕЖИМ", String(location || "Локація")),
+        "",
+        getAlcoModeWeatherJoke(routeContext),
+        ...(!getTripAlcoholSnapshotFromTrip(faqContext.trip).count
+          ? ["• І ще нюанс: у харчах ні краплі. Для такого серйозного метео-фону це вже майже образливо."]
+          : [])
+      ]),
+      { parse_mode: "HTML", ...(targetKeyboard || {}) }
+    );
+  }
   await sendContextualFaqSuggestions(ctx, advisorService, {
     screen: "weather",
     weatherSummary: summary,
@@ -13565,8 +13652,8 @@ function showTripFoodMenu(ctx, groupService) {
       ...(isTripAlcoModeEnabled(trip)
         ? [
             alcohol.count
-              ? `• алко-режим: у списку вже ${alcohol.count} веселих позицій, колектив працює не дарма`
-              : "• алко-режим: у списку жодної краплі. Бот вважає, що це підозріло і трохи сумно"
+              ? `• алко-режим: у списку вже ${alcohol.count} веселих позицій, ранг компанії — ${getAlcoModeRank(alcohol.count)}`
+              : "• алко-режим: у списку жодної краплі. Бот каже, що пивце на привал виглядало б дуже людяно"
           ]
         : [])
     ]),
@@ -13770,7 +13857,7 @@ function showTripFood(ctx, groupService, userService) {
       ...(isTripAlcoModeEnabled(trip)
         ? [alcohol.count
             ? `• Алко-режим: знайдено ${alcohol.count} позицій, ранг компанії — ${getAlcoModeRank(alcohol.count)}`
-            : "• Алко-режим: нуль позицій. На привалі буде надто вже культурно"]
+            : "• Алко-режим: нуль позицій. На привалі буде аж надто культурно, майже підозріло"]
         : [])
     ]),
     { parse_mode: "HTML", ...getTripFoodMenuKeyboard(groupService, trip.id) }

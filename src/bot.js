@@ -13100,6 +13100,14 @@ async function handleVpohidSearchFlow(ctx, flow, vpohidLiveService, routeService
 
 async function handleActiveFlow(ctx, groupService, routeService, vpohidLiveService, weatherService, advisorService, userService, telegram = null) {
   const flow = getFlow(String(ctx.from.id));
+  const message = String(ctx.message?.text || "").trim();
+  const menuContext = getMenuContext(ctx.from.id);
+
+  if (message === TRIP_TRANSFER_BACK_LABEL && menuContext === "trip-mode") {
+    clearFlow(String(ctx.from.id));
+    return showTripSettings(ctx, groupService);
+  }
+
   if (!flow) {
     return false;
   }
@@ -15186,9 +15194,11 @@ export function createBot(store) {
     }
 
     if (getMenuContext(ctx.from?.id) === "trip-mode") {
+      clearFlow(String(ctx.from.id));
       return showTripSettings(ctx, groupService);
     }
 
+    clearFlow(String(ctx.from.id));
     return showTripSettings(ctx, groupService);
   });
   bot.hears(TRIP_TRANSFER_ORGANIZER_LABEL, (ctx) => startOrganizerTransferWizard(ctx, groupService, userService));

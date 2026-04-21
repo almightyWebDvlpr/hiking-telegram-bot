@@ -1163,6 +1163,7 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
       "",
       ...buildDrunkardModeBannerLines(trip, groupService),
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("trip", trip.id), ""] : []),
       ...(packOpening ? [packOpening, ""] : []),
       `${hubCopy.roleLabel}: ${role}`,
       `${hubCopy.statusLabel}: ${getTripLifecycleLabel(trip.status)}`,
@@ -3526,6 +3527,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     "",
     ...buildDrunkardModeBannerLines(trip, groupService),
     ...(isTripAlcoModeEnabled(trip) ? [""] : []),
+    ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("trip", trip.id), ""] : []),
     ...(tripQuip ? [tripQuip, ""] : []),
     `${detailsCopy.inviteCodeLabel}: ${trip.inviteCode}`,
     `${detailsCopy.roleLabel}: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
@@ -4104,6 +4106,28 @@ function buildDrunkardModeBannerLines(trip, groupService) {
   if (quote) {
     lines.push(`• ${quote}`);
   }
+  return lines;
+}
+
+function buildDrunkQuoteLines(context = "generic", tripId = "") {
+  const primary = tPackRandom(`random_quips.${context}`, "drunk", {}, `drunk-quote:${context}:${tripId}`)
+    || tPackRandom("random_quips.generic", "drunk", {}, `drunk-quote-generic:${context}:${tripId}`);
+  if (!primary) {
+    return [];
+  }
+
+  const lines = [
+    formatSectionHeader("🎭", "Табір Каже"),
+    `• ${primary}`
+  ];
+
+  if (context !== "generic") {
+    const secondary = tPackRandom("random_quips.generic", "drunk", {}, `drunk-quote-secondary:${context}:${tripId}`);
+    if (secondary && secondary !== primary) {
+      lines.push(`• ${secondary}`);
+    }
+  }
+
   return lines;
 }
 
@@ -5060,6 +5084,10 @@ function showTripSettings(ctx, groupService) {
     lines.push("");
     lines.push(quip);
   }
+  if (toneMode === "drunk") {
+    lines.push("");
+    lines.push(...buildDrunkQuoteLines("generic", trip.id));
+  }
 
   return ctx.reply(
     joinRichLines(lines),
@@ -5083,6 +5111,7 @@ function showTripModeScreen(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(modeMenuCopy.title, trip.name),
       "",
+      ...(toneMode === "drunk" ? [...buildDrunkQuoteLines("generic", trip.id), ""] : []),
       modeMenuCopy.line.replace("{status}", isTripAlcoModeEnabled(trip) ? modeMenuCopy.statusOn : modeMenuCopy.statusOff),
       alcohol.count
         ? t("trip.modeMenu.alcoholPresent", toneMode, { count: alcohol.count })
@@ -5110,6 +5139,8 @@ async function showTripAlcoMode(ctx, groupService) {
     ctx,
     joinRichLines([
       ...formatCardHeader(drunkModeCopy.title, trip.name),
+      "",
+      ...buildDrunkQuoteLines("trip", trip.id),
       "",
       `${drunkModeCopy.statusLabel}: ${isTripAlcoModeEnabled(trip) ? drunkModeCopy.statusOn : drunkModeCopy.statusOff}`,
       `${drunkModeCopy.alcoholLabel}: ${alcohol.count ? t("trip.drunkMode.alcoholPresent", toneMode, { count: alcohol.count }) : drunkModeCopy.alcoholEmpty}`,
@@ -5841,6 +5872,11 @@ function showTripMembersMenu(ctx, groupService, userService) {
     body.push("• нагадування і службові дії винесені в `⚙️ Налаштування`");
   }
 
+  if (toneMode === "drunk") {
+    body.push("");
+    body.push(...buildDrunkQuoteLines("people", trip.id));
+  }
+
   const quip = maybeQuip("people", toneMode, {}, toneMode === "drunk" ? 0.6 : null);
   if (quip) {
     body.push("");
@@ -5908,6 +5944,7 @@ function showTripMembers(ctx, groupService, userService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.membersListTitle, trip.name),
       "",
+      ...(toneMode === "drunk" ? [...buildDrunkQuoteLines("people", trip.id), ""] : []),
       ...(quip ? [quip, ""] : []),
       ...memberSummaryLines.slice(0, -1),
       "",
@@ -5934,6 +5971,7 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
   return joinRichLines([
     ...formatCardHeader("👤 УЧАСНИК ПОХОДУ", titleName),
     "",
+    ...(resolveTripToneMode(trip) === "drunk" ? [...buildDrunkQuoteLines("people", trip.id), ""] : []),
     memberView.title,
     `Роль: ${role}`,
     `Статус: ${formatAttendanceStatusText(member.attendanceStatus)}`,
@@ -7693,6 +7731,7 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
       "",
       ...buildDrunkardModeBannerLines(trip, groupService),
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("route", trip.id), ""] : []),
       `${routeCopy.currentLabel}: ${formatRouteStatus(trip.routePlan)}`,
       ...(isTripAlcoModeEnabled(trip) ? ["", getAlcoModeRouteJoke(getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard))] : []),
       "",
@@ -13773,6 +13812,7 @@ function showTripFoodMenu(ctx, groupService) {
       "",
       ...buildDrunkardModeBannerLines(trip, groupService),
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("food", trip.id), ""] : []),
       formatSectionHeader("🧭", foodMenuCopy.actionsTitle),
       ...actions,
       "",
@@ -13860,6 +13900,7 @@ function showTripGear(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.gearTitle, trip.name),
       "",
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("gear", trip.id), ""] : []),
       formatSectionHeader("🫕", gearCopy.sharedTitle),
       ...shared,
       "",
@@ -13986,6 +14027,7 @@ function showTripFood(ctx, groupService, userService) {
       "",
       ...buildDrunkardModeBannerLines(trip, groupService),
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("food", trip.id), ""] : []),
       formatSectionHeader("🥘", foodMenuCopy.listTitle),
       items,
       "",
@@ -14136,6 +14178,7 @@ function showTripExpensesMenu(ctx, groupService) {
       ...formatCardHeader(modeCopy.expensesTitle, trip.name),
       "",
       ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkardModeBannerLines(trip, groupService), ""] : []),
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("generic", trip.id), ""] : []),
       formatSectionHeader("🧭", expensesMenuCopy.actionsTitle),
       ...actions,
       "",
@@ -14168,6 +14211,7 @@ function showTripExpenses(ctx, groupService, userService) {
       joinRichLines([
         ...formatCardHeader("💸 ВИТРАТИ ПОХОДУ", trip.name),
         "",
+        ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("generic", trip.id), ""] : []),
         "У поході поки немає витрат."
       ]),
       { parse_mode: "HTML", ...getTripExpensesMenuKeyboard(groupService, trip.id) }
@@ -14211,6 +14255,7 @@ function showTripExpenses(ctx, groupService, userService) {
     joinRichLines([
       ...formatCardHeader("💸 ВИТРАТИ ПОХОДУ", trip.name),
       "",
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("generic", trip.id), ""] : []),
       formatSectionHeader("🧾", "Позиції Витрат"),
       items,
       "",

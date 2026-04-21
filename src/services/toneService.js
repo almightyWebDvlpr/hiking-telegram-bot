@@ -21,12 +21,173 @@ function readToneFile(name, options = {}) {
   }
 }
 
+function uniqueStrings(values = []) {
+  return [...new Set(
+    values
+      .filter((value) => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  )];
+}
+
+function includesAny(text = "", keywords = []) {
+  const normalized = String(text || "").toLowerCase();
+  return keywords.some((keyword) => normalized.includes(String(keyword).toLowerCase()));
+}
+
+function collectTheatreTexts(entries = []) {
+  const phrases = [];
+  const commands = [];
+  const reactions = [];
+  const battleCries = [];
+  const absurd = [];
+  const questions = [];
+  const details = [];
+
+  for (const entry of entries) {
+    phrases.push(...(Array.isArray(entry?.popular_funny_phrases) ? entry.popular_funny_phrases : []));
+    details.push(...(Array.isArray(entry?.funny_images_and_absurd_details) ? entry.funny_images_and_absurd_details : []));
+
+    for (const quote of Array.isArray(entry?.memes_quotes) ? entry.memes_quotes : []) {
+      const text = String(quote?.text || "").trim();
+      const type = String(quote?.type || "").trim().toLowerCase();
+      const tone = String(quote?.tone || "").trim().toLowerCase();
+      if (!text) {
+        continue;
+      }
+
+      phrases.push(text);
+
+      if (type === "command" || type === "threat") {
+        commands.push(text);
+      }
+      if (type === "reaction" || type === "statement" || type === "accusation") {
+        reactions.push(text);
+      }
+      if (type === "battle_cry") {
+        battleCries.push(text);
+      }
+      if (type === "question") {
+        questions.push(text);
+      }
+      if (tone.includes("абсурд") || tone.includes("пафос") || tone.includes("хаос")) {
+        absurd.push(text);
+      }
+    }
+  }
+
+  return {
+    phrases: uniqueStrings(phrases),
+    commands: uniqueStrings(commands),
+    reactions: uniqueStrings(reactions),
+    battleCries: uniqueStrings(battleCries),
+    absurd: uniqueStrings(absurd),
+    questions: uniqueStrings(questions),
+    details: uniqueStrings(details)
+  };
+}
+
+function fallbackSlice(primary = [], fallback = [], count = 12) {
+  return uniqueStrings([...primary, ...fallback]).slice(0, count);
+}
+
+function buildTheatreTonePack(source = {}, fallbackPack = {}) {
+  const entries = Array.isArray(source?.dataset) ? source.dataset : [];
+  if (!entries.length) {
+    return fallbackPack || {};
+  }
+
+  const collected = collectTheatreTexts(entries);
+
+  const routePhrases = collected.phrases.filter((text) => includesAny(text, [
+    "іттіть", "прийшли", "вперьод", "вперед", "пагодка", "купатись", "дорог", "йти", "шлях"
+  ]));
+  const foodPhrases = collected.phrases.filter((text) => includesAny(text, [
+    "канхвет", "тузік", "випить", "барі", "шампаньйол", "їсти", "жрать", "бздить"
+  ]));
+  const peoplePhrases = collected.phrases.filter((text) => includesAny(text, [
+    "падлюки", "хлопці", "народ", "контра", "мовчите", "підорас", "сцикун"
+  ]));
+  const gearPhrases = collected.phrases.filter((text) => includesAny(text, [
+    "дрючок", "роялі", "рояль", "сраку", "простирадл", "укол"
+  ]));
+
+  const generic = fallbackSlice(collected.reactions, collected.phrases, 24);
+  const trip = fallbackSlice(
+    [...collected.commands, ...collected.reactions, ...collected.questions],
+    collected.phrases,
+    20
+  );
+  const people = fallbackSlice(
+    [...peoplePhrases, ...collected.commands, ...collected.reactions],
+    collected.phrases,
+    16
+  );
+  const route = fallbackSlice(
+    [...routePhrases, ...collected.battleCries, ...collected.questions],
+    collected.phrases,
+    16
+  );
+  const food = fallbackSlice(
+    [...foodPhrases, ...collected.reactions],
+    collected.phrases,
+    16
+  );
+  const gear = fallbackSlice(
+    [...gearPhrases, ...collected.reactions],
+    collected.phrases,
+    16
+  );
+  const welcome = fallbackSlice(
+    [...collected.battleCries, ...collected.absurd, ...collected.commands],
+    collected.phrases,
+    12
+  );
+
+  return {
+    registers: {
+      camp_truth: {
+        generic,
+        food,
+        gear,
+        route
+      },
+      absurd_high: {
+        welcome
+      },
+      fatalistic_soft: {
+        generic,
+        trip,
+        people
+      },
+      street_burn: {
+        soft_react: fallbackSlice(collected.reactions, collected.phrases, 12),
+        idle: fallbackSlice(collected.questions, collected.commands, 10),
+        edit_loop: fallbackSlice(collected.questions, collected.reactions, 10)
+      }
+    },
+    menu: {
+      title: fallbackSlice(collected.commands, collected.battleCries, 8)
+    },
+    random_quips: {
+      generic,
+      trip,
+      people,
+      food,
+      gear,
+      route
+    }
+  };
+}
+
 const toneDictionaries = {
   default: readToneFile("default"),
   drunk: readToneFile("drunk")
 };
+const legacyDrunkPack = readToneFile("drunk-pack", { optional: true });
+const theatreToneDataset = readToneFile("sources/theatre_texts_dataset_merged", { optional: true });
 const tonePacks = {
-  drunk: readToneFile("drunk-pack", { optional: true })
+  drunk: buildTheatreTonePack(theatreToneDataset, legacyDrunkPack)
 };
 
 function resolveMode(mode = "default") {

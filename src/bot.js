@@ -2206,35 +2206,48 @@ function getTripExpensesMenuKeyboard(groupService, tripId) {
 }
 
 function formatSafetySection(trip) {
+  const toneMode = resolveTripToneMode(trip);
   const safety = resolveSafetyProfile(trip);
+  const tripQuip = maybeQuip("trip", toneMode, {}, toneMode === "drunk" ? 0.62 : null);
   const lines = [
-    ...formatCardHeader("🆘 БЕЗПЕКА", trip.name),
+    ...formatCardHeader(toneMode === "drunk" ? "🆘 ЯКЩО ПИЗДА" : "🆘 БЕЗПЕКА", trip.name),
     "",
-    `Регіон безпеки: ${safety.title}${safety.subtitle ? ` | ${safety.subtitle}` : ""}`,
-    isLikelyBorderAreaTrip(trip) ? "Прикордонний режим: маршрут схожий на прикордонний район, доступна чернетка листа для прикордонників." : null,
+    ...(tripQuip ? [tripQuip, ""] : []),
+    `${toneMode === "drunk" ? "Рятувальний район" : "Регіон безпеки"}: ${safety.title}${safety.subtitle ? ` | ${safety.subtitle}` : ""}`,
+    isLikelyBorderAreaTrip(trip)
+      ? toneMode === "drunk"
+        ? "Прикордонна тема тут виглядає серйозно: бот уже тримає чернетку листа прикордонникам, шоб панство не стояло там, як гуси в тумані."
+        : "Прикордонний режим: маршрут схожий на прикордонний район, доступна чернетка листа для прикордонників."
+      : null,
     "",
-    formatSectionHeader("🚨", "Екстрено"),
+    formatSectionHeader("🚨", toneMode === "drunk" ? "Хто Рятує Цю Зграю" : "Екстрено"),
     ...safety.general.map((item) => `• ${item.label}: ${item.phones.join(" / ")}`)
   ];
 
   if (safety.contacts.length) {
-    lines.push("", formatSectionHeader("⛰", "Гірські Рятувальники"));
+    lines.push("", formatSectionHeader("⛰", toneMode === "drunk" ? "Вуйки Зі Схилу" : "Гірські Рятувальники"));
     lines.push(...safety.contacts.map((item) => `• ${item.label}: ${item.phones.join(" / ")}`));
   } else {
-    lines.push("", formatSectionHeader("⛰", "Гірські Рятувальники"), "• Локальний підрозділ не визначено автоматично. У разі загрози життю телефонуй 101 або 112.");
+    lines.push(
+      "",
+      formatSectionHeader("⛰", toneMode === "drunk" ? "Вуйки Зі Схилу" : "Гірські Рятувальники"),
+      toneMode === "drunk"
+        ? "• Локальний підрозділ бот не вичислив. Якщо вже зовсім пизда, дзвони 101 або 112 і не корчи з себе безсмертного гуся."
+        : "• Локальний підрозділ не визначено автоматично. У разі загрози життю телефонуй 101 або 112."
+    );
   }
 
   lines.push(
     "",
-    formatSectionHeader("📄", "Документи"),
-    `• ${TRIP_SOS_LABEL} — короткий пакет для швидкої пересилки`,
-    `• ${TRIP_BORDER_LETTER_LABEL} — чернетка звернення до прикордонного підрозділу`,
-    `• ${TRIP_RESCUE_LETTER_LABEL} — пакет даних для ручної реєстрації походу у рятувальників ДСНС`,
+    formatSectionHeader("📄", toneMode === "drunk" ? "Папери, Шоб Не Вити" : "Документи"),
+    `• ${TRIP_SOS_LABEL} — ${toneMode === "drunk" ? "короткий пакет, коли вже нема часу на лірику" : "короткий пакет для швидкої пересилки"}`,
+    `• ${TRIP_BORDER_LETTER_LABEL} — ${toneMode === "drunk" ? "чернетка до прикордонників, шоб не стояти там песюном" : "чернетка звернення до прикордонного підрозділу"}`,
+    `• ${TRIP_RESCUE_LETTER_LABEL} — ${toneMode === "drunk" ? "пакет даних для ручної реєстрації в ДСНС" : "пакет даних для ручної реєстрації походу у рятувальників ДСНС"}`,
     "",
-    formatSectionHeader("⚠️", "Зверни Увагу"),
-    "• надішли маршрут і час повернення близьким",
-    "• тримай офлайн GPX/KML і заряджений телефон",
-    "• при погіршенні погоди або травмі не затягуй зі зверненням до рятувальників"
+    formatSectionHeader("⚠️", toneMode === "drunk" ? "Шо Не Проїбати" : "Зверни Увагу"),
+    toneMode === "drunk" ? "• маршрут і час повернення скинь близьким, бо телепатів у Карпатах небагато, панове" : "• надішли маршрут і час повернення близьким",
+    toneMode === "drunk" ? "• офлайн GPX/KML і заряджений телефон — це не романтика, а база, друже" : "• тримай офлайн GPX/KML і заряджений телефон",
+    toneMode === "drunk" ? "• якщо погода чи травма вже несуться в сраку, не тяни зі зверненням до рятувальників" : "• при погіршенні погоди або травмі не затягуй зі зверненням до рятувальників"
   );
 
   return joinRichLines(lines);
@@ -3159,29 +3172,36 @@ function truncateListForMessage(items = [], limit = 3) {
 }
 
 function formatTripPhotoAlbumSummary(trip, album) {
+  const toneMode = resolveTripToneMode(trip);
+  const albumQuip = maybeQuip("trip", toneMode, {}, toneMode === "drunk" ? 0.6 : null);
   const lines = [
     ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
     "",
-    `Усього фото: ${album.totalCount}`,
-    `Останнє оновлення: ${formatIsoDateTimeShort(album.latestAt)}`,
+    ...(albumQuip ? [albumQuip, ""] : []),
+    `${toneMode === "drunk" ? "Кадрів назбиралось" : "Усього фото"}: ${album.totalCount}`,
+    `${toneMode === "drunk" ? "Останній шевелився" : "Останнє оновлення"}: ${formatIsoDateTimeShort(album.latestAt)}`,
     ""
   ];
 
   if (album.byMoment.length) {
-    lines.push(formatSectionHeader("🗂", "За Подіями"));
+    lines.push(formatSectionHeader("🗂", toneMode === "drunk" ? "По Сценах Цього Балагану" : "За Подіями"));
     lines.push(...album.byMoment.map((item) => `• ${item.label}: ${item.count}`));
     lines.push("");
   }
 
   if (album.byAuthor.length) {
-    lines.push(formatSectionHeader("👥", "Хто Додавав Фото"));
+    lines.push(formatSectionHeader("👥", toneMode === "drunk" ? "Хто Це Все Накидав" : "Хто Додавав Фото"));
     lines.push(...truncateListForMessage(album.byAuthor, 5).map((item) =>
       typeof item === "string" ? `• ${item}` : `• ${escapeHtml(item.authorMemberName)}: ${item.count}`
     ));
     lines.push("");
   }
 
-  lines.push(`Показую останні фото: ${album.items.length}${album.totalCount > album.items.length ? ` із ${album.totalCount}` : ""}.`);
+  lines.push(
+    toneMode === "drunk"
+      ? `Кидаю останні кадри: ${album.items.length}${album.totalCount > album.items.length ? ` із ${album.totalCount}` : ""}. Дивіться, панове, і не розказуйте потім, шо то все привиділось.`
+      : `Показую останні фото: ${album.items.length}${album.totalCount > album.items.length ? ` із ${album.totalCount}` : ""}.`
+  );
   return joinRichLines(lines);
 }
 
@@ -3496,6 +3516,7 @@ function buildTripMeetingPointLines(trip, userService, safety) {
 function formatTripPassport(trip, groupService, userService, userId = "") {
   const toneMode = resolveTripToneMode(trip);
   const detailsCopy = t("trip.details", toneMode);
+  const tripQuip = maybeQuip("trip", toneMode, {}, toneMode === "drunk" ? 0.7 : null);
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
   const safety = resolveSafetyProfile(trip);
   const routeStatus = getRouteStatusLabel(trip.routePlan?.meta);
@@ -3518,6 +3539,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     "",
     ...buildDrunkardModeBannerLines(trip, groupService),
     ...(isTripAlcoModeEnabled(trip) ? [""] : []),
+    ...(tripQuip ? [tripQuip, ""] : []),
     `${detailsCopy.inviteCodeLabel}: ${trip.inviteCode}`,
     `${detailsCopy.roleLabel}: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
     `${detailsCopy.statusLabel}: ${getTripLifecycleLabel(trip.status)}`,
@@ -5475,15 +5497,18 @@ function showTripPhotosMenu(ctx, groupService) {
     return null;
   }
   const modeCopy = getTripModeInterfaceCopy(trip);
+  const toneMode = resolveTripToneMode(trip);
+  const photosCopy = t("trip.photos", toneMode);
+  const tripQuip = maybeQuip("trip", toneMode, {}, toneMode === "drunk" ? 0.58 : null);
 
   if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader(modeCopy.photosTitle, trip.name),
         "",
-        "Бот уже зафіксував тобі статус `👎 Не йду`, тому фото походу й фотоальбом для тебе недоступні.",
+        t("trip.photos.blocked", toneMode),
         "",
-        "Якщо статус треба змінити, звернись до організатора або редактора."
+        t("trip.photos.blockedHint", toneMode)
       ]),
       { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
     );
@@ -5493,15 +5518,24 @@ function showTripPhotosMenu(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.photosTitle, trip.name),
       "",
-      isTripAlcoModeEnabled(trip) ? "Шо тут є:" : "Що тут можна робити:",
-      `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
-      `• \`${TRIP_PHOTO_ALBUM_LABEL}\` — відкрити зведений фотоальбом походу`,
+      ...(tripQuip ? [tripQuip, ""] : []),
+      toneMode === "drunk" ? photosCopy.menuTitle : "Що тут можна робити:",
+      ...(toneMode === "drunk"
+        ? photosCopy.menuLines
+        : [
+          `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
+          `• \`${TRIP_PHOTO_ALBUM_LABEL}\` — відкрити зведений фотоальбом походу`
+        ]),
       "",
-      "⚠️ Зверни увагу:",
-      "• бот не зберігає важкі файли фото в БД",
-      "• для фотоальбому зберігаються лише легкі службові дані і Telegram file_id",
-      "• фото одразу надсилається учасникам походу через Telegram",
-      "• можна додати підпис прямо в повідомленні до фото"
+      toneMode === "drunk" ? photosCopy.attentionTitle : "⚠️ Зверни увагу:",
+      ...(toneMode === "drunk"
+        ? photosCopy.attentionLines
+        : [
+          "• бот не зберігає важкі файли фото в БД",
+          "• для фотоальбому зберігаються лише легкі службові дані і Telegram file_id",
+          "• фото одразу надсилається учасникам походу через Telegram",
+          "• можна додати підпис прямо в повідомленні до фото"
+        ])
     ]),
     { parse_mode: "HTML", ...getTripPhotosKeyboard() }
   );
@@ -5558,11 +5592,12 @@ async function showTripPhotoAlbum(ctx, groupService, telegram) {
   }
 
   if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
+    const toneMode = resolveTripToneMode(trip);
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
         "",
-        "Фотоальбом недоступний, бо бот уже зафіксував тобі статус `👎 Не йду`."
+        t("trip.photos.albumBlocked", toneMode)
       ]),
       { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
     );
@@ -5570,13 +5605,14 @@ async function showTripPhotoAlbum(ctx, groupService, telegram) {
 
   const album = groupService.getTripPhotoAlbum(trip.id, { limit: 10 });
   if (!album || !album.totalCount) {
+    const toneMode = resolveTripToneMode(trip);
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
         "",
-        "У фотоальбомі походу поки ще немає фото.",
+        t("trip.photos.albumEmpty", toneMode),
         "",
-        `Скористайся \`${TRIP_PHOTOS_ADD_LABEL}\`, щоб почати збирати альбом.`
+        t("trip.photos.albumEmptyHint", toneMode)
       ]),
       { parse_mode: "HTML", ...getTripPhotosKeyboard() }
     );
@@ -5812,7 +5848,7 @@ function showTripMembersMenu(ctx, groupService, userService) {
     body.push("• нагадування і службові дії винесені в `⚙️ Налаштування`");
   }
 
-  const quip = maybeQuip("generic", toneMode);
+  const quip = maybeQuip("people", toneMode, {}, toneMode === "drunk" ? 0.6 : null);
   if (quip) {
     body.push("");
     body.push(quip);
@@ -5843,6 +5879,7 @@ function showTripMembers(ctx, groupService, userService) {
   const memberSummaryLines = [];
   const modeCopy = getTripModeInterfaceCopy(trip);
   const toneMode = resolveTripToneMode(trip);
+  const quip = maybeQuip("people", toneMode, {}, toneMode === "drunk" ? 0.62 : null);
 
   for (const member of trip.members) {
     const baseLabel = getMemberDisplayName(userService, member);
@@ -5878,6 +5915,7 @@ function showTripMembers(ctx, groupService, userService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.membersListTitle, trip.name),
       "",
+      ...(quip ? [quip, ""] : []),
       ...memberSummaryLines.slice(0, -1),
       "",
       t("trip.members.listPrompt", toneMode),

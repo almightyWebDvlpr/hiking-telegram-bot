@@ -73,6 +73,18 @@ function materialize(value, params = {}) {
   return interpolate(value, params);
 }
 
+function collectArrayValues(value) {
+  if (Array.isArray(value)) {
+    return value.filter((item) => typeof item === "string" && item.trim());
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return [value];
+  }
+
+  return [];
+}
+
 export function resolveTripToneMode(trip = null) {
   return trip?.tripModes?.alco === true ? "drunk" : "default";
 }
@@ -150,12 +162,75 @@ export function maybeQuip(context, mode = "default", params = {}, probability = 
   const chance = typeof probability === "number"
     ? probability
     : resolvedMode === "drunk"
-      ? 0.18
+      ? 0.42
       : 0.12;
 
   if (Math.random() > chance) {
     return "";
   }
 
-  return tRandom(`random_quips.${context}`, resolvedMode, params, `quip:${resolvedMode}:${context}`);
+  if (resolvedMode !== "drunk") {
+    return tRandom(`random_quips.${context}`, resolvedMode, params, `quip:${resolvedMode}:${context}`);
+  }
+
+  const packContextMap = {
+    generic: [
+      "registers.camp_truth.generic",
+      "registers.fatalistic_soft.generic",
+      "registers.street_burn.soft_react"
+    ],
+    trip: [
+      "registers.fatalistic_soft.trip",
+      "registers.absurd_high.welcome",
+      "registers.camp_truth.generic"
+    ],
+    food: [
+      "registers.camp_truth.food",
+      "registers.fatalistic_soft.generic"
+    ],
+    route: [
+      "registers.camp_truth.route",
+      "registers.fatalistic_soft.trip"
+    ],
+    gear: [
+      "registers.camp_truth.gear",
+      "registers.fatalistic_soft.generic"
+    ],
+    people: [
+      "registers.fatalistic_soft.people",
+      "registers.camp_truth.generic"
+    ],
+    idle: [
+      "registers.street_burn.idle"
+    ],
+    edit_loop: [
+      "registers.street_burn.edit_loop"
+    ]
+  };
+
+  const values = [
+    ...collectArrayValues(t(`random_quips.${context}`, resolvedMode, params)),
+    ...collectArrayValues(t("random_quips.generic", resolvedMode, params))
+  ];
+
+  for (const key of packContextMap[context] || []) {
+    values.push(...collectArrayValues(tPack(key, resolvedMode, params)));
+  }
+
+  const uniqueValues = [...new Set(values.filter(Boolean))];
+  if (!uniqueValues.length) {
+    return "";
+  }
+
+  if (uniqueValues.length === 1) {
+    lastRandomSelections.set(`quip:${resolvedMode}:${context}`, uniqueValues[0]);
+    return uniqueValues[0];
+  }
+
+  const memoryKey = `quip:${resolvedMode}:${context}`;
+  const previous = lastRandomSelections.get(memoryKey);
+  const pool = uniqueValues.filter((item) => item !== previous);
+  const next = pool[Math.floor(Math.random() * pool.length)] || uniqueValues[0];
+  lastRandomSelections.set(memoryKey, next);
+  return next;
 }

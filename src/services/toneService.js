@@ -162,7 +162,7 @@ export function maybeQuip(context, mode = "default", params = {}, probability = 
   const chance = typeof probability === "number"
     ? probability
     : resolvedMode === "drunk"
-      ? 0.42
+      ? 0.78
       : 0.12;
 
   if (Math.random() > chance) {

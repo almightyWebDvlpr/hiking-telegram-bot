@@ -1180,15 +1180,16 @@ function getTripKeyboard(trip, userId = "") {
   const backLabel = getMenuContext(userId) === "trip-linked"
     ? TRIP_LIST_BACK_LABEL
     : "⬅️ Головне меню";
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   if (isTripMemberAutoExcluded(trip, userId)) {
     const rows = [];
     if (canRestrictedTripMemberAccessGearSection(trip, null, userId)) {
-      rows.push(["🎒 Спорядження походу"]);
+      rows.push([modeCopy.gearLabel]);
     }
 
     if (canManageTrip(trip, userId)) {
-      rows.push([TRIP_SETTINGS_LABEL]);
+      rows.push([modeCopy.settingsLabel]);
     }
 
     rows.push([backLabel]);
@@ -1196,10 +1197,10 @@ function getTripKeyboard(trip, userId = "") {
   }
 
   const rows = [
-    [TRIP_DETAILS_LABEL, "👥 Учасники походу", canManageTrip(trip, userId) ? TRIP_SETTINGS_LABEL : KEYBOARD_PLACEHOLDER],
-    ["🗺 Маршрут походу", "🎒 Спорядження походу", "⚖️ Вага рюкзака"],
-    ["🆘 Безпека походу", "🍲 Харчування походу", TRIP_PHOTOS_LABEL],
-    ["🌦 Погода походу", "💸 Витрати походу"],
+    [modeCopy.detailsLabel, modeCopy.membersLabel, canManageTrip(trip, userId) ? modeCopy.settingsLabel : KEYBOARD_PLACEHOLDER],
+    [modeCopy.routeLabel, modeCopy.gearLabel, modeCopy.backpackLabel],
+    [modeCopy.safetyLabel, modeCopy.foodLabel, modeCopy.photosLabel],
+    [modeCopy.weatherLabel, modeCopy.expensesLabel],
     [backLabel]
   ];
 
@@ -1211,7 +1212,8 @@ function getTripSettingsKeyboard(trip, userId = "") {
     return buildKeyboard([[TRIP_SETTINGS_BACK_LABEL]]);
   }
 
-  const rows = [["🔔 Нагадування"], [TRIP_MODE_LABEL]];
+  const modeCopy = getTripModeInterfaceCopy(trip);
+  const rows = [[modeCopy.remindersLabel], [TRIP_MODE_LABEL]];
   if (isTripOwner(trip, userId)) {
     rows.push([TRIP_TRANSFER_ORGANIZER_LABEL]);
     rows.push(["🛡 Права редагування"]);
@@ -3988,6 +3990,54 @@ function isTripAlcoModeEnabled(trip) {
   return trip?.tripModes?.alco === true;
 }
 
+function getTripModeInterfaceCopy(trip) {
+  if (!isTripAlcoModeEnabled(trip)) {
+    return {
+      detailsLabel: TRIP_DETAILS_LABEL,
+      settingsLabel: TRIP_SETTINGS_LABEL,
+      remindersLabel: "🔔 Нагадування",
+      membersLabel: "👥 Учасники походу",
+      routeLabel: "🗺 Маршрут походу",
+      gearLabel: "🎒 Спорядження походу",
+      foodLabel: "🍲 Харчування походу",
+      photosLabel: TRIP_PHOTOS_LABEL,
+      weatherLabel: "🌦 Погода походу",
+      expensesLabel: "💸 Витрати походу",
+      safetyLabel: "🆘 Безпека походу",
+      backpackLabel: "⚖️ Вага рюкзака",
+      membersTitle: "👥 УЧАСНИКИ",
+      membersListTitle: "👥 СПИСОК УЧАСНИКІВ",
+      gearTitle: "🎒 СПОРЯДЖЕННЯ ПОХОДУ",
+      foodTitle: "🍲 ХАРЧУВАННЯ ПОХОДУ",
+      expensesTitle: "💸 ВИТРАТИ ПОХОДУ",
+      photosTitle: "📸 ФОТО ПОХОДУ",
+      settingsTitle: "⚙️ НАЛАШТУВАННЯ"
+    };
+  }
+
+  return {
+    detailsLabel: "🪪 Шо за двіж",
+    settingsLabel: "⚙️ Підкрутити цю хєрню",
+    remindersLabel: "🔔 Шоб не тупити",
+    membersLabel: "👥 Хто в темі",
+    routeLabel: "🗺 Куди премо",
+    gearLabel: "🎒 Барахло",
+    foodLabel: "🍲 Закусон",
+    photosLabel: "📸 Кадри",
+    weatherLabel: "🌦 Шо з небом",
+    expensesLabel: "💸 Бабки",
+    safetyLabel: "🆘 Якщо пизда",
+    backpackLabel: "⚖️ Скільки тягнеш",
+    membersTitle: "👥 ХТО В ТЕМІ",
+    membersListTitle: "👥 БРАТІЯ",
+    gearTitle: "🎒 БАРАХЛО",
+    foodTitle: "🍲 ЗАКУСОН",
+    expensesTitle: "💸 БАБКИ",
+    photosTitle: "📸 КАДРИ",
+    settingsTitle: "⚙️ ПІДКРУТИТИ ЦЮ ХЄРНЮ"
+  };
+}
+
 function getTripAlcoholSnapshotFromTrip(trip = {}) {
   const items = Array.isArray(trip?.food)
     ? trip.food.filter((item) => String(item?.categoryKey || "") === "alcohol")
@@ -4999,13 +5049,16 @@ function showTripSettings(ctx, groupService) {
   if (!trip) {
     return null;
   }
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   const lines = [
-    ...formatCardHeader("⚙️ НАЛАШТУВАННЯ", trip.name),
+    ...formatCardHeader(modeCopy.settingsTitle, trip.name),
     "",
-    "Тут зібрані службові дії для керування походом.",
+    isTripAlcoModeEnabled(trip) ? "Тут підкручується табірна хєрня." : "Тут зібрані службові дії для керування походом.",
     "",
-    "• `🔔 Нагадування` — план і тексти автоматичних повідомлень учасникам",
+    isTripAlcoModeEnabled(trip)
+      ? `• \`${modeCopy.remindersLabel}\` — накази по табору`
+      : "• `🔔 Нагадування` — план і тексти автоматичних повідомлень учасникам",
     `• \`${TRIP_MODE_LABEL}\` — спеціальні режими походу. Зараз: ${isTripAlcoModeEnabled(trip) ? "🍺 Пʼяниця увімкнено" : "базовий режим"}`
   ];
 
@@ -5439,11 +5492,12 @@ function showTripPhotosMenu(ctx, groupService) {
   if (!trip) {
     return null;
   }
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
     return ctx.reply(
       joinRichLines([
-        ...formatCardHeader("📸 ФОТО ПОХОДУ", trip.name),
+        ...formatCardHeader(modeCopy.photosTitle, trip.name),
         "",
         "Бот уже зафіксував тобі статус `👎 Не йду`, тому фото походу й фотоальбом для тебе недоступні.",
         "",
@@ -5455,9 +5509,9 @@ function showTripPhotosMenu(ctx, groupService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("📸 ФОТО ПОХОДУ", trip.name),
+      ...formatCardHeader(modeCopy.photosTitle, trip.name),
       "",
-      "Що тут можна робити:",
+      isTripAlcoModeEnabled(trip) ? "Шо тут є:" : "Що тут можна робити:",
       `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
       `• \`${TRIP_PHOTO_ALBUM_LABEL}\` — відкрити зведений фотоальбом походу`,
       "",
@@ -5762,8 +5816,12 @@ function showTripMembersMenu(ctx, groupService, userService) {
 
   const body = [];
   const canSeeFull = canManageTrip(trip, String(ctx.from.id));
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
-  if (canSeeFull) {
+  if (isTripAlcoModeEnabled(trip)) {
+    body.push("• братію видно тут");
+    body.push(canSeeFull ? "• можеш ще й керувати цим цирком" : "• повна анкета тільки в того, хто тут головний");
+  } else if (canSeeFull) {
     body.push("• у цьому розділі доступне запрошення нових учасників");
     body.push("• тобі також доступна повна анкета кожного учасника");
   } else {
@@ -5777,7 +5835,7 @@ function showTripMembersMenu(ctx, groupService, userService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("👥 УЧАСНИКИ", trip.name),
+      ...formatCardHeader(modeCopy.membersTitle, trip.name),
       "",
       ...body
     ]),
@@ -5798,6 +5856,7 @@ function showTripMembers(ctx, groupService, userService) {
   const items = [];
   const labelCounts = new Map();
   const memberSummaryLines = [];
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   for (const member of trip.members) {
     const baseLabel = getMemberDisplayName(userService, member);
@@ -5831,15 +5890,15 @@ function showTripMembers(ctx, groupService, userService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("👥 СПИСОК УЧАСНИКІВ", trip.name),
+      ...formatCardHeader(modeCopy.membersListTitle, trip.name),
       "",
       ...memberSummaryLines.slice(0, -1),
       "",
-      "Обери учасника кнопкою нижче.",
+      isTripAlcoModeEnabled(trip) ? "Тисни на морду нижче." : "Обери учасника кнопкою нижче.",
       "",
       "⚠️ Зверни увагу:",
-      "• усім доступні ПІБ, телефон і роль",
-      "• повна анкета доступна організатору та редактору походу"
+      isTripAlcoModeEnabled(trip) ? "• тут видно хто є хто і хто в якому статусі" : "• усім доступні ПІБ, телефон і роль",
+      isTripAlcoModeEnabled(trip) ? "• повна анкета тільки в тих, кому можна більше" : "• повна анкета доступна організатору та редактору походу"
     ]),
     { parse_mode: "HTML", ...getTripMembersListKeyboard(items) }
   );
@@ -13498,12 +13557,13 @@ async function showTripGearMenu(ctx, groupService, advisorService = null) {
   if (!trip) {
     return null;
   }
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
   if (isRestricted && !canRestrictedTripMemberAccessGearSection(trip, groupService, String(ctx.from.id))) {
     return ctx.reply(
       joinRichLines([
-        ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
+        ...formatCardHeader(modeCopy.gearTitle, trip.name),
         "",
         "У тебе зараз немає позичених речей і ніхто не користується твоїм спорядженням.",
         "",
@@ -13515,9 +13575,9 @@ async function showTripGearMenu(ctx, groupService, advisorService = null) {
 
   const response = await ctx.reply(
     joinRichLines([
-      ...formatCardHeader("🎒 СПОРЯДЖЕННЯ ПОХОДУ", trip.name),
+      ...formatCardHeader(modeCopy.gearTitle, trip.name),
       "",
-      formatSectionHeader("🧭", "Що Тут Можна Зробити"),
+      formatSectionHeader("🧭", isTripAlcoModeEnabled(trip) ? "Шо Тут Є" : "Що Тут Можна Зробити"),
       ...(!isRestricted
         ? [
             "• `➕ Додати спорядження` — спочатку обрати тип, а далі додати річ у похід",
@@ -13659,6 +13719,7 @@ function showTripFoodMenu(ctx, groupService) {
   if (!trip) {
     return null;
   }
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
@@ -13675,7 +13736,7 @@ function showTripFoodMenu(ctx, groupService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("🍲 ХАРЧУВАННЯ ПОХОДУ", trip.name),
+      ...formatCardHeader(modeCopy.foodTitle, trip.name),
       "",
       ...buildDrunkardModeBannerLines(trip, groupService),
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
@@ -13847,6 +13908,7 @@ function showTripFood(ctx, groupService, userService) {
   if (!trip) {
     return null;
   }
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
@@ -13879,7 +13941,7 @@ function showTripFood(ctx, groupService, userService) {
   return replyRichText(
     ctx,
     joinRichLines([
-      ...formatCardHeader("🍲 ХАРЧУВАННЯ ПОХОДУ", trip.name),
+      ...formatCardHeader(modeCopy.foodTitle, trip.name),
       "",
       ...buildDrunkardModeBannerLines(trip, groupService),
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
@@ -14012,6 +14074,7 @@ function showTripExpensesMenu(ctx, groupService) {
   if (!trip) {
     return null;
   }
+  const modeCopy = getTripModeInterfaceCopy(trip);
 
   if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
     return replyRestrictedTripSection(ctx, trip);
@@ -14027,9 +14090,10 @@ function showTripExpensesMenu(ctx, groupService) {
 
   return ctx.reply(
     joinRichLines([
-      ...formatCardHeader("💸 ВИТРАТИ ПОХОДУ", trip.name),
+      ...formatCardHeader(modeCopy.expensesTitle, trip.name),
       "",
-      formatSectionHeader("🧭", "Що Тут Можна Зробити"),
+      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkardModeBannerLines(trip, groupService), ""] : []),
+      formatSectionHeader("🧭", isTripAlcoModeEnabled(trip) ? "Шо Тут Є" : "Що Тут Можна Зробити"),
       ...actions,
       "",
       "⚠️ Зверни увагу:",
@@ -15331,8 +15395,11 @@ export function createBot(store) {
   bot.hears(VPOHID_BACK_TO_ROUTES_LABEL, (ctx) => showRoutesMenu(ctx));
   bot.hears("👥 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("👤 Учасники походу", (ctx) => showTripMembersMenu(ctx, groupService, userService));
+  bot.hears("👥 Хто в темі", (ctx) => showTripMembersMenu(ctx, groupService, userService));
   bot.hears("📋 Список учасників", (ctx) => showTripMembers(ctx, groupService, userService));
+  bot.hears("📋 Лица цього цирку", (ctx) => showTripMembers(ctx, groupService, userService));
   bot.hears(TRIP_SETTINGS_LABEL, (ctx) => showTripSettings(ctx, groupService));
+  bot.hears("⚙️ Підкрутити цю хєрню", (ctx) => showTripSettings(ctx, groupService));
   bot.hears(TRIP_MODE_LABEL, (ctx) => showTripModeScreen(ctx, groupService));
   bot.hears(TRIP_MODE_ALCO_LABEL, (ctx) => showTripAlcoMode(ctx, groupService));
   bot.hears(TRIP_TRANSFER_BACK_LABEL, (ctx) => {
@@ -15419,26 +15486,51 @@ export function createBot(store) {
   bot.hears("🛡 Права редагування", (ctx) => startGrantAccessWizard(ctx, groupService, userService));
   bot.hears("🗺 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService, advisorService));
   bot.hears("📍 Маршрут походу", (ctx) => showRouteMenu(ctx, groupService, advisorService));
+  bot.hears("🗺 Куди премо", (ctx) => showRouteMenu(ctx, groupService, advisorService));
   bot.hears("📄 GPX трек", (ctx) => sendRouteExport(ctx, groupService, routeService, "gpx"));
   bot.hears("📄 KML трек", (ctx) => sendRouteExport(ctx, groupService, routeService, "kml"));
   bot.hears("🗺 HTML карта треку", (ctx) => sendRouteExport(ctx, groupService, routeService, "html"));
   bot.hears("🧭 HTML карта треку", (ctx) => sendRouteExport(ctx, groupService, routeService, "html"));
   bot.hears("🎒 Спорядження походу", (ctx) => showTripGearMenu(ctx, groupService, advisorService));
+  bot.hears("🎒 Барахло", (ctx) => showTripGearMenu(ctx, groupService, advisorService));
   bot.hears("🍲 Харчування походу", (ctx) => showTripFoodMenu(ctx, groupService));
+  bot.hears("🍲 Закусон", (ctx) => showTripFoodMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_LABEL, (ctx) => showTripPhotosMenu(ctx, groupService));
+  bot.hears("📸 Кадри", (ctx) => showTripPhotosMenu(ctx, groupService));
   bot.hears(TRIP_PHOTOS_ADD_LABEL, (ctx) => startTripPhotoAddWizard(ctx, groupService));
   bot.hears(TRIP_PHOTO_ALBUM_LABEL, (ctx) => showTripPhotoAlbum(ctx, groupService, bot.telegram));
   bot.hears("💸 Витрати походу", (ctx) => showTripExpensesMenu(ctx, groupService));
+  bot.hears("💸 Бабки", (ctx) => showTripExpensesMenu(ctx, groupService));
   bot.hears(TRIP_DETAILS_LABEL, (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
+  bot.hears("🪪 Шо за двіж", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.hears("🪪 Паспорт походу", (ctx) => showTripPassport(ctx, groupService, userService, advisorService));
   bot.hears("🔔 Нагадування", (ctx) => showTripReminders(ctx, groupService));
+  bot.hears("🔔 Шоб не тупити", (ctx) => showTripReminders(ctx, groupService));
   bot.hears(TRIP_REMINDERS_ENABLE_LABEL, (ctx) => toggleTripReminders(ctx, groupService, true));
   bot.hears(TRIP_REMINDERS_DISABLE_LABEL, (ctx) => toggleTripReminders(ctx, groupService, false));
   bot.hears("🆘 Безпека походу", (ctx) => showTripSafety(ctx, groupService));
+  bot.hears("🆘 Якщо пизда", (ctx) => showTripSafety(ctx, groupService));
   bot.hears(TRIP_SOS_LABEL, (ctx) => showTripSosPackage(ctx, groupService, userService));
   bot.hears(TRIP_BORDER_LETTER_LABEL, (ctx) => showTripBorderLetterDraft(ctx, groupService, userService));
   bot.hears(TRIP_RESCUE_LETTER_LABEL, (ctx) => showTripRescueLetterDraft(ctx, groupService, userService));
   bot.hears("🌦 Погода походу", (ctx) => {
+    const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
+    if (!trip) {
+      return null;
+    }
+    if (isTripMemberAutoExcluded(trip, String(ctx.from.id))) {
+      return replyRestrictedTripSection(ctx, trip);
+    }
+    const settlements = getTripWeatherSettlements(trip);
+    if (!settlements.length) {
+      return ctx.reply("Для походу ще не задано регіон або маршрут.", getTripKeyboard(trip, String(ctx.from.id)));
+    }
+    if (settlements.length > 1) {
+      return startTripWeatherSelection(ctx, groupService);
+    }
+    return showWeather(ctx, weatherService, settlements[0], getTripKeyboard(trip, String(ctx.from.id)), advisorService, { trip });
+  });
+  bot.hears("🌦 Шо з небом", (ctx) => {
     const trip = requireTrip(ctx, groupService, getTripKeyboard(null));
     if (!trip) {
       return null;
@@ -15491,6 +15583,7 @@ export function createBot(store) {
   bot.hears("🧾 Переглянути все харчування", (ctx) => showTripFood(ctx, groupService, userService));
   bot.hears("⚖️ Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("🎒 Вага рюкзака", (ctx) => showBackpackWeight(ctx, groupService, userService));
+  bot.hears("⚖️ Скільки тягнеш", (ctx) => showBackpackWeight(ctx, groupService, userService));
   bot.hears("💸 Додати витрату", (ctx) => startExpenseAddWizard(ctx, groupService));
   bot.hears("🗑 Видалити витрату", (ctx) => startExpenseDeleteWizard(ctx, groupService));
   bot.hears("🧾 Переглянути всі витрати", (ctx) => showTripExpenses(ctx, groupService, userService));

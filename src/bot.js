@@ -4098,7 +4098,13 @@ function buildDrunkardModeBannerLines(trip, groupService) {
   }
 
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
-  return buildDrunkardModeBannerFromValues(alcohol.count, alcohol.totalCost);
+  const lines = buildDrunkardModeBannerFromValues(alcohol.count, alcohol.totalCost);
+  const quote = tPackRandom("random_quips.trip", "drunk", {}, `drunk-banner:${trip.id}`)
+    || tPackRandom("random_quips.generic", "drunk", {}, `drunk-banner-generic:${trip.id}`);
+  if (quote) {
+    lines.push(`• ${quote}`);
+  }
+  return lines;
 }
 
 function buildAlcoModeNotes(trip, groupService) {

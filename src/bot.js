@@ -24,7 +24,7 @@ import { detectChangedFields, hasMeaningfulChange } from "./utils/changeTracking
 import { extractTelegramPhotoMetadata } from "./utils/photoMetadata.js";
 import { consumeUserRateLimit, runWithLock } from "./utils/concurrency.js";
 import { formatPhoneForDisplay, normalizePhone } from "./utils/phone.js";
-import { maybeQuip, resolveContextToneMode, resolveTripToneMode, t, tPackFirst, tPackRandom } from "./services/toneService.js";
+import { maybeQuip, resolveContextToneMode, resolveTripToneMode, t, tPackRandom } from "./services/toneService.js";
 import {
   PROFILE_AWARDS_LABEL,
   BADGE_SERIES,
@@ -117,7 +117,6 @@ const flows = new Map();
 const vpohidSelections = new Map();
 const menuContexts = new Map();
 const vpohidCatalogLoads = new Set();
-let mainKeyboardGroupService = null;
 const FAQ_LABEL = "❓ Часті питання";
 const FAQ_SEARCH_LABEL = "🔎 Пошук по FAQ";
 const FAQ_ALL_LABEL = "📚 Усі питання";
@@ -404,24 +403,6 @@ function isBotOwner(ctxOrUser = null) {
 }
 
 function getMainKeyboardLabels(ctxOrUser = null) {
-  const viewerId = resolveViewerId(ctxOrUser);
-  const trip = viewerId && mainKeyboardGroupService?.findGroupByMember
-    ? mainKeyboardGroupService.findGroupByMember(viewerId)
-    : null;
-  const toneMode = resolveTripToneMode(trip);
-
-  if (toneMode === "drunk") {
-    return {
-      trip: "👥 Шо по плану",
-      profile: `🙍 ${tPackFirst("menu.items.profile", toneMode) || "Твоя пика"}`,
-      join: "🔑 Вписатись у двіж",
-      routes: "🗺 Загальні маршрути",
-      weather: "🌦 Загальна погода",
-      faq: "❓ Шо почому",
-      help: "ℹ️ Шо це"
-    };
-  }
-
   return {
     trip: "👥 Похід",
     profile: PROFILE_LABEL,
@@ -14847,7 +14828,6 @@ function startVpohidArchiveSyncLoop(vpohidLiveService) {
 export function createBot(store) {
   const bot = new Telegraf(config.botToken);
   const groupService = new GroupService(store);
-  mainKeyboardGroupService = groupService;
   const userService = new UserService(store);
   const weatherService = new WeatherService();
   const vpohidLiveService = new VpohidLiveService();

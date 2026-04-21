@@ -4087,9 +4087,9 @@ function getAlcoModeWeatherJoke(routeContext) {
 function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
   return [
     "🍺 АКТИВНИЙ РЕЖИМ: ПʼЯНИЦЯ",
-    alcoholCount
-      ? `• Алкоголь у поході: ${alcoholCount} позицій на ${formatMoney(totalCost)}`
-      : "• Алкоголь у поході: ні краплі. Бот уже натякає на пивце на привалі."
+    ...(alcoholCount
+      ? [`• Алкоголь у поході: ${alcoholCount} позицій на ${formatMoney(totalCost)}`]
+      : [])
   ];
 }
 

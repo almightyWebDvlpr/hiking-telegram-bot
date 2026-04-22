@@ -1142,15 +1142,18 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
       : t("trip.hub.alcoEmpty", toneMode));
   }
 
-  const packOpening = toneMode === "drunk"
-    ? tPackRandom("registers.fatalistic_soft.trip", toneMode, {}, `trip-open:${trip.id}`)
-      || tPackRandom("registers.absurd_high.welcome", toneMode, {}, `trip-open-fallback:${trip.id}`)
-    : "";
-  const quip = maybeQuip("trip", toneMode);
-  if (quip) {
-    hintLines.push("");
-    hintLines.push(quip);
-  }
+  const usedToneLines = new Set();
+  const bannerLines = buildDrunkardModeBannerLines(
+    trip,
+    groupService,
+    { exclude: usedToneLines, allowHard: false }
+  );
+  const hubToneLines = isTripAlcoModeEnabled(trip)
+    ? buildDrunkQuoteLines("trip", trip.id, {
+        exclude: usedToneLines,
+        allowHard: false
+      })
+    : [];
 
   return ctx.reply(
     joinRichLines([
@@ -1161,10 +1164,9 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
         trip.name
       ),
       "",
-      ...buildDrunkardModeBannerLines(trip, groupService),
+      ...bannerLines,
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
-      ...(isTripAlcoModeEnabled(trip) ? [...buildDrunkQuoteLines("trip", trip.id), ""] : []),
-      ...(packOpening ? [packOpening, ""] : []),
+      ...(hubToneLines.length ? [...hubToneLines, ""] : []),
       `${hubCopy.roleLabel}: ${role}`,
       `${hubCopy.statusLabel}: ${getTripLifecycleLabel(trip.status)}`,
       `${hubCopy.routeLabel}: ${route}`,
@@ -4098,15 +4100,78 @@ function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
   ];
 }
 
-function buildDrunkardModeBannerLines(trip, groupService) {
+function normalizeDrunkToneLine(line = "") {
+  return String(line || "")
+    .replace(/^•\s*/u, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isHardDrunkToneLine(line = "") {
+  const normalized = normalizeDrunkToneLine(line);
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /я\s+їбав/i,
+    /жизнь\s+хуйов/i,
+    /всім?\s+піздє?ц/i,
+    /усь?ю?ди\s+смерть,\s*розруха/i,
+    /пішло\s+по\s+пизд/i,
+    /зайобуют/i,
+    /доігралісь/i
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function takeUniqueDrunkToneLine(line = "", { exclude = null, allowHard = true } = {}) {
+  const normalized = normalizeDrunkToneLine(line);
+  if (!normalized) {
+    return "";
+  }
+
+  if (!allowHard && isHardDrunkToneLine(line)) {
+    return "";
+  }
+
+  if (exclude && exclude.has(normalized)) {
+    return "";
+  }
+
+  if (exclude) {
+    exclude.add(normalized);
+  }
+
+  return String(line).trim();
+}
+
+function pickDrunkToneLine(keys = [], memoryScope = "", { exclude = null, allowHard = true } = {}) {
+  for (const key of keys) {
+    const line = takeUniqueDrunkToneLine(
+      tPackRandom(key, "drunk", {}, `${memoryScope}:${key}`),
+      { exclude, allowHard }
+    );
+    if (line) {
+      return line;
+    }
+  }
+
+  return "";
+}
+
+function buildDrunkardModeBannerLines(trip, groupService, { exclude = null, allowHard = false } = {}) {
   if (!isTripAlcoModeEnabled(trip)) {
     return [];
   }
 
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
   const lines = buildDrunkardModeBannerFromValues(alcohol.count, alcohol.totalCost);
-  const quote = tPackRandom("random_quips.trip", "drunk", {}, `drunk-banner:${trip.id}`)
-    || tPackRandom("random_quips.generic", "drunk", {}, `drunk-banner-generic:${trip.id}`);
+  const quote = pickDrunkToneLine(
+    ["registers.camp_truth.generic", "registers.fatalistic_soft.trip", "random_quips.trip", "random_quips.generic"],
+    `drunk-banner:${trip.id}`,
+    { exclude, allowHard }
+  );
   if (quote) {
     lines.push(`• ${quote}`);
   }
@@ -4146,10 +4211,9 @@ const DRUNK_QUOTE_KEYS = {
   ]
 };
 
-function buildDrunkQuoteLines(context = "generic", tripId = "", { includeQuip = false, maxLines = 1 } = {}) {
+function buildDrunkQuoteLines(context = "generic", tripId = "", { includeQuip = false, maxLines = 1, exclude = null, allowHard = true } = {}) {
   const keys = DRUNK_QUOTE_KEYS[context] || DRUNK_QUOTE_KEYS.generic;
   const lines = [];
-  const seen = new Set();
   const effectiveMaxLines = Math.max(1, Math.min(maxLines, 2));
 
   for (const key of keys) {
@@ -4157,18 +4221,21 @@ function buildDrunkQuoteLines(context = "generic", tripId = "", { includeQuip = 
       break;
     }
 
-    const line = tPackRandom(key, "drunk", {}, `drunk-quote:${context}:${tripId}:${key}`);
-    if (!line || seen.has(line)) {
-      continue;
+    const line = takeUniqueDrunkToneLine(
+      tPackRandom(key, "drunk", {}, `drunk-quote:${context}:${tripId}:${key}`),
+      { exclude, allowHard }
+    );
+    if (line) {
+      lines.push(line);
     }
-
-    lines.push(line);
-    seen.add(line);
   }
 
   if (includeQuip && effectiveMaxLines > 1 && lines.length < effectiveMaxLines) {
-    const extra = maybeQuip(context, "drunk", {}, 0.18);
-    if (extra && !seen.has(extra)) {
+    const extra = takeUniqueDrunkToneLine(
+      maybeQuip(context, "drunk", {}, 0.18),
+      { exclude, allowHard }
+    );
+    if (extra) {
       lines.push(extra);
     }
   }
@@ -5567,17 +5634,27 @@ function showTripPhotosMenu(ctx, groupService) {
   }
   const modeCopy = getTripModeInterfaceCopy(trip);
   const toneMode = resolveTripToneMode(trip);
-  const photosCopy = t("trip.photos", toneMode);
+  const photosCopy = t("trip.photos", toneMode) || {};
   const tripQuip = maybeQuip("trip", toneMode, {}, toneMode === "drunk" ? 0.58 : null);
+  const defaultMenuLines = [
+    `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
+    `• \`${TRIP_PHOTO_ALBUM_LABEL}\` — відкрити зведений фотоальбом походу`
+  ];
+  const defaultAttentionLines = [
+    "• бот не зберігає важкі файли фото в БД",
+    "• для фотоальбому зберігаються лише легкі службові дані і Telegram file_id",
+    "• фото одразу надсилається учасникам походу через Telegram",
+    "• можна додати підпис прямо в повідомленні до фото"
+  ];
 
   if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader(modeCopy.photosTitle, trip.name),
         "",
-        t("trip.photos.blocked", toneMode),
+        photosCopy.blocked || t("trip.photos.blocked", toneMode) || "Фото для тебе зараз недоступні.",
         "",
-        t("trip.photos.blockedHint", toneMode)
+        photosCopy.blockedHint || t("trip.photos.blockedHint", toneMode) || "Якщо це помилка, звернись до організатора або редактора."
       ]),
       { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
     );
@@ -5588,23 +5665,15 @@ function showTripPhotosMenu(ctx, groupService) {
       ...formatCardHeader(modeCopy.photosTitle, trip.name),
       "",
       ...(tripQuip ? [tripQuip, ""] : []),
-      toneMode === "drunk" ? photosCopy.menuTitle : "Що тут можна робити:",
+      toneMode === "drunk" ? (photosCopy.menuTitle || "Що тут можна робити:") : "Що тут можна робити:",
       ...(toneMode === "drunk"
-        ? photosCopy.menuLines
-        : [
-          `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
-          `• \`${TRIP_PHOTO_ALBUM_LABEL}\` — відкрити зведений фотоальбом походу`
-        ]),
+        ? (Array.isArray(photosCopy.menuLines) ? photosCopy.menuLines : defaultMenuLines)
+        : defaultMenuLines),
       "",
-      toneMode === "drunk" ? photosCopy.attentionTitle : "⚠️ Зверни увагу:",
+      toneMode === "drunk" ? (photosCopy.attentionTitle || "⚠️ Зверни увагу:") : "⚠️ Зверни увагу:",
       ...(toneMode === "drunk"
-        ? photosCopy.attentionLines
-        : [
-          "• бот не зберігає важкі файли фото в БД",
-          "• для фотоальбому зберігаються лише легкі службові дані і Telegram file_id",
-          "• фото одразу надсилається учасникам походу через Telegram",
-          "• можна додати підпис прямо в повідомленні до фото"
-        ])
+        ? (Array.isArray(photosCopy.attentionLines) ? photosCopy.attentionLines : defaultAttentionLines)
+        : defaultAttentionLines)
     ]),
     { parse_mode: "HTML", ...getTripPhotosKeyboard() }
   );
@@ -5662,11 +5731,12 @@ async function showTripPhotoAlbum(ctx, groupService, telegram) {
 
   if (!canTripMemberAccessPhotos(trip, String(ctx.from.id))) {
     const toneMode = resolveTripToneMode(trip);
+    const photosCopy = t("trip.photos", toneMode) || {};
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
         "",
-        t("trip.photos.albumBlocked", toneMode)
+        photosCopy.albumBlocked || t("trip.photos.albumBlocked", toneMode) || "Фотоальбом для тебе зараз недоступний."
       ]),
       { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
     );
@@ -5675,13 +5745,14 @@ async function showTripPhotoAlbum(ctx, groupService, telegram) {
   const album = groupService.getTripPhotoAlbum(trip.id, { limit: 10 });
   if (!album || !album.totalCount) {
     const toneMode = resolveTripToneMode(trip);
+    const photosCopy = t("trip.photos", toneMode) || {};
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
         "",
-        t("trip.photos.albumEmpty", toneMode),
+        photosCopy.albumEmpty || t("trip.photos.albumEmpty", toneMode) || "У цьому фотоальбомі поки порожньо.",
         "",
-        t("trip.photos.albumEmptyHint", toneMode)
+        photosCopy.albumEmptyHint || t("trip.photos.albumEmptyHint", toneMode) || "Додай хоч одне фото, і тут уже буде що дивитися."
       ]),
       { parse_mode: "HTML", ...getTripPhotosKeyboard() }
     );

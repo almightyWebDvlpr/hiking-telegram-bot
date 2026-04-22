@@ -205,18 +205,18 @@ function inferDeliveries(shape = "", intensity = "low", tags = []) {
   return [...deliveries];
 }
 
-function inferScreens(tags = [], intensity = "low") {
+function inferScreens(tags = [], intensity = "low", shape = "reaction") {
   const screens = new Set();
 
   if (tags.includes("generic") || tags.includes("trip") || tags.includes("logistics")) {
     SCREEN_GROUPS.trip_core.forEach((screen) => screens.add(screen));
-    SCREEN_GROUPS.money.forEach((screen) => screens.add(screen));
-    SCREEN_GROUPS.photos.forEach((screen) => screens.add(screen));
   }
 
   if (tags.includes("people")) {
     SCREEN_GROUPS.people.forEach((screen) => screens.add(screen));
-    screens.add("trip_photo_album");
+    if (shape === "observational" || shape === "optimistic") {
+      SCREEN_GROUPS.photos.forEach((screen) => screens.add(screen));
+    }
   }
 
   if (tags.includes("route") || tags.includes("weather")) {
@@ -232,6 +232,15 @@ function inferScreens(tags = [], intensity = "low") {
 
   if (tags.includes("gear")) {
     SCREEN_GROUPS.gear.forEach((screen) => screens.add(screen));
+  }
+
+  if (tags.includes("money")) {
+    SCREEN_GROUPS.money.forEach((screen) => screens.add(screen));
+  }
+
+  if (shape === "question" || shape === "complaint") {
+    screens.add("idle_prompt");
+    screens.add("edit_loop");
   }
 
   if (intensity === "high") {
@@ -281,12 +290,13 @@ function collectCandidates(entries = []) {
     const candidate = {
       id: `${slugify(text)}-${candidates.length + 1}`,
       text,
+      sourceTitle: normalize(entry?.source || ""),
       sourceType: String(type || "phrase").trim().toLowerCase() || "phrase",
       toneShape: shape,
       intensity,
       tags,
       contexts: inferContexts(tags),
-      screens: inferScreens(tags, intensity),
+      screens: inferScreens(tags, intensity, shape),
       deliveries: inferDeliveries(shape, intensity, tags),
       cooldownScope: intensity === "high" ? "trip" : "screen"
     };

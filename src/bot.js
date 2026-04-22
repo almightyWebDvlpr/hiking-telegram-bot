@@ -24,7 +24,7 @@ import { detectChangedFields, hasMeaningfulChange } from "./utils/changeTracking
 import { extractTelegramPhotoMetadata } from "./utils/photoMetadata.js";
 import { consumeUserRateLimit, runWithLock } from "./utils/concurrency.js";
 import { formatPhoneForDisplay, normalizePhone } from "./utils/phone.js";
-import { buildToneBlock, resolveContextToneMode, resolveTripToneMode, t, tPackRandom } from "./services/toneService.js";
+import { buildToneBlock, resolveContextToneMode, resolveTripToneMode, t } from "./services/toneService.js";
 import {
   PROFILE_AWARDS_LABEL,
   BADGE_SERIES,
@@ -1148,30 +1148,15 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
     groupService,
     { exclude: usedToneLines, screen: "trip_hub" }
   );
-  const hubToneLines = isTripAlcoModeEnabled(trip)
-    ? buildTripScreenToneLines(trip, "trip_hub", {
-        groupService,
-        scope: "trip_hub",
-        maxLines: 1,
-        usedTexts: usedToneLines,
-        state: {
-          alcoholCount: getTripAlcoholSnapshot(groupService, trip.id).count
-        }
-      })
-    : [];
-
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader(
-        toneMode === "drunk"
-          ? tPackRandom("menu.title", toneMode, {}, `menu-title:${trip.id}`) || hubCopy.title
-          : hubCopy.title,
+        hubCopy.title,
         trip.name
       ),
       "",
       ...bannerLines,
       ...(isTripAlcoModeEnabled(trip) ? [""] : []),
-      ...(hubToneLines.length ? [...hubToneLines, ""] : []),
       `${hubCopy.roleLabel}: ${role}`,
       `${hubCopy.statusLabel}: ${getTripLifecycleLabel(trip.status)}`,
       `${hubCopy.routeLabel}: ${route}`,

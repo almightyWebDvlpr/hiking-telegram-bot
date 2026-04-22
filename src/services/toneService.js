@@ -48,6 +48,156 @@ const INTENSITY_RANK = {
   high: 2
 };
 
+const TOPICAL_TAGS = ["route", "weather", "food", "alcohol", "gear", "people", "logistics", "money"];
+
+const SCREEN_CONTEXT_KEYWORDS = {
+  trip_hub: ["trip", "summary", "status", "organizer", "members", "route", "logistics"],
+  trip_details: ["trip", "details", "dates", "route", "region", "members", "status"],
+  trip_history: ["history", "summary", "result", "archive", "trip"],
+  trip_settings: ["settings", "manage", "trip", "organizer", "permissions", "reminders"],
+  trip_members_menu: ["members", "team", "people", "group", "status"],
+  trip_members_list: ["members", "team", "people", "status", "contacts"],
+  trip_member_card: ["member", "person", "status", "profile", "tickets"],
+  trip_member_tickets: ["tickets", "transport", "member", "train", "bus"],
+  route_menu: ["route", "track", "path", "navigation", "mountain", "difficulty"],
+  route_weather_picker: ["weather", "forecast", "settlement", "route"],
+  route_weather: ["weather", "forecast", "wind", "rain", "route", "temperature"],
+  food_menu: ["food", "meal", "alcohol", "snacks", "products"],
+  food_list: ["food", "meal", "alcohol", "products", "list"],
+  trip_mode: ["alcohol", "mode", "camp", "trip", "food"],
+  trip_drunk_mode: ["alcohol", "mode", "camp", "trip", "food"],
+  expenses_menu: ["money", "expenses", "cost", "budget", "payment"],
+  expenses_list: ["money", "expenses", "food", "payment", "budget"],
+  trip_photos: ["photos", "album", "people", "memory"],
+  trip_photo_album: ["photos", "album", "people", "memory"],
+  idle_prompt: ["prompt", "question", "decision", "waiting"],
+  edit_loop: ["edit", "change", "repeat", "decision", "prompt"]
+};
+
+const SCREEN_PERSONA_RULES = {
+  default: {
+    preferred: ["supportive", "banter"],
+    blocked: ["hostile", "absurd"]
+  },
+  trip_hub: {
+    preferred: ["supportive", "manager", "trail", "boozy"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  trip_details: {
+    preferred: ["supportive", "manager", "trail", "boozy"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  trip_history: {
+    preferred: ["supportive", "manager", "banter"],
+    blocked: ["hostile", "absurd"]
+  },
+  trip_settings: {
+    preferred: ["manager", "supportive"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  trip_members_menu: {
+    preferred: ["crew", "supportive", "banter"],
+    blocked: ["hostile", "absurd"]
+  },
+  trip_members_list: {
+    preferred: ["crew", "supportive", "banter"],
+    blocked: ["hostile", "absurd"]
+  },
+  trip_member_card: {
+    preferred: ["crew", "supportive"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  trip_member_tickets: {
+    preferred: ["manager", "crew"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  route_menu: {
+    preferred: ["trail", "supportive"],
+    blocked: ["hostile", "absurd"]
+  },
+  route_weather_picker: {
+    preferred: ["trail", "supportive"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  route_weather: {
+    preferred: ["trail", "supportive"],
+    blocked: ["hostile", "absurd"]
+  },
+  food_menu: {
+    preferred: ["boozy", "camp", "supportive"],
+    blocked: ["hostile", "absurd"]
+  },
+  food_list: {
+    preferred: ["boozy", "camp", "supportive"],
+    blocked: ["hostile", "absurd"]
+  },
+  trip_mode: {
+    preferred: ["boozy", "supportive"],
+    blocked: ["hostile", "absurd"]
+  },
+  trip_drunk_mode: {
+    preferred: ["boozy", "supportive"],
+    blocked: ["hostile", "absurd"]
+  },
+  expenses_menu: {
+    preferred: ["manager", "supportive"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  expenses_list: {
+    preferred: ["manager", "supportive"],
+    blocked: ["hostile", "absurd", "chaotic"]
+  },
+  trip_photos: {
+    preferred: ["crew", "banter"],
+    blocked: ["hostile", "absurd"]
+  },
+  trip_photo_album: {
+    preferred: ["crew", "banter"],
+    blocked: ["hostile", "absurd"]
+  },
+  idle_prompt: {
+    preferred: ["banter", "chaotic"],
+    blocked: []
+  },
+  edit_loop: {
+    preferred: ["banter", "chaotic"],
+    blocked: []
+  }
+};
+
+const CALM_SCREEN_BLOCK_PATTERNS = [
+  /канхвет.{0,30}(встром|посмоктат)/iu,
+  /(жоп\w*|срак\w*|залуп\w*|вб'ю|утоп\w*|топити|жертв\w*|параш\w*)/iu,
+  /чмо\s+японськ/iu,
+  /ворог\s+народного\s+господарства/iu,
+  /бог\s+є/iu,
+  /побачить\s+цю\s+падлюку/iu,
+  /не\s+умивалися/iu,
+  /наябувал/iu
+];
+
+const SCREEN_STYLE_BLOCKS = {
+  trip_hub: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_details: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_history: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_settings: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_members_menu: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_members_list: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_member_card: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_member_tickets: CALM_SCREEN_BLOCK_PATTERNS,
+  route_menu: CALM_SCREEN_BLOCK_PATTERNS,
+  route_weather_picker: CALM_SCREEN_BLOCK_PATTERNS,
+  route_weather: CALM_SCREEN_BLOCK_PATTERNS,
+  food_menu: CALM_SCREEN_BLOCK_PATTERNS,
+  food_list: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_mode: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_drunk_mode: CALM_SCREEN_BLOCK_PATTERNS,
+  expenses_menu: CALM_SCREEN_BLOCK_PATTERNS,
+  expenses_list: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_photos: CALM_SCREEN_BLOCK_PATTERNS,
+  trip_photo_album: CALM_SCREEN_BLOCK_PATTERNS
+};
+
 const CURATED_THEATRE_SCREEN_LINES = {
   trip_hub: [
     { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
@@ -885,6 +1035,99 @@ function getPolicyForbiddenFlags(screen = "default", delivery = "banner") {
   ]);
 }
 
+function buildContextKeywords(screen = "default", state = {}, delivery = "banner") {
+  const keywords = new Set(SCREEN_CONTEXT_KEYWORDS[screen] || []);
+
+  if (delivery === "prompt") {
+    keywords.add("prompt");
+    keywords.add("decision");
+  }
+  if (delivery === "quip") {
+    keywords.add("reaction");
+  }
+  if (state?.alcoholEmpty === true) {
+    keywords.add("alcohol");
+    keywords.add("empty");
+  }
+  if (Number(state?.alcoholCount || 0) > 0) {
+    keywords.add("alcohol");
+    keywords.add("present");
+  }
+  if (state?.foodEmpty === true) {
+    keywords.add("food");
+    keywords.add("empty");
+  }
+  if (Number(state?.foodCount || 0) > 0) {
+    keywords.add("food");
+    keywords.add("present");
+  }
+  if (state?.gearEmpty === true) {
+    keywords.add("gear");
+    keywords.add("empty");
+  }
+  if (Number(state?.gearCount || 0) > 0) {
+    keywords.add("gear");
+    keywords.add("present");
+  }
+  if (state?.photoEmpty === true) {
+    keywords.add("photos");
+    keywords.add("empty");
+  }
+  if (Number(state?.photoCount || 0) > 0) {
+    keywords.add("photos");
+    keywords.add("album");
+  }
+  if (Number(state?.membersCount || 0) > 1) {
+    keywords.add("members");
+    keywords.add("people");
+    keywords.add("group");
+  }
+  if (state?.routeDifficulty) {
+    keywords.add("route");
+    keywords.add("mountain");
+    keywords.add("difficulty");
+    keywords.add(String(state.routeDifficulty).toLowerCase());
+  }
+  if (Number(state?.expenseCount || 0) > 0 || state?.expenseEmpty === false) {
+    keywords.add("expenses");
+    keywords.add("money");
+    keywords.add("budget");
+  }
+  if (state?.uiWaiting === true) {
+    keywords.add("prompt");
+    keywords.add("waiting");
+  }
+  if (state?.editRepeated === true) {
+    keywords.add("edit");
+    keywords.add("repeat");
+  }
+
+  return keywords;
+}
+
+function getScreenPersonaRule(screen = "default") {
+  return SCREEN_PERSONA_RULES[screen] || SCREEN_PERSONA_RULES.default;
+}
+
+function countKeywordOverlap(entryKeywords = [], contextKeywords = new Set()) {
+  if (!Array.isArray(entryKeywords) || !entryKeywords.length || !contextKeywords.size) {
+    return 0;
+  }
+
+  let overlap = 0;
+  for (const keyword of entryKeywords) {
+    if (contextKeywords.has(String(keyword || "").toLowerCase())) {
+      overlap += 1;
+    }
+  }
+  return overlap;
+}
+
+function isBlockedByScreenStyle(screen = "default", text = "") {
+  const patterns = SCREEN_STYLE_BLOCKS[screen] || [];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
 function getHistory(key = "") {
   if (!toneSelectionHistory.has(key)) {
     toneSelectionHistory.set(key, []);
@@ -910,15 +1153,22 @@ function isOnCooldown(entry, normalizedText, screen, scopeKey, state = {}) {
     screen ? `screen:${screen}` : "",
     state?.tripId ? `trip:${state.tripId}` : ""
   ].filter(Boolean);
+  const normalizedSource = normalizeToneText(entry?.sourceTitle || "");
+  const sourceMarker = normalizedSource ? `source:${normalizedSource}` : "";
 
   for (const bucket of buckets) {
-    if (getHistory(bucket).includes(normalizedText)) {
+    const history = getHistory(bucket);
+    if (history.includes(normalizedText)) {
+      return true;
+    }
+    if (sourceMarker && history.includes(sourceMarker)) {
       return true;
     }
   }
 
   if (entry?.cooldownScope === "trip" && state?.tripId) {
-    return getHistory(`trip:${state.tripId}`).includes(normalizedText);
+    const tripHistory = getHistory(`trip:${state.tripId}`);
+    return tripHistory.includes(normalizedText) || (sourceMarker ? tripHistory.includes(sourceMarker) : false);
   }
 
   return false;
@@ -934,8 +1184,19 @@ function rememberToneSelection(entry, normalizedText, screen, scopeKey, state = 
     pushHistory(bucket, normalizedText, 6);
   }
 
+  const normalizedSource = normalizeToneText(entry?.sourceTitle || "");
+  const sourceMarker = normalizedSource ? `source:${normalizedSource}` : "";
+  if (sourceMarker) {
+    for (const bucket of [screen ? `screen:${screen}` : "", state?.tripId ? `trip:${state.tripId}` : ""].filter(Boolean)) {
+      pushHistory(bucket, sourceMarker, 4);
+    }
+  }
+
   if (entry?.cooldownScope === "trip" && state?.tripId) {
     pushHistory(`trip:${state.tripId}`, normalizedText, 10);
+    if (sourceMarker) {
+      pushHistory(`trip:${state.tripId}`, sourceMarker, 6);
+    }
   }
 }
 
@@ -1020,6 +1281,10 @@ function isToneEntryScreenSafe(entry, screen, delivery, score, state = {}) {
     return false;
   }
 
+  if (isBlockedByScreenStyle(screen, text)) {
+    return false;
+  }
+
   if (screen === "trip_photo_album" && state?.photoEmpty && tags.includes("people") === false) {
     return false;
   }
@@ -1060,7 +1325,20 @@ function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
   }
 
   const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+  const keywords = Array.isArray(entry?.keywords) ? entry.keywords : [];
+  const contextKeywords = buildContextKeywords(screen, state, delivery);
+  const overlap = countKeywordOverlap(keywords, contextKeywords);
+  const specificity = Number(entry?.specificity || 0);
+  const topicalTagCount = tags.filter((tag) => TOPICAL_TAGS.includes(tag)).length;
+  const genericOnly = topicalTagCount === 0 && !tags.includes("logistics") && !tags.includes("money");
+  const personaCue = String(entry?.personaCue || "banter");
+  const personaRule = getScreenPersonaRule(screen);
+
   if (policy.blockedTags.some((tag) => tags.includes(tag))) {
+    return -1;
+  }
+
+  if (Array.isArray(personaRule?.blocked) && personaRule.blocked.includes(personaCue)) {
     return -1;
   }
 
@@ -1083,6 +1361,11 @@ function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
   if (delivery === "quip" && ["reaction", "question", "complaint"].includes(entry?.toneShape)) {
     score += 2;
   }
+
+  score += Math.min(specificity, 9);
+  score += topicalTagCount * 3;
+  score += overlap * 4;
+  score += Array.isArray(personaRule?.preferred) && personaRule.preferred.includes(personaCue) ? 5 : 0;
 
   if (state?.alcoholEmpty && tags.includes("alcohol")) {
     score += 4;
@@ -1111,6 +1394,39 @@ function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
 
   if (entry?.intensity === "low") {
     score += 1;
+  }
+
+  if (genericOnly) {
+    score -= 8;
+  }
+
+  if (contextKeywords.size > 0 && overlap === 0 && (topicalTagCount > 0 || genericOnly)) {
+    score -= 10;
+  }
+
+  if (screen === "trip_hub" || screen === "trip_details") {
+    if (overlap === 0) {
+      score -= 6;
+    }
+    if (tags.includes("question") || entry?.toneShape === "question") {
+      score -= 8;
+    }
+  }
+
+  if ((screen === "route_menu" || screen === "route_weather" || screen === "route_weather_picker") && !tags.includes("route") && !tags.includes("weather")) {
+    score -= 8;
+  }
+
+  if ((screen === "food_menu" || screen === "food_list" || screen === "trip_mode" || screen === "trip_drunk_mode") && !tags.includes("food") && !tags.includes("alcohol")) {
+    score -= 8;
+  }
+
+  if ((screen === "trip_members_menu" || screen === "trip_members_list" || screen === "trip_member_card" || screen === "trip_member_tickets") && !tags.includes("people")) {
+    score -= 8;
+  }
+
+  if ((screen === "expenses_menu" || screen === "expenses_list") && !tags.includes("money") && !tags.includes("logistics") && !tags.includes("food")) {
+    score -= 8;
   }
 
   return score;

@@ -13,14 +13,14 @@ const FILTERED_TERMS = [
 ];
 
 const DOMAIN_KEYWORDS = {
-  route: ["іттіть", "вперьод", "вперед", "прийшли", "дорог", "йти", "шлях", "ліс", "болот", "пустин", "пагод"],
-  weather: ["пагод", "дощ", "вітер", "бур", "холод", "сонце"],
-  food: ["канхвет", "тузік", "їсти", "жрать", "кусн", "ковбас", "сало", "хліб", "закус", "бздить"],
-  alcohol: ["випить", "барі", "шампань", "пиво", "горіл", "пити", "банка", "пляшка"],
-  gear: ["роял", "дрюч", "меч", "пістолет", "простирадл", "фонар", "реквізит", "мішок", "рюкзак", "шкарп"],
-  people: ["хлопц", "народ", "падлюк", "мовч", "контра", "панств", "пиздю", "друже"],
-  logistics: ["питання", "жизн", "розруха", "облом", "довольн", "подвєд", "план"],
-  money: ["карбован", "валют", "бабк", "гріш"]
+  route: ["ітті", "вперьод", "вперед", "прийшл", "дорог", "шлях", "болот", "стеж", "маршрут", "дєбр", "гір", "кроком"],
+  weather: ["пагод", "дощ", "вітер", "холод", "сонц", "гроза", "сніг", "злива"],
+  food: ["канхвет", "тузік", "їст", "жрат", "кусн", "ковбас", "сало", "хліб", "закус", "ням"],
+  alcohol: ["вип", "бар", "шампань", "пив", "горіл", "пляш", "алко", "пивц"],
+  gear: ["роял", "дрюч", "меч", "пістолет", "простирадл", "фонар", "реквізит", "мішок", "рюкзак", "шкарп", "валіз", "чемодан"],
+  people: ["хлопц", "друж", "банд", "люд", "панов", "компан"],
+  logistics: ["питан", "жизн", "розрух", "облом", "довольн", "подвєд", "план", "ітог", "спєшн", "треба"],
+  money: ["карбован", "валют", "бабк", "гріш", "грош", "купував", "віддам"]
 };
 
 const INTENSITY_PATTERNS = {
@@ -69,8 +69,119 @@ const SHAPE_TO_DELIVERY_CLASS = {
   fatalistic: "error"
 };
 
+const TOPIC_TAGS = ["route", "weather", "food", "alcohol", "gear", "people", "logistics", "money"];
+
+const KEYWORD_STOP_WORDS = new Set([
+  "але",
+  "аби",
+  "без",
+  "був",
+  "була",
+  "було",
+  "буде",
+  "вже",
+  "він",
+  "вона",
+  "вони",
+  "все",
+  "всьо",
+  "воно",
+  "ви",
+  "вам",
+  "вас",
+  "ваш",
+  "ваша",
+  "ваші",
+  "десь",
+  "для",
+  "дуже",
+  "його",
+  "йому",
+  "йти",
+  "їм",
+  "їх",
+  "й",
+  "ж",
+  "за",
+  "зараз",
+  "знов",
+  "знову",
+  "із",
+  "і",
+  "й",
+  "каже",
+  "коли",
+  "куди",
+  "ми",
+  "мене",
+  "мені",
+  "мене",
+  "моя",
+  "моє",
+  "мої",
+  "на",
+  "надо",
+  "не",
+  "нема",
+  "ні",
+  "ну",
+  "оце",
+  "ота",
+  "ото",
+  "ось",
+  "по",
+  "поки",
+  "при",
+  "про",
+  "сам",
+  "самі",
+  "себе",
+  "сказав",
+  "собі",
+  "так",
+  "там",
+  "та",
+  "те",
+  "ти",
+  "тобі",
+  "того",
+  "то",
+  "тут",
+  "уже",
+  "хай",
+  "це",
+  "цей",
+  "ця",
+  "ці",
+  "чи",
+  "шо",
+  "щоб",
+  "як",
+  "я",
+  "мене",
+  "от",
+  "ще"
+]);
+
 function normalize(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function countWords(value = "") {
+  return normalize(value)
+    .split(/\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .length;
+}
+
+function tokenize(value = "") {
+  return (normalize(value).toLowerCase().match(/[a-zа-яіїєґ0-9'-]{3,}/giu) || [])
+    .map((token) => String(token || "").toLowerCase());
+}
+
+function hasKeywordRoot(tokens = [], roots = []) {
+  return roots.some((root) => tokens.some((token) => token.startsWith(root)));
 }
 
 function splitSentences(value = "") {
@@ -114,6 +225,10 @@ function looksLikeStageDirection(text = "") {
   }
 
   if (/^[A-ZА-ЯІЇЄҐ0-9'’\s-]{2,48}[.!?…]?$/u.test(normalized) && normalized === normalized.toUpperCase()) {
+    return true;
+  }
+
+  if (countWords(normalized) >= 6 && /\b(можна почути|обривки фраз|голос з натовпу|подекуди|всі біжать|входить|виходить)\b/iu.test(normalized)) {
     return true;
   }
 
@@ -272,10 +387,11 @@ function inferToneShape(type = "", tone = "", text = "") {
 
 function inferTags(text = "", type = "", tone = "") {
   const normalized = normalize(text).toLowerCase();
-  const tags = new Set(["generic", "trip"]);
+  const tokens = tokenize(normalized);
+  const tags = new Set(["generic"]);
 
   for (const [domain, keywords] of Object.entries(DOMAIN_KEYWORDS)) {
-    if (keywords.some((keyword) => normalized.includes(keyword))) {
+    if (hasKeywordRoot(tokens, keywords)) {
       tags.add(domain);
     }
   }
@@ -297,11 +413,15 @@ function inferTags(text = "", type = "", tone = "") {
     tags.add("positive");
   }
 
+  if (TOPIC_TAGS.some((tag) => tags.has(tag))) {
+    tags.add("trip");
+  }
+
   return [...tags];
 }
 
 function inferContexts(tags = []) {
-  const contexts = new Set(["generic"]);
+  const contexts = new Set();
 
   if (tags.includes("route") || tags.includes("weather")) {
     contexts.add("route");
@@ -315,8 +435,12 @@ function inferContexts(tags = []) {
   if (tags.includes("people")) {
     contexts.add("people");
   }
-  if (tags.includes("logistics") || tags.includes("money")) {
+  if (tags.includes("trip") || tags.includes("logistics") || tags.includes("money")) {
     contexts.add("trip");
+  }
+
+  if (!contexts.size) {
+    contexts.add("generic");
   }
 
   return [...contexts];
@@ -433,7 +557,7 @@ function inferDeliveryClass(shape = "", intensity = "low") {
 function inferScreens(tags = [], intensity = "low", shape = "reaction") {
   const screens = new Set();
 
-  if (tags.includes("generic") || tags.includes("trip") || tags.includes("logistics")) {
+  if (tags.includes("trip") || tags.includes("logistics") || tags.includes("money")) {
     SCREEN_GROUPS.trip_core.forEach((screen) => screens.add(screen));
   }
 
@@ -453,6 +577,7 @@ function inferScreens(tags = [], intensity = "low", shape = "reaction") {
   if (tags.includes("food") || tags.includes("alcohol")) {
     SCREEN_GROUPS.food.forEach((screen) => screens.add(screen));
     screens.add("trip_hub");
+    screens.add("trip_details");
   }
 
   if (tags.includes("gear")) {
@@ -476,6 +601,76 @@ function inferScreens(tags = [], intensity = "low", shape = "reaction") {
   }
 
   return [...screens];
+}
+
+function extractKeywords(text = "", tags = []) {
+  const words = tokenize(text);
+  const keywords = [];
+  const seen = new Set();
+
+  for (const word of words) {
+    const token = String(word || "").toLowerCase();
+    if (!token || KEYWORD_STOP_WORDS.has(token)) {
+      continue;
+    }
+    if (seen.has(token)) {
+      continue;
+    }
+    seen.add(token);
+    keywords.push(token);
+  }
+
+  for (const tag of tags) {
+    if (TOPIC_TAGS.includes(tag) && !seen.has(tag)) {
+      seen.add(tag);
+      keywords.push(tag);
+    }
+  }
+
+  return keywords.slice(0, 12);
+}
+
+function inferPersonaCue(text = "", tags = [], shape = "reaction", intensity = "low") {
+  const normalized = normalize(text).toLowerCase();
+
+  if (tags.includes("alcohol")) {
+    return "boozy";
+  }
+  if (tags.includes("food") || tags.includes("gear")) {
+    return "camp";
+  }
+  if (tags.includes("route") || tags.includes("weather")) {
+    return "trail";
+  }
+  if (tags.includes("money") || tags.includes("logistics")) {
+    return "manager";
+  }
+  if (tags.includes("people") && !tags.includes("negative")) {
+    return "crew";
+  }
+  if (shape === "optimistic" || /всьо буде|ітоги подвєдьом|вірно хлопці|папаша/u.test(normalized)) {
+    return "supportive";
+  }
+  if (intensity === "high" || /вб'ю|нахуй|параш|жоп|срак|топити|здох/u.test(normalized)) {
+    return "hostile";
+  }
+  if (/бацил|гангрен|язв|гоноре|скелет|труп|кошенят/u.test(normalized)) {
+    return "absurd";
+  }
+  if (tags.includes("negative") || shape === "complaint" || shape === "fatalistic") {
+    return "chaotic";
+  }
+
+  return "banter";
+}
+
+function inferSpecificity(text = "", tags = [], keywords = [], shape = "reaction") {
+  const topicalTagCount = tags.filter((tag) => TOPIC_TAGS.includes(tag)).length;
+  const lexicalWeight = Math.min(keywords.length, 6);
+  const lengthWeight = Math.min(Math.max(countWords(text) - 2, 0), 4);
+  const shapeWeight = ["observational", "optimistic", "complaint", "question"].includes(shape) ? 1 : 0;
+
+  return topicalTagCount * 3 + lexicalWeight + lengthWeight + shapeWeight;
 }
 
 function collectCandidates(entries = []) {
@@ -504,6 +699,10 @@ function collectCandidates(entries = []) {
       return;
     }
 
+    if (looksLikeStageDirection(text)) {
+      return;
+    }
+
     const key = lowered;
     if (seen.has(key)) {
       return;
@@ -514,14 +713,18 @@ function collectCandidates(entries = []) {
     const shape = inferToneShape(type, tone, text);
     const screens = inferScreens(tags, intensity, shape);
     const deliveries = inferDeliveries(shape, intensity, tags);
+    const keywords = extractKeywords(text, tags);
     const candidate = {
       id: `${slugify(text)}-${candidates.length + 1}`,
       text,
       sourceTitle: normalize(entry?.source || ""),
       sourceType: String(type || "phrase").trim().toLowerCase() || "phrase",
+      personaCue: inferPersonaCue(text, tags, shape, intensity),
       toneShape: shape,
       intensity,
       tags,
+      keywords,
+      specificity: inferSpecificity(text, tags, keywords, shape),
       contexts: inferContexts(tags),
       screens,
       screenContexts: screens,

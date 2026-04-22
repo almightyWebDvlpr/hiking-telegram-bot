@@ -25,11 +25,7 @@ const toneDictionaries = {
   default: readToneFile("default"),
   drunk: readToneFile("drunk")
 };
-const legacyDrunkPack = readToneFile("drunk-pack", { optional: true });
 const theatreToneCatalog = readToneFile("generated/theatre-catalog", { optional: true });
-const tonePacks = {
-  drunk: legacyDrunkPack
-};
 
 const theatreToneEntries = Array.isArray(theatreToneCatalog?.entries)
   ? theatreToneCatalog.entries
@@ -50,17 +46,6 @@ const INTENSITY_RANK = {
   low: 0,
   medium: 1,
   high: 2
-};
-
-const LEGACY_CONTEXT_TO_SCREEN = {
-  generic: "trip_settings",
-  trip: "trip_hub",
-  people: "trip_members_list",
-  route: "route_menu",
-  food: "food_menu",
-  gear: "gear_menu",
-  idle: "idle_prompt",
-  edit_loop: "edit_loop"
 };
 
 const CURATED_THEATRE_SCREEN_LINES = {
@@ -442,244 +427,298 @@ const SCREEN_ENTRY_GATES = {
 
 const SCREEN_TONE_POLICIES = {
   default: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.35,
     quipProbability: 0.04,
     maxIntensity: "low",
+    allowedDeliveries: ["banner", "quip", "footer"],
     preferredTags: ["generic", "trip"],
     secondaryTags: ["logistics"],
     blockedTags: ["fatalistic", "complaint", "command", "negative", "decision"]
   },
   trip_hub: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.24,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["trip", "generic", "logistics"],
     secondaryTags: ["optimistic", "reaction"],
     blockedTags: ["fatalistic", "complaint", "command", "negative", "decision", "people", "route"]
   },
   trip_details: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.2,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["trip", "generic", "logistics"],
     secondaryTags: ["observational"],
     blockedTags: ["fatalistic", "complaint", "command", "negative", "decision"]
   },
   trip_history: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.22,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["trip", "generic", "logistics"],
     secondaryTags: ["optimistic", "observational"],
     blockedTags: ["command"]
   },
   trip_settings: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["generic", "trip", "logistics"],
     secondaryTags: ["observational"],
     blockedTags: ["fatalistic", "complaint", "command", "negative"]
   },
   trip_mode: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.24,
     quipProbability: 0.04,
     maxIntensity: "low",
+    allowedDeliveries: ["banner", "quip"],
     preferredTags: ["food", "alcohol", "trip"],
     secondaryTags: ["generic", "observational"],
     blockedTags: ["fatalistic", "command"]
   },
   trip_drunk_mode: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.26,
     quipProbability: 0.05,
     maxIntensity: "low",
+    allowedDeliveries: ["banner", "quip"],
     preferredTags: ["alcohol", "food", "trip"],
     secondaryTags: ["route", "optimistic"],
     blockedTags: ["fatalistic", "command"]
   },
   trip_photos: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.08,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["generic", "trip", "people"],
     secondaryTags: ["observational"],
     blockedTags: ["fatalistic", "complaint", "command", "negative"]
   },
   trip_photo_album: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["people", "trip", "generic"],
     secondaryTags: ["observational"],
     blockedTags: ["fatalistic", "complaint", "command", "negative"]
   },
   trip_members_menu: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.16,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["people"],
     secondaryTags: ["generic", "trip"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   trip_members_list: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.16,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["people"],
     secondaryTags: ["generic", "trip"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   trip_member_card: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.14,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["people"],
     secondaryTags: ["generic"],
     blockedTags: ["fatalistic", "complaint", "negative", "command"]
   },
   trip_member_tickets: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["people", "logistics"],
     secondaryTags: ["generic"],
     blockedTags: ["fatalistic", "complaint", "negative", "command"]
   },
   route_menu: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.24,
     quipProbability: 0.04,
     maxIntensity: "low",
+    allowedDeliveries: ["banner", "quip"],
     preferredTags: ["route", "weather"],
     secondaryTags: ["trip", "observational"],
     blockedTags: ["fatalistic", "complaint"]
   },
   route_weather_picker: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.14,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["route", "weather"],
     secondaryTags: ["observational"],
     blockedTags: ["fatalistic", "complaint", "command", "negative"]
   },
   route_weather: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["route", "weather"],
     secondaryTags: ["observational"],
     blockedTags: ["complaint", "command"]
   },
   gear_menu: {
+    allowTheatre: false,
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0.03,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["gear"],
     secondaryTags: ["generic", "observational"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   gear_accounting: {
+    allowTheatre: false,
     maxLines: 1,
     bannerProbability: 0.16,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["gear"],
     secondaryTags: ["generic"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   gear_borrowed: {
+    allowTheatre: false,
     maxLines: 1,
     bannerProbability: 0.12,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["gear"],
     secondaryTags: ["generic"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   gear_loaned: {
+    allowTheatre: false,
     maxLines: 1,
     bannerProbability: 0.12,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["gear"],
     secondaryTags: ["generic"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   gear_backpack: {
+    allowTheatre: false,
     maxLines: 1,
     bannerProbability: 0.12,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["gear"],
     secondaryTags: ["observational"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   food_menu: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0.04,
     maxIntensity: "low",
+    allowedDeliveries: ["banner", "quip"],
     preferredTags: ["food", "alcohol"],
     secondaryTags: ["generic", "optimistic"],
     blockedTags: ["fatalistic", "command"]
   },
   food_list: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0.04,
     maxIntensity: "low",
+    allowedDeliveries: ["banner", "quip"],
     preferredTags: ["food", "alcohol"],
     secondaryTags: ["generic", "observational"],
     blockedTags: ["fatalistic", "command"]
   },
   expenses_menu: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["money", "logistics", "generic"],
     secondaryTags: ["food", "trip"],
     blockedTags: ["fatalistic", "complaint", "command", "negative"]
   },
   expenses_list: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
     maxIntensity: "low",
+    allowedDeliveries: ["banner"],
     preferredTags: ["money", "food", "logistics"],
     secondaryTags: ["generic"],
     blockedTags: ["fatalistic", "complaint", "command", "negative"]
   },
   idle_prompt: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0,
     quipProbability: 1,
     maxIntensity: "medium",
+    allowedDeliveries: ["prompt", "quip"],
     preferredTags: ["question", "complaint"],
     secondaryTags: ["generic"],
     blockedTags: []
   },
   edit_loop: {
+    allowTheatre: true,
     maxLines: 1,
     bannerProbability: 0,
     quipProbability: 1,
     maxIntensity: "medium",
+    allowedDeliveries: ["prompt", "quip", "warning"],
     preferredTags: ["question", "complaint", "decision"],
     secondaryTags: ["generic"],
     blockedTags: []
@@ -692,10 +731,6 @@ function resolveMode(mode = "default") {
 
 function getDictionary(mode = "default") {
   return toneDictionaries[resolveMode(mode)] || toneDictionaries.default;
-}
-
-function getTonePack(mode = "default") {
-  return tonePacks[resolveMode(mode)] || {};
 }
 
 function getNestedValue(source, key = "") {
@@ -730,18 +765,6 @@ function materialize(value, params = {}) {
   return interpolate(value, params);
 }
 
-function collectArrayValues(value) {
-  if (Array.isArray(value)) {
-    return value.filter((item) => typeof item === "string" && item.trim());
-  }
-
-  if (typeof value === "string" && value.trim()) {
-    return [value];
-  }
-
-  return [];
-}
-
 function normalizeToneText(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -754,6 +777,59 @@ function countToneWords(value = "") {
     .length;
 }
 
+function getStateFlags(state = {}) {
+  const flags = new Set();
+
+  if (state?.alcoholEmpty === true) {
+    flags.add("alcohol_empty");
+  }
+  if (Number(state?.alcoholCount || 0) > 0) {
+    flags.add("alcohol_present");
+  }
+  if (state?.foodEmpty === true) {
+    flags.add("food_empty");
+  } else if (Number(state?.foodCount || 0) > 0 || state?.foodEmpty === false) {
+    flags.add("food_present");
+  }
+  if (state?.gearEmpty === true) {
+    flags.add("gear_missing");
+  } else if (Number(state?.gearCount || 0) > 0 || state?.gearEmpty === false) {
+    flags.add("gear_present");
+  }
+  if (state?.photoEmpty === true) {
+    flags.add("photos_empty");
+  } else if (Number(state?.photoCount || 0) > 0) {
+    flags.add("photos_present");
+  }
+  if (Number(state?.membersCount || 0) > 1) {
+    flags.add("members_plural");
+  }
+  if (Number(state?.expenseCount || 0) > 0 || state?.expenseEmpty === false) {
+    flags.add("expenses_present");
+  }
+  if (state?.expenseEmpty === true) {
+    flags.add("expenses_empty");
+  }
+  if (state?.routeDifficulty) {
+    flags.add("route_known");
+    flags.add(`route_${state.routeDifficulty}`);
+  }
+  if (state?.backpackDataReady === true) {
+    flags.add("backpack_ready");
+  }
+  if (state?.uiWaiting === true) {
+    flags.add("ui_waiting");
+  }
+  if (state?.editRepeated === true) {
+    flags.add("edit_repeated");
+  }
+  if (state?.toneMode !== "drunk") {
+    flags.add("no_alco_mode");
+  }
+
+  return flags;
+}
+
 function getIntensityRank(value = "low") {
   return INTENSITY_RANK[value] ?? INTENSITY_RANK.low;
 }
@@ -763,6 +839,13 @@ function mergeScreenPolicy(screen = "default") {
     ...SCREEN_TONE_POLICIES.default,
     ...(SCREEN_TONE_POLICIES[screen] || {})
   };
+}
+
+function getPolicyForbiddenFlags(screen = "default", delivery = "banner") {
+  return new Set([
+    `screen:${screen}`,
+    `delivery:${delivery}`
+  ]);
 }
 
 function getHistory(key = "") {
@@ -906,6 +989,25 @@ function isToneEntryScreenSafe(entry, screen, delivery, score, state = {}) {
   return true;
 }
 
+function matchesEntryRequirements(entry, state = {}, screen = "default", delivery = "banner") {
+  const stateFlags = getStateFlags(state);
+  const requiredFlags = Array.isArray(entry?.requires) ? entry.requires : [];
+  const forbiddenFlags = Array.isArray(entry?.forbiddenWhen) ? entry.forbiddenWhen : [];
+  const policyForbidden = getPolicyForbiddenFlags(screen, delivery);
+
+  if (requiredFlags.length && !requiredFlags.every((flag) => stateFlags.has(flag))) {
+    return false;
+  }
+
+  for (const flag of forbiddenFlags) {
+    if (stateFlags.has(flag) || policyForbidden.has(flag)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
   if (!Array.isArray(entry?.screens) || !entry.screens.includes(screen)) {
     return -1;
@@ -921,6 +1023,14 @@ function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
 
   const tags = Array.isArray(entry?.tags) ? entry.tags : [];
   if (policy.blockedTags.some((tag) => tags.includes(tag))) {
+    return -1;
+  }
+
+  if (Array.isArray(policy.allowedDeliveries) && policy.allowedDeliveries.length && !policy.allowedDeliveries.includes(delivery)) {
+    return -1;
+  }
+
+  if (!matchesEntryRequirements(entry, { ...state, toneMode: "drunk" }, screen, delivery)) {
     return -1;
   }
 
@@ -982,6 +1092,9 @@ export function pickToneLine({
   }
 
   const policy = mergeScreenPolicy(screen);
+  if (policy.allowTheatre === false) {
+    return "";
+  }
   const candidates = theatreToneIndexByScreen.get(screen) || [];
   const curatedLine = pickCuratedTheatreLine(screen, state, usedTexts, scopeKey);
   if (curatedLine || hasCuratedTheatreScreen(screen)) {
@@ -1102,6 +1215,31 @@ export function buildToneBlock({
   return lines.slice(0, targetMaxLines);
 }
 
+export function buildScreenToneBlock({
+  screen = "default",
+  event = "view",
+  mode = "default",
+  scopeKey = "",
+  state = {},
+  maxLines = null,
+  usedTexts = null
+} = {}) {
+  const eventState = {
+    ...state,
+    uiWaiting: event === "prompt" || state?.uiWaiting === true,
+    editRepeated: event === "edit_loop" || state?.editRepeated === true
+  };
+
+  return buildToneBlock({
+    screen,
+    mode,
+    scopeKey,
+    state: eventState,
+    maxLines,
+    usedTexts
+  });
+}
+
 export function resolveTripToneMode(trip = null) {
   return trip?.tripModes?.alco === true ? "drunk" : "default";
 }
@@ -1122,80 +1260,4 @@ export function t(key, mode = "default", params = {}) {
   const fallbackValue = getNestedValue(toneDictionaries.default, key);
   const selected = value === undefined ? fallbackValue : value;
   return materialize(selected, params);
-}
-
-export function tPack(key, mode = "default", params = {}) {
-  const resolvedMode = resolveMode(mode);
-  const value = getNestedValue(getTonePack(resolvedMode), key);
-  return materialize(value, params);
-}
-
-export function tPackFirst(key, mode = "default", params = {}) {
-  const value = tPack(key, mode, params);
-  if (Array.isArray(value)) {
-    return value[0] || "";
-  }
-  return typeof value === "string" ? value : "";
-}
-
-export function tPackRandom(key, mode = "default", params = {}, memoryKey = key) {
-  const values = tPack(key, mode, params);
-  if (!Array.isArray(values) || !values.length) {
-    return typeof values === "string" ? values : "";
-  }
-
-  if (values.length === 1) {
-    lastRandomSelections.set(`pack:${memoryKey}`, values[0]);
-    return values[0];
-  }
-
-  const previous = lastRandomSelections.get(`pack:${memoryKey}`);
-  const pool = values.filter((item) => item !== previous);
-  const next = pool[Math.floor(Math.random() * pool.length)] || values[0];
-  lastRandomSelections.set(`pack:${memoryKey}`, next);
-  return next;
-}
-
-export function tRandom(key, mode = "default", params = {}, memoryKey = key) {
-  const values = t(key, mode, params);
-  if (!Array.isArray(values) || !values.length) {
-    return typeof values === "string" ? values : "";
-  }
-
-  if (values.length === 1) {
-    lastRandomSelections.set(memoryKey, values[0]);
-    return values[0];
-  }
-
-  const previous = lastRandomSelections.get(memoryKey);
-  const pool = values.filter((item) => item !== previous);
-  const next = pool[Math.floor(Math.random() * pool.length)] || values[0];
-  lastRandomSelections.set(memoryKey, next);
-  return next;
-}
-
-export function maybeQuip(context, mode = "default", params = {}, probability = null) {
-  const resolvedMode = resolveMode(mode);
-  const chance = typeof probability === "number"
-    ? probability
-    : resolvedMode === "drunk"
-      ? 0.14
-      : 0.12;
-
-  if (Math.random() > chance) {
-    return "";
-  }
-
-  if (resolvedMode !== "drunk") {
-    return tRandom(`random_quips.${context}`, resolvedMode, params, `quip:${resolvedMode}:${context}`);
-  }
-
-  const screen = LEGACY_CONTEXT_TO_SCREEN[context] || SCREEN_TONE_POLICIES.default.screen || "trip_settings";
-  return pickToneLine({
-    screen,
-    mode: resolvedMode,
-    scopeKey: `legacy:${context}`,
-    state: params?.state || {},
-    delivery: "quip"
-  });
 }

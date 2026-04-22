@@ -53,6 +53,13 @@ const SCREEN_GROUPS = {
   photos: ["trip_photos", "trip_photo_album"]
 };
 
+const SHAPE_TO_DELIVERY_CLASS = {
+  question: "prompt",
+  optimistic: "success",
+  complaint: "warning",
+  fatalistic: "error"
+};
+
 function normalize(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -205,6 +212,92 @@ function inferDeliveries(shape = "", intensity = "low", tags = []) {
   return [...deliveries];
 }
 
+function inferRequires(text = "", tags = [], shape = "", intensity = "low", screens = []) {
+  const normalized = normalize(text).toLowerCase();
+  const requires = new Set();
+
+  if (tags.includes("alcohol")) {
+    if (/випить|барі|шампань|пиво|горіл|пляш/u.test(normalized)) {
+      requires.add("alcohol_empty");
+    } else {
+      requires.add("alcohol_present");
+    }
+  }
+
+  if (tags.includes("food")) {
+    requires.add("food_present");
+  }
+
+  if (tags.includes("people")) {
+    requires.add("members_plural");
+  }
+
+  if (tags.includes("gear")) {
+    requires.add("gear_present");
+  }
+
+  if (tags.includes("money")) {
+    requires.add("expenses_present");
+  }
+
+  if (tags.includes("route") || tags.includes("weather")) {
+    requires.add("route_known");
+  }
+
+  if (screens.includes("trip_photo_album") || screens.includes("trip_photos")) {
+    requires.add("photos_present");
+  }
+
+  if (shape === "question") {
+    requires.add("ui_waiting");
+  }
+
+  if (shape === "complaint" && intensity !== "low") {
+    requires.add("edit_repeated");
+  }
+
+  return [...requires];
+}
+
+function inferForbiddenWhen(tags = [], shape = "", intensity = "low", screens = []) {
+  const forbiddenWhen = new Set();
+
+  forbiddenWhen.add("screen:safety");
+
+  if (shape === "fatalistic" || intensity === "high") {
+    forbiddenWhen.add("screen:trip_hub");
+    forbiddenWhen.add("screen:trip_details");
+    forbiddenWhen.add("screen:trip_members_menu");
+    forbiddenWhen.add("screen:trip_members_list");
+    forbiddenWhen.add("screen:trip_member_card");
+    forbiddenWhen.add("screen:route_weather");
+    forbiddenWhen.add("screen:trip_photos");
+    forbiddenWhen.add("screen:trip_photo_album");
+  }
+
+  if (shape === "question") {
+    forbiddenWhen.add("delivery:banner");
+  }
+
+  if (screens.includes("trip_photos") || screens.includes("trip_photo_album")) {
+    forbiddenWhen.add("photos_empty");
+  }
+
+  if (tags.includes("alcohol")) {
+    forbiddenWhen.add("no_alco_mode");
+  }
+
+  return [...forbiddenWhen];
+}
+
+function inferDeliveryClass(shape = "", intensity = "low") {
+  if (shape === "reaction" || shape === "observational") {
+    return intensity === "low" ? "banner" : "quip";
+  }
+
+  return SHAPE_TO_DELIVERY_CLASS[shape] || "quip";
+}
+
 function inferScreens(tags = [], intensity = "low", shape = "reaction") {
   const screens = new Set();
 
@@ -287,6 +380,8 @@ function collectCandidates(entries = []) {
     const tags = inferTags(text, type, tone);
     const intensity = inferIntensity(text, tone);
     const shape = inferToneShape(type, tone, text);
+    const screens = inferScreens(tags, intensity, shape);
+    const deliveries = inferDeliveries(shape, intensity, tags);
     const candidate = {
       id: `${slugify(text)}-${candidates.length + 1}`,
       text,
@@ -296,8 +391,12 @@ function collectCandidates(entries = []) {
       intensity,
       tags,
       contexts: inferContexts(tags),
-      screens: inferScreens(tags, intensity, shape),
-      deliveries: inferDeliveries(shape, intensity, tags),
+      screens,
+      screenContexts: screens,
+      deliveries,
+      deliveryClass: inferDeliveryClass(shape, intensity),
+      requires: inferRequires(text, tags, shape, intensity, screens),
+      forbiddenWhen: inferForbiddenWhen(tags, shape, intensity, screens),
       cooldownScope: intensity === "high" ? "trip" : "screen"
     };
 

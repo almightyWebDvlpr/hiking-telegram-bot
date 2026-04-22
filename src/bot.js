@@ -24,7 +24,7 @@ import { detectChangedFields, hasMeaningfulChange } from "./utils/changeTracking
 import { extractTelegramPhotoMetadata } from "./utils/photoMetadata.js";
 import { consumeUserRateLimit, runWithLock } from "./utils/concurrency.js";
 import { formatPhoneForDisplay, normalizePhone } from "./utils/phone.js";
-import { buildToneBlock, resolveContextToneMode, resolveTripToneMode, t } from "./services/toneService.js";
+import { buildScreenToneBlock, resolveContextToneMode, resolveTripToneMode, t } from "./services/toneService.js";
 import {
   PROFILE_AWARDS_LABEL,
   BADGE_SERIES,
@@ -1142,12 +1142,16 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
       : t("trip.hub.alcoEmpty", toneMode));
   }
 
-  const usedToneLines = new Set();
-  const bannerLines = buildDrunkardModeBannerLines(
-    trip,
+  const alcoholSnapshot = getTripAlcoholSnapshot(groupService, trip.id);
+  const toneSectionLines = buildTripScreenToneSection(trip, "trip_hub", {
     groupService,
-    { exclude: usedToneLines, screen: "trip_hub" }
-  );
+    scope: "hub",
+    includeModeBanner: true,
+    state: {
+      alcoholCount: alcoholSnapshot.count,
+      alcoholEmpty: alcoholSnapshot.count === 0
+    }
+  });
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader(
@@ -1155,8 +1159,7 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
         trip.name
       ),
       "",
-      ...bannerLines,
-      ...(isTripAlcoModeEnabled(trip) ? [""] : []),
+      ...(toneSectionLines.length ? [...toneSectionLines, ""] : []),
       `${hubCopy.roleLabel}: ${role}`,
       `${hubCopy.statusLabel}: ${getTripLifecycleLabel(trip.status)}`,
       `${hubCopy.routeLabel}: ${route}`,
@@ -3503,10 +3506,10 @@ function buildTripMeetingPointLines(trip, userService, safety) {
 function formatTripPassport(trip, groupService, userService, userId = "") {
   const toneMode = resolveTripToneMode(trip);
   const detailsCopy = t("trip.details", toneMode);
-  const detailsToneLines = buildTripScreenToneLines(trip, "trip_details", {
+  const detailsToneLines = buildTripScreenToneSection(trip, "trip_details", {
     groupService,
     scope: "passport",
-    maxLines: 1
+    includeModeBanner: true
   });
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
   const safety = resolveSafetyProfile(trip);
@@ -3528,8 +3531,6 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
   return joinRichLines([
     ...formatCardHeader(detailsCopy.title, trip.name),
     "",
-    ...buildDrunkardModeBannerLines(trip, groupService, { screen: "trip_details" }),
-    ...(isTripAlcoModeEnabled(trip) ? [""] : []),
     ...(detailsToneLines.length ? [...detailsToneLines, ""] : []),
     `${detailsCopy.inviteCodeLabel}: ${trip.inviteCode}`,
     `${detailsCopy.roleLabel}: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
@@ -4098,14 +4099,51 @@ function buildTripScreenToneLines(trip, screen, {
   state = {},
   usedTexts = null
 } = {}) {
-  return buildToneBlock({
+  return buildScreenToneBlock({
     screen,
+    event: scope === "edit_loop" ? "edit_loop" : "view",
     mode: resolveTripToneMode(trip),
     scopeKey: [trip?.id || "na", screen, scope].filter(Boolean).join(":"),
     state: getTripToneState(trip, groupService, state),
     maxLines,
     usedTexts
   });
+}
+
+function buildTripScreenToneSection(trip, screen, {
+  groupService = null,
+  scope = "",
+  state = {},
+  includeModeBanner = false
+} = {}) {
+  const lines = [];
+  const usedToneLines = new Set();
+
+  if (includeModeBanner && isTripAlcoModeEnabled(trip)) {
+    const alcohol = groupService
+      ? getTripAlcoholSnapshot(groupService, trip.id)
+      : getTripAlcoholSnapshotFromTrip(trip);
+
+    lines.push(...buildDrunkardModeBannerFromValues(alcohol.count, alcohol.totalCost));
+  }
+
+  const toneLines = buildTripScreenToneLines(trip, screen, {
+    groupService,
+    scope,
+    maxLines: 1,
+    state,
+    usedTexts: usedToneLines
+  });
+
+  if (toneLines.length) {
+    if (includeModeBanner && lines.length) {
+      lines.push(`• ${toneLines[0]}`);
+    } else {
+      lines.push(...toneLines);
+    }
+  }
+
+  return lines;
 }
 
 function getAlcoModeRouteJoke(routeContext) {
@@ -4146,34 +4184,6 @@ function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
         })]
       : [])
   ];
-}
-
-function buildDrunkardModeBannerLines(trip, groupService, {
-  exclude = null,
-  screen = "trip_hub",
-  state = {}
-} = {}) {
-  if (!isTripAlcoModeEnabled(trip)) {
-    return [];
-  }
-
-  const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
-  const lines = buildDrunkardModeBannerFromValues(alcohol.count, alcohol.totalCost);
-  const toneLines = buildTripScreenToneLines(trip, screen, {
-    groupService,
-    scope: "banner",
-    maxLines: 1,
-    state: {
-      alcoholCount: alcohol.count,
-      alcoholEmpty: alcohol.count === 0,
-      ...state
-    },
-    usedTexts: exclude
-  });
-  if (toneLines.length) {
-    lines.push(`• ${toneLines[0]}`);
-  }
-  return lines;
 }
 
 function buildAlcoModeNotes(trip, groupService) {
@@ -7804,23 +7814,16 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
   }
   const toneMode = resolveTripToneMode(trip);
   const routeCopy = t("trip.route", toneMode);
-  const usedToneLines = new Set();
-  const bannerLines = buildDrunkardModeBannerLines(trip, groupService, {
-    exclude: usedToneLines,
-    screen: "route_menu"
-  });
-  const toneLines = buildTripScreenToneLines(trip, "route_menu", {
+  const toneLines = buildTripScreenToneSection(trip, "route_menu", {
     groupService,
     scope: "route_menu",
-    maxLines: 1,
-    usedTexts: usedToneLines
+    includeModeBanner: true
   });
 
   const response = await ctx.reply(
     joinRichLines([
       ...formatCardHeader(routeCopy.title, trip.name),
       "",
-      ...(bannerLines.length ? [...bannerLines, ""] : []),
       ...(toneLines.length ? [...toneLines, ""] : []),
       `${routeCopy.currentLabel}: ${formatRouteStatus(trip.routePlan)}`,
       ...(isTripAlcoModeEnabled(trip) ? ["", getAlcoModeRouteJoke(getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard))] : []),
@@ -13950,16 +13953,10 @@ function showTripFoodMenu(ctx, groupService) {
   if (!hasItems) {
     actions.splice(1, 1);
   }
-  const usedToneLines = new Set();
-  const bannerLines = buildDrunkardModeBannerLines(trip, groupService, {
-    exclude: usedToneLines,
-    screen: "food_menu"
-  });
-  const toneLines = buildTripScreenToneLines(trip, "food_menu", {
+  const toneLines = buildTripScreenToneSection(trip, "food_menu", {
     groupService,
     scope: "food_menu",
-    maxLines: 1,
-    usedTexts: usedToneLines,
+    includeModeBanner: true,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0,
@@ -13971,7 +13968,6 @@ function showTripFoodMenu(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.foodTitle, trip.name),
       "",
-      ...(bannerLines.length ? [...bannerLines, ""] : []),
       ...(toneLines.length ? [...toneLines, ""] : []),
       formatSectionHeader("🧭", foodMenuCopy.actionsTitle),
       ...actions,
@@ -14161,16 +14157,10 @@ function showTripFood(ctx, groupService, userService) {
 
   const snapshot = groupService.getFoodSnapshot(trip.id);
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
-  const usedToneLines = new Set();
-  const bannerLines = buildDrunkardModeBannerLines(trip, groupService, {
-    exclude: usedToneLines,
-    screen: "food_list"
-  });
-  const toneLines = buildTripScreenToneLines(trip, "food_list", {
+  const toneLines = buildTripScreenToneSection(trip, "food_list", {
     groupService,
     scope: "food_list",
-    maxLines: 1,
-    usedTexts: usedToneLines,
+    includeModeBanner: true,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0,
@@ -14204,7 +14194,6 @@ function showTripFood(ctx, groupService, userService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.foodTitle, trip.name),
       "",
-      ...(bannerLines.length ? [...bannerLines, ""] : []),
       ...(toneLines.length ? [...toneLines, ""] : []),
       formatSectionHeader("🥘", foodMenuCopy.listTitle),
       items,
@@ -14359,16 +14348,10 @@ function showTripExpensesMenu(ctx, groupService) {
   if (!hasItems) {
     actions.splice(1, 1);
   }
-  const usedToneLines = new Set();
-  const bannerLines = buildDrunkardModeBannerLines(trip, groupService, {
-    exclude: usedToneLines,
-    screen: "expenses_menu"
-  });
-  const toneLines = buildTripScreenToneLines(trip, "expenses_menu", {
+  const toneLines = buildTripScreenToneSection(trip, "expenses_menu", {
     groupService,
     scope: "expenses_menu",
-    maxLines: 1,
-    usedTexts: usedToneLines,
+    includeModeBanner: true,
     state: {
       expenseEmpty: !hasItems
     }
@@ -14378,7 +14361,6 @@ function showTripExpensesMenu(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.expensesTitle, trip.name),
       "",
-      ...(bannerLines.length ? [...bannerLines, ""] : []),
       ...(toneLines.length ? [...toneLines, ""] : []),
       formatSectionHeader("🧭", expensesMenuCopy.actionsTitle),
       ...actions,

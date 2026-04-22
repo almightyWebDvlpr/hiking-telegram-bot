@@ -50,45 +50,71 @@ const INTENSITY_RANK = {
 
 const CURATED_THEATRE_SCREEN_LINES = {
   trip_hub: [
-    { text: "Ітоги подвєдьом." },
-    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty) }
+    { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Папаша, всьо буде в лучшем відє.", cooldownScope: "trip" },
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" }
   ],
   trip_details: [
-    { text: "Ітоги подвєдьом." },
-    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty) }
+    { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Папаша, всьо буде в лучшем відє.", cooldownScope: "trip" },
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" }
   ],
   trip_history: [
-    { text: "Ітоги подвєдьом." }
+    { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
   ],
   trip_settings: [
-    { text: "Ітоги подвєдьом." }
+    { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
+    { text: "Папаша, всьо буде в лучшем відє.", cooldownScope: "trip" }
   ],
   trip_members_menu: [
-    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1 }
+    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Хлопці, агов!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Сідайте, хлопці, чаю поп’ємо.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
   ],
   trip_members_list: [
-    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1 }
+    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Хлопці, агов!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Сідайте, хлопці, чаю поп’ємо.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
   ],
   trip_member_card: [
-    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1 }
+    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
   ],
   route_menu: [
-    { text: "Смотрєть надо!" },
-    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty) }
+    { text: "Смотрєть надо!", cooldownScope: "trip" },
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" },
+    { text: "Та куди ж іттіть?", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" },
+    { text: "Ви в страшні дєбрі забралісь.", when: (state) => state?.routeDifficulty === "висока", cooldownScope: "trip" },
+    { text: "Праве плече вперед, кроком руш!", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" }
   ],
   route_weather_picker: [
-    { text: "Смотрєть надо!" }
+    { text: "Смотрєть надо!", cooldownScope: "trip" },
+    { text: "Ви тут сідітє, а на дворє такая пагода стаїть.", cooldownScope: "trip" },
+    { text: "Как пагодка в Маскве?", cooldownScope: "trip" }
   ],
   route_weather: [
-    { text: "Смотрєть надо!" }
+    { text: "Смотрєть надо!", cooldownScope: "trip" },
+    { text: "Ви тут сідітє, а на дворє такая пагода стаїть.", cooldownScope: "trip" },
+    { text: "Как пагодка в Маскве?", cooldownScope: "trip" }
   ],
   food_menu: [
-    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true },
-    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false }
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "Бистро вставай і ріж ковбасу!", when: (state) => state?.foodEmpty === false, cooldownScope: "trip" },
+    { text: "Я їсти хочу!", when: (state) => state?.foodEmpty === true, cooldownScope: "trip" },
+    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false && Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
   ],
   food_list: [
-    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true },
-    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false }
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "Бистро вставай і ріж ковбасу!", when: (state) => state?.foodEmpty === false, cooldownScope: "trip" },
+    { text: "Я їсти хочу!", when: (state) => state?.foodEmpty === true, cooldownScope: "trip" },
+    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false && Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
   ],
   gear_menu: [],
   gear_accounting: [],
@@ -96,29 +122,40 @@ const CURATED_THEATRE_SCREEN_LINES = {
   gear_loaned: [],
   gear_backpack: [],
   trip_mode: [
-    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true }
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" }
   ],
   trip_drunk_mode: [
-    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true }
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" }
   ],
   expenses_menu: [
-    { text: "П’ятьсот карбованців стоять." },
-    { text: "Дай мені три карбованці, я завтра утром віддам." }
+    { text: "П’ятьсот карбованців стоять.", cooldownScope: "trip" },
+    { text: "Дай мені три карбованці, я завтра утром віддам.", cooldownScope: "trip" }
   ],
   expenses_list: [
-    { text: "П’ятьсот карбованців стоять." },
-    { text: "Дай мені три карбованці, я завтра утром віддам." }
+    { text: "П’ятьсот карбованців стоять.", cooldownScope: "trip" },
+    { text: "Дай мені три карбованці, я завтра утром віддам.", cooldownScope: "trip" }
   ],
   trip_photos: [],
   trip_photo_album: [],
   idle_prompt: [
-    { text: "Блядські ці питання зайобують." },
-    { text: "Купатись чи не купатись?" }
+    { text: "Блядські ці питання зайобують.", cooldownScope: "screen" },
+    { text: "Купатись чи не купатись?", cooldownScope: "screen" },
+    { text: "Чиї вони?", cooldownScope: "screen" },
+    { text: "Чиї ви?", cooldownScope: "screen" },
+    { text: "Она жива?", cooldownScope: "screen" },
+    { text: "Шо в нас козир?", cooldownScope: "screen" },
+    { text: "Хто там? Сюди не можна.", cooldownScope: "screen" }
   ],
   edit_loop: [
-    { text: "Блядські ці питання зайобують." },
-    { text: "Купатись чи не купатись?" },
-    { text: "Я їбав таку жизнь." }
+    { text: "Блядські ці питання зайобують.", cooldownScope: "screen" },
+    { text: "Купатись чи не купатись?", cooldownScope: "screen" },
+    { text: "Я їбав таку жизнь.", cooldownScope: "screen" },
+    { text: "Чиї вони?", cooldownScope: "screen" },
+    { text: "Чиї ви?", cooldownScope: "screen" },
+    { text: "Она жива?", cooldownScope: "screen" },
+    { text: "Шо в нас козир?", cooldownScope: "screen" }
   ]
 };
 
@@ -922,10 +959,11 @@ function pickCuratedTheatreLine(screen = "default", state = {}, usedTexts = null
     .map((entry) => ({
       text: entry.text.trim(),
       normalizedText: normalizeToneText(entry.text),
-      priority: Number(entry?.priority || 0)
+      priority: Number(entry?.priority || 0),
+      cooldownScope: entry?.cooldownScope || "screen"
     }))
     .filter((entry) => entry.normalizedText && !usedTexts?.has(entry.normalizedText))
-    .filter((entry) => !isOnCooldown({ cooldownScope: "screen" }, entry.normalizedText, screen, scopeKey, state))
+    .filter((entry) => !isOnCooldown({ cooldownScope: entry.cooldownScope }, entry.normalizedText, screen, scopeKey, state))
     .sort((left, right) => right.priority - left.priority || left.text.localeCompare(right.text, "uk"));
 
   if (!prepared.length) {
@@ -940,7 +978,7 @@ function pickCuratedTheatreLine(screen = "default", state = {}, usedTexts = null
   }
 
   usedTexts?.add(picked.normalizedText);
-  rememberToneSelection({ cooldownScope: "screen" }, picked.normalizedText, screen, scopeKey, state);
+  rememberToneSelection({ cooldownScope: picked.cooldownScope }, picked.normalizedText, screen, scopeKey, state);
   lastRandomSelections.set(`curated:${screen}:${scopeKey}`, picked.text);
   return picked.text;
 }

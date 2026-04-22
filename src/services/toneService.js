@@ -1135,8 +1135,11 @@ export function pickToneLine({
   }
   const candidates = theatreToneIndexByScreen.get(screen) || [];
   const curatedLine = pickCuratedTheatreLine(screen, state, usedTexts, scopeKey);
-  if (curatedLine || hasCuratedTheatreScreen(screen)) {
+  if (curatedLine) {
     return curatedLine;
+  }
+  if (hasCuratedTheatreScreen(screen) && !candidates.length) {
+    return "";
   }
 
   if (!candidates.length) {

@@ -53,6 +53,15 @@ const SCREEN_GROUPS = {
   photos: ["trip_photos", "trip_photo_album"]
 };
 
+const RAW_SOURCE_BLOCKED_PATTERNS = [
+  /\bact\s*[ivx]+\b/iu,
+  /\b(входить|входять|виходить|виходять|вбігає|вбігають)\b/iu,
+  /\b(сидить|сидять|сідає|сідають|лежить|лежать|біжить|біжать)\b/iu,
+  /\b(кричить|реве|плямка|катує|харка|топиться|вимахує|вириває)\b/iu,
+  /\b(зроблений|подекуди|обривки|напрямку|неохайні|неприємні|одягнуто|волочиться)\b/iu,
+  /\b(кабінет|печера|ліс|болото|катівня|море)\b/iu
+];
+
 const SHAPE_TO_DELIVERY_CLASS = {
   question: "prompt",
   optimistic: "success",
@@ -62,6 +71,129 @@ const SHAPE_TO_DELIVERY_CLASS = {
 
 function normalize(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function splitSentences(value = "") {
+  const normalized = normalize(value);
+  if (!normalized) {
+    return [];
+  }
+
+  const matches = normalized.match(/[^.!?…]+(?:[.!?…]+|$)/gu) || [];
+  return matches.map((part) => normalize(part)).filter(Boolean);
+}
+
+function extractQuotedSnippets(value = "") {
+  const snippets = [];
+  const quotedPatterns = [/'([^']+)'/gu, /"([^"]+)"/gu, /“([^”]+)”/gu, /«([^»]+)»/gu];
+
+  for (const pattern of quotedPatterns) {
+    for (const match of value.matchAll(pattern)) {
+      const snippet = normalize(match?.[1] || "");
+      if (snippet) {
+        snippets.push(snippet);
+      }
+    }
+  }
+
+  return snippets;
+}
+
+function looksLikeStageDirection(text = "") {
+  const normalized = normalize(text);
+  if (!normalized) {
+    return true;
+  }
+
+  if (!/[.!?…]/u.test(normalized)) {
+    return true;
+  }
+
+  if (RAW_SOURCE_BLOCKED_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+
+  if (/^[A-ZА-ЯІЇЄҐ0-9'’\s-]{2,48}[.!?…]?$/u.test(normalized) && normalized === normalized.toUpperCase()) {
+    return true;
+  }
+
+  return false;
+}
+
+function extractPhrasesFromCombinedContent(content = "") {
+  const source = String(content || "")
+    .replace(/\r/g, "\n")
+    .replace(/\t+/g, "\n");
+  const chunks = source
+    .split(/\n+|\s{2,}/u)
+    .map((chunk) => normalize(chunk))
+    .filter(Boolean);
+  const phrases = [];
+  const seen = new Set();
+
+  const push = (value = "") => {
+    const text = normalize(value);
+    if (!text || seen.has(text.toLowerCase())) {
+      return;
+    }
+    if (text.length < 6 || text.length > 96) {
+      return;
+    }
+    if (looksLikeStageDirection(text)) {
+      return;
+    }
+    seen.add(text.toLowerCase());
+    phrases.push(text);
+  };
+
+  for (const chunk of chunks) {
+    if (/[.!?…]/u.test(chunk)) {
+      push(chunk);
+    }
+
+    for (const quoted of extractQuotedSnippets(chunk)) {
+      push(quoted);
+      for (const sentence of splitSentences(quoted)) {
+        push(sentence);
+      }
+    }
+
+    for (const sentence of splitSentences(chunk)) {
+      push(sentence);
+    }
+  }
+
+  return phrases;
+}
+
+function normalizeSourceEntries(source = {}) {
+  const entries = [];
+
+  if (Array.isArray(source?.dataset)) {
+    entries.push(...source.dataset);
+  }
+
+  if (Array.isArray(source?.files)) {
+    for (const file of source.files) {
+      const phrases = extractPhrasesFromCombinedContent(file?.content || "");
+      if (!phrases.length) {
+        continue;
+      }
+
+      entries.push({
+        source: normalize(file?.title || file?.requested_title || file?.filename || "combined-source"),
+        popular_funny_phrases: phrases
+      });
+    }
+  }
+
+  if (Array.isArray(source?.sources)) {
+    for (const nestedSource of source.sources) {
+      entries.push(...normalizeSourceEntries(nestedSource));
+    }
+  }
+
+  return entries;
 }
 
 function isAllowed(text = "") {
@@ -422,7 +554,7 @@ function collectCandidates(entries = []) {
 }
 
 export function buildTheatreToneCatalog(source = {}) {
-  const entries = Array.isArray(source?.dataset) ? source.dataset : [];
+  const entries = normalizeSourceEntries(source);
   const candidates = collectCandidates(entries);
   const sourceHash = crypto
     .createHash("sha1")

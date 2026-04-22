@@ -21,483 +21,292 @@ function readToneFile(name, options = {}) {
   }
 }
 
-const FILTERED_THEATRE_TERMS = [
-  "жид",
-  "жидів",
-  "жиды",
-  "підорас",
-  "підораси",
-  "пидарас",
-  "кацап",
-  "кацапізм",
-  "кацапізма"
-];
-
-const THEATRE_CONTEXT_KEYWORDS = {
-  trip: ["іттіть", "вперьод", "вперед", "прийшли", "питання", "розруха", "піздєц", "піздець", "контра"],
-  route: ["іттіть", "прийшли", "вперьод", "вперед", "пагодка", "купатись", "дорог", "йти", "шлях", "ліс", "болото", "пустин"],
-  food: ["канхвет", "тузік", "випить", "барі", "шампаньйол", "їсти", "жрать", "бздить", "кусн", "горіл", "пиво", "пити"],
-  people: ["падлюки", "хлопці", "народ", "контра", "мовчите", "сцикун", "покидьк", "панство", "довольні"],
-  gear: ["дрючок", "роялі", "рояль", "сраку", "простирадл", "укол", "пістолет", "меч", "реквізит", "світить", "фонарь"],
-  generic: ["піздєц", "піздець", "розруха", "пагодка", "жизнь", "мовчать", "довольні", "питання", "облом"]
-};
-
-function normalizeTheatreText(value = "") {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
-
-function isAllowedTheatreText(value = "") {
-  const normalized = normalizeTheatreText(value).toLowerCase();
-  return Boolean(normalized) && !FILTERED_THEATRE_TERMS.some((term) => normalized.includes(term));
-}
-
-function uniqueStrings(values = []) {
-  return [...new Set(
-    values
-      .map((value) => normalizeTheatreText(value))
-      .filter((value) => typeof value === "string" && value && isAllowedTheatreText(value))
-  )];
-}
-
-function includesAny(text = "", keywords = []) {
-  const normalized = normalizeTheatreText(text).toLowerCase();
-  return keywords.some((keyword) => normalized.includes(String(keyword).toLowerCase()));
-}
-
-function scoreByKeywords(text = "", keywords = []) {
-  const normalized = normalizeTheatreText(text).toLowerCase();
-  return keywords.reduce((score, keyword) => (normalized.includes(String(keyword).toLowerCase()) ? score + 1 : score), 0);
-}
-
-function quoteLabel(value = "") {
-  return `«${normalizeTheatreText(value)}»`;
-}
-
-function clampTextList(values = [], limit = 12) {
-  return uniqueStrings(values)
-    .filter((value) => value.length <= 140)
-    .slice(0, limit);
-}
-
-function collectEntryQuotes(entry = {}) {
-  const all = [];
-  const commands = [];
-  const reactions = [];
-  const battleCries = [];
-  const questions = [];
-
-  for (const phrase of Array.isArray(entry?.popular_funny_phrases) ? entry.popular_funny_phrases : []) {
-    if (isAllowedTheatreText(phrase)) {
-      all.push(phrase);
-    }
-  }
-
-  for (const quote of Array.isArray(entry?.memes_quotes) ? entry.memes_quotes : []) {
-    const text = normalizeTheatreText(quote?.text || "");
-    const type = String(quote?.type || "").trim().toLowerCase();
-    const tone = String(quote?.tone || "").trim().toLowerCase();
-    if (!isAllowedTheatreText(text)) {
-      continue;
-    }
-
-    all.push(text);
-
-    if (type === "command" || type === "threat") {
-      commands.push(text);
-    }
-    if (type === "reaction" || type === "statement" || type === "accusation" || tone.includes("сарказм")) {
-      reactions.push(text);
-    }
-    if (type === "battle_cry") {
-      battleCries.push(text);
-    }
-    if (type === "question") {
-      questions.push(text);
-    }
-  }
-
-  return {
-    all: uniqueStrings(all),
-    commands: uniqueStrings(commands),
-    reactions: uniqueStrings(reactions),
-    battleCries: uniqueStrings(battleCries),
-    questions: uniqueStrings(questions)
-  };
-}
-
-function pickTopContextTexts(values = [], context = "generic", limit = 4) {
-  const keywords = THEATRE_CONTEXT_KEYWORDS[context] || [];
-  return uniqueStrings(values)
-    .map((value) => ({ value, score: scoreByKeywords(value, keywords) }))
-    .filter((item) => item.score > 0)
-    .sort((left, right) => right.score - left.score || left.value.length - right.value.length)
-    .slice(0, limit)
-    .map((item) => item.value);
-}
-
-function formatCharacterList(names = []) {
-  return uniqueStrings(names).slice(0, 3).join(" / ");
-}
-
-function formatWordMood(words = [], context = "generic") {
-  const contextKeywords = THEATRE_CONTEXT_KEYWORDS[context] || [];
-  const matched = uniqueStrings(words)
-    .map((value) => ({ value, score: scoreByKeywords(value, contextKeywords) }))
-    .filter((item) => item.score > 0)
-    .sort((left, right) => right.score - left.score || left.value.localeCompare(right.value))
-    .map((item) => item.value);
-  const values = matched.slice(0, 2);
-  if (!values.length) {
-    return "";
-  }
-  return values.map((value) => quoteLabel(value)).join(" і ");
-}
-
-function buildContextualLinesForEntry(entry = {}, context = "generic") {
-  const source = normalizeTheatreText(entry?.source || "вистава");
-  const details = uniqueStrings(entry?.funny_images_and_absurd_details || []);
-  const words = uniqueStrings(entry?.popular_funny_words || []);
-  const characterLabel = formatCharacterList((entry?.cast_characters || []).map((character) => character?.name || ""));
-  const wordMood = formatWordMood(words, context);
-  const quotes = collectEntryQuotes(entry);
-  const lines = [];
-
-  const push = (value) => {
-    const normalized = normalizeTheatreText(value);
-    if (isAllowedTheatreText(normalized) && normalized.length <= 160) {
-      lines.push(normalized);
-    }
-  };
-
-  const routeDetail = pickTopContextTexts(details, "route", 1)[0];
-  const foodDetail = pickTopContextTexts(details, "food", 1)[0];
-  const gearDetail = pickTopContextTexts(details, "gear", 1)[0];
-  const tripDetail = pickTopContextTexts(details, "trip", 1)[0];
-  const genericDetail = details[0];
-
-  if (context === "trip") {
-    pickTopContextTexts([...quotes.commands, ...quotes.reactions, ...quotes.questions], "trip", 3).forEach(push);
-    if (tripDetail) {
-      push(`Походова рада сьогодні чистий ${quoteLabel(source)}: ${tripDetail}.`);
-    }
-    if (characterLabel) {
-      push(`Без драм на ролі ${characterLabel}, панове.`);
-    }
-    if (wordMood) {
-      push(`Настрій двіжу: ${wordMood}.`);
-    }
-  }
-
-  if (context === "route") {
-    pickTopContextTexts([...quotes.commands, ...quotes.battleCries, ...quotes.questions, ...quotes.all], "route", 3).forEach(push);
-    if (routeDetail) {
-      push(`Маршрут сьогодні як ${quoteLabel(source)}: ${routeDetail}.`);
-    }
-    if (characterLabel) {
-      push(`На стежці без вистави на ролі ${characterLabel}.`);
-    }
-    if (wordMood) {
-      push(`По дорозі вже пахне словами ${wordMood}.`);
-    }
-  }
-
-  if (context === "food") {
-    pickTopContextTexts([...quotes.reactions, ...quotes.all], "food", 3).forEach(push);
-    if (foodDetail) {
-      push(`По закусону сьогодні майже ${quoteLabel(source)}: ${foodDetail}.`);
-    }
-    if (wordMood) {
-      push(`Приваловий вайб: ${wordMood}.`);
-    }
-    if (characterLabel) {
-      push(`За харчі без сцен рівня ${characterLabel}.`);
-    }
-  }
-
-  if (context === "gear") {
-    pickTopContextTexts([...quotes.commands, ...quotes.reactions, ...quotes.all], "gear", 3).forEach(push);
-    if (gearDetail) {
-      push(`По барахлу сьогодні реквізит рівня ${quoteLabel(source)}: ${gearDetail}.`);
-    }
-    if (wordMood) {
-      push(`По шмоту зараз вайб ${wordMood}.`);
-    }
-    if (characterLabel) {
-      push(`Не перетворюйте спорядження на театр імені ${characterLabel}.`);
-    }
-  }
-
-  if (context === "people") {
-    pickTopContextTexts([...quotes.commands, ...quotes.reactions, ...quotes.questions, ...quotes.all], "people", 3).forEach(push);
-    if (characterLabel) {
-      push(`Панство зараз грає сцену на ролі ${characterLabel}.`);
-    }
-    if (wordMood) {
-      push(`По людях сьогодні чистий настрій ${wordMood}.`);
-    }
-    if (tripDetail || genericDetail) {
-      push(`По складу банди зараз чистий ${quoteLabel(source)}: ${tripDetail || genericDetail}.`);
-    }
-  }
-
-  if (context === "generic") {
-    pickTopContextTexts([...quotes.reactions, ...quotes.questions, ...quotes.all], "generic", 3).forEach(push);
-    if (genericDetail) {
-      push(`По табору зараз вайб ${quoteLabel(source)}: ${genericDetail}.`);
-    }
-    if (wordMood) {
-      push(`Загальний настрій: ${wordMood}.`);
-    }
-    if (characterLabel) {
-      push(`Без вистав на ролі ${characterLabel}.`);
-    }
-  }
-
-  return clampTextList(lines, 6);
-}
-
-function fallbackSlice(primary = [], fallback = [], count = 12) {
-  return clampTextList([...primary, ...fallback], count);
-}
-
-function collectForbiddenTheatreTokens(entries = []) {
-  const tokens = new Set();
-
-  const pushParts = (value = "") => {
-    const parts = normalizeTheatreText(value)
-      .toLowerCase()
-      .split(/[^a-zа-яіїєґ0-9'-]+/iu)
-      .map((part) => part.trim())
-      .filter((part) => part.length >= 4);
-
-    for (const part of parts) {
-      tokens.add(part);
-    }
-  };
-
-  for (const entry of entries) {
-    pushParts(entry?.source || "");
-    for (const character of Array.isArray(entry?.cast_characters) ? entry.cast_characters : []) {
-      pushParts(character?.name || "");
-    }
-  }
-
-  return tokens;
-}
-
-function isStandaloneTheatreQuote(text = "", forbiddenTokens = new Set()) {
-  const normalized = normalizeTheatreText(text);
-  if (!isAllowedTheatreText(normalized)) {
-    return false;
-  }
-
-  const words = normalized.split(/\s+/).filter(Boolean);
-  if (words.length < 2 || normalized.length < 8 || normalized.length > 96) {
-    return false;
-  }
-
-  const lowered = normalized.toLowerCase();
-  for (const token of forbiddenTokens) {
-    if (token && lowered.includes(token)) {
-      return false;
-    }
-  }
-
-  if (/[«»]/u.test(normalized)) {
-    return false;
-  }
-
-  if (/\b(роль|ролі|сцена|персонаж|вайб|табір|панство зараз грає|сьогодні як)\b/iu.test(normalized)) {
-    return false;
-  }
-
-  return true;
-}
-
-function collectStandaloneTheatreQuotes(entries = []) {
-  const forbiddenTokens = collectForbiddenTheatreTokens(entries);
-  const quotes = [];
-  const seen = new Set();
-
-  const pushQuote = (entry, rawText, type = "phrase", tone = "") => {
-    const text = normalizeTheatreText(rawText);
-    if (!isStandaloneTheatreQuote(text, forbiddenTokens)) {
-      return;
-    }
-
-    const key = text.toLowerCase();
-    if (seen.has(key)) {
-      return;
-    }
-
-    seen.add(key);
-    quotes.push({
-      text,
-      source: normalizeTheatreText(entry?.source || ""),
-      type: String(type || "phrase").trim().toLowerCase(),
-      tone: String(tone || "").trim().toLowerCase()
-    });
-  };
-
-  for (const entry of entries) {
-    for (const quote of Array.isArray(entry?.memes_quotes) ? entry.memes_quotes : []) {
-      pushQuote(entry, quote?.text || "", quote?.type || "phrase", quote?.tone || "");
-    }
-
-    for (const phrase of Array.isArray(entry?.popular_funny_phrases) ? entry.popular_funny_phrases : []) {
-      pushQuote(entry, phrase, "phrase", "");
-    }
-  }
-
-  return quotes;
-}
-
-const THEATRE_CONTEXT_RULES = {
-  generic: {
-    types: ["reaction", "statement", "question", "observation", "phrase", "answer"],
-    keywords: ["пізд", "розруха", "питання", "жизн", "мовч", "довольн", "облом", "пагод"],
-    limit: 8
-  },
-  trip: {
-    types: ["reaction", "statement", "question", "phrase"],
-    keywords: ["питання", "прийшли", "пізд", "розруха", "подвєд", "жизн", "довольн"],
-    limit: 6
-  },
-  people: {
-    types: ["reaction", "statement", "question", "accusation", "phrase", "answer"],
-    keywords: ["хлопц", "народ", "падлюк", "довольн", "мовч", "контра"],
-    limit: 5
-  },
-  route: {
-    types: ["command", "battle_cry", "reaction", "question", "phrase", "statement"],
-    keywords: ["іттіть", "прийшли", "вперьод", "вперед", "пагод", "купатись", "дорог", "йти", "шлях", "ліс", "болот", "пустин"],
-    limit: 5
-  },
-  food: {
-    types: ["reaction", "statement", "question", "phrase", "observation"],
-    keywords: ["випить", "барі", "шампань", "їсти", "жрать", "кусн", "пиво", "пити", "канхвет", "бздить"],
-    limit: 4
-  },
-  gear: {
-    types: ["reaction", "statement", "phrase", "command", "observation"],
-    keywords: ["роял", "дрюч", "меч", "пістолет", "простирадл", "фонар", "реквізит"],
-    limit: 3
-  }
-};
-
-function scoreTheatreQuoteForContext(quote = {}, context = "generic") {
-  const rule = THEATRE_CONTEXT_RULES[context] || THEATRE_CONTEXT_RULES.generic;
-  const text = normalizeTheatreText(quote?.text || "").toLowerCase();
-  const type = String(quote?.type || "").trim().toLowerCase();
-  const tone = String(quote?.tone || "").trim().toLowerCase();
-
-  let score = 0;
-
-  if (rule.types.includes(type)) {
-    score += 3;
-  }
-
-  for (const keyword of rule.keywords) {
-    if (text.includes(keyword) || tone.includes(keyword)) {
-      score += 2;
-    }
-  }
-
-  if (context === "generic" && ["reaction", "statement", "question"].includes(type)) {
-    score += 1;
-  }
-
-  if (context === "trip" && /[!?]/.test(text)) {
-    score += 1;
-  }
-
-  if (context === "route" && (type === "command" || type === "battle_cry")) {
-    score += 1;
-  }
-
-  if (context === "food" && /\b(випить|пити|барі|шампань|канхвет|кусн|бздить)\b/iu.test(text)) {
-    score += 1;
-  }
-
-  return score;
-}
-
-function pickStandaloneTheatreQuotes(quotes = [], context = "generic") {
-  const rule = THEATRE_CONTEXT_RULES[context] || THEATRE_CONTEXT_RULES.generic;
-
-  return quotes
-    .map((quote, index) => ({
-      quote,
-      index,
-      score: scoreTheatreQuoteForContext(quote, context)
-    }))
-    .filter((item) => item.score > 0)
-    .sort((left, right) =>
-      right.score - left.score
-      || left.quote.text.length - right.quote.text.length
-      || left.index - right.index
-    )
-    .slice(0, rule.limit)
-    .map((item) => item.quote.text);
-}
-
-function buildTheatreTonePack(source = {}, fallbackPack = {}) {
-  const entries = Array.isArray(source?.dataset) ? source.dataset : [];
-  if (!entries.length) {
-    return fallbackPack || {};
-  }
-
-  const theatreQuotes = collectStandaloneTheatreQuotes(entries);
-
-  const generic = fallbackSlice(fallbackPack?.random_quips?.generic, pickStandaloneTheatreQuotes(theatreQuotes, "generic"), 24);
-  const trip = fallbackSlice(fallbackPack?.random_quips?.trip, pickStandaloneTheatreQuotes(theatreQuotes, "trip"), 14);
-  const people = fallbackSlice(fallbackPack?.random_quips?.people, pickStandaloneTheatreQuotes(theatreQuotes, "people"), 10);
-  const route = fallbackSlice(fallbackPack?.random_quips?.route, pickStandaloneTheatreQuotes(theatreQuotes, "route"), 10);
-  const food = fallbackSlice(fallbackPack?.random_quips?.food, pickStandaloneTheatreQuotes(theatreQuotes, "food"), 10);
-  const gear = fallbackSlice(fallbackPack?.random_quips?.gear, pickStandaloneTheatreQuotes(theatreQuotes, "gear"), 8);
-
-  return {
-    registers: {
-      camp_truth: {
-        generic: fallbackSlice(fallbackPack?.registers?.camp_truth?.generic, generic, 18),
-        food: fallbackSlice(fallbackPack?.registers?.camp_truth?.food, food, 10),
-        gear: fallbackSlice(fallbackPack?.registers?.camp_truth?.gear, gear, 8),
-        route: fallbackSlice(fallbackPack?.registers?.camp_truth?.route, route, 10)
-      },
-      absurd_high: {
-        welcome: clampTextList(fallbackPack?.registers?.absurd_high?.welcome || [], 14)
-      },
-      fatalistic_soft: {
-        generic: fallbackSlice(fallbackPack?.registers?.fatalistic_soft?.generic, generic, 14),
-        trip: fallbackSlice(fallbackPack?.registers?.fatalistic_soft?.trip, trip, 10),
-        people: fallbackSlice(fallbackPack?.registers?.fatalistic_soft?.people, people, 8)
-      },
-      street_burn: {
-        soft_react: fallbackSlice(fallbackPack?.registers?.street_burn?.soft_react, generic, 14),
-        idle: clampTextList(fallbackPack?.registers?.street_burn?.idle || [], 12),
-        edit_loop: clampTextList(fallbackPack?.registers?.street_burn?.edit_loop || [], 12)
-      }
-    },
-    menu: materialize(fallbackPack?.menu || {}),
-    random_quips: {
-      generic,
-      trip,
-      people,
-      food,
-      gear,
-      route
-    }
-  };
-}
-
 const toneDictionaries = {
   default: readToneFile("default"),
   drunk: readToneFile("drunk")
 };
 const legacyDrunkPack = readToneFile("drunk-pack", { optional: true });
-const theatreToneDataset = readToneFile("sources/theatre_texts_dataset_merged", { optional: true });
+const theatreToneCatalog = readToneFile("generated/theatre-catalog", { optional: true });
 const tonePacks = {
-  drunk: buildTheatreTonePack(theatreToneDataset, legacyDrunkPack)
+  drunk: legacyDrunkPack
+};
+
+const theatreToneEntries = Array.isArray(theatreToneCatalog?.entries)
+  ? theatreToneCatalog.entries
+  : [];
+const theatreToneIndexByScreen = new Map();
+const toneSelectionHistory = new Map();
+
+for (const entry of theatreToneEntries) {
+  for (const screen of Array.isArray(entry?.screens) ? entry.screens : []) {
+    if (!theatreToneIndexByScreen.has(screen)) {
+      theatreToneIndexByScreen.set(screen, []);
+    }
+    theatreToneIndexByScreen.get(screen).push(entry);
+  }
+}
+
+const INTENSITY_RANK = {
+  low: 0,
+  medium: 1,
+  high: 2
+};
+
+const LEGACY_CONTEXT_TO_SCREEN = {
+  generic: "trip_settings",
+  trip: "trip_hub",
+  people: "trip_members_list",
+  route: "route_menu",
+  food: "food_menu",
+  gear: "gear_menu",
+  idle: "idle_prompt",
+  edit_loop: "edit_loop"
+};
+
+const SCREEN_TONE_POLICIES = {
+  default: {
+    maxLines: 1,
+    bannerProbability: 0.55,
+    quipProbability: 0.1,
+    maxIntensity: "low",
+    preferredTags: ["generic", "trip"],
+    secondaryTags: ["logistics"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative", "decision"]
+  },
+  trip_hub: {
+    maxLines: 1,
+    bannerProbability: 0.42,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["trip", "generic", "logistics"],
+    secondaryTags: ["optimistic", "reaction"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative", "decision", "people", "route"]
+  },
+  trip_details: {
+    maxLines: 1,
+    bannerProbability: 0.35,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["trip", "generic", "logistics"],
+    secondaryTags: ["observational"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative", "decision"]
+  },
+  trip_history: {
+    maxLines: 1,
+    bannerProbability: 0.45,
+    quipProbability: 0.08,
+    maxIntensity: "medium",
+    preferredTags: ["trip", "generic", "logistics"],
+    secondaryTags: ["optimistic", "observational"],
+    blockedTags: ["command"]
+  },
+  trip_settings: {
+    maxLines: 1,
+    bannerProbability: 0.28,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["generic", "trip", "logistics"],
+    secondaryTags: ["observational"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative"]
+  },
+  trip_mode: {
+    maxLines: 1,
+    bannerProbability: 0.5,
+    quipProbability: 0.08,
+    maxIntensity: "medium",
+    preferredTags: ["food", "alcohol", "trip"],
+    secondaryTags: ["generic", "observational"],
+    blockedTags: ["fatalistic", "command"]
+  },
+  trip_drunk_mode: {
+    maxLines: 1,
+    bannerProbability: 0.56,
+    quipProbability: 0.12,
+    maxIntensity: "medium",
+    preferredTags: ["alcohol", "food", "trip"],
+    secondaryTags: ["route", "optimistic"],
+    blockedTags: ["fatalistic", "command"]
+  },
+  trip_photos: {
+    maxLines: 1,
+    bannerProbability: 0.18,
+    quipProbability: 0.03,
+    maxIntensity: "low",
+    preferredTags: ["generic", "trip", "people"],
+    secondaryTags: ["observational"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative"]
+  },
+  trip_photo_album: {
+    maxLines: 1,
+    bannerProbability: 0.24,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["people", "trip", "generic"],
+    secondaryTags: ["observational"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative"]
+  },
+  trip_members_menu: {
+    maxLines: 1,
+    bannerProbability: 0.3,
+    quipProbability: 0.08,
+    maxIntensity: "low",
+    preferredTags: ["people"],
+    secondaryTags: ["generic", "trip"],
+    blockedTags: ["fatalistic", "complaint", "negative"]
+  },
+  trip_members_list: {
+    maxLines: 1,
+    bannerProbability: 0.26,
+    quipProbability: 0.06,
+    maxIntensity: "low",
+    preferredTags: ["people"],
+    secondaryTags: ["generic", "trip"],
+    blockedTags: ["fatalistic", "complaint", "negative"]
+  },
+  trip_member_card: {
+    maxLines: 1,
+    bannerProbability: 0.22,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["people"],
+    secondaryTags: ["generic"],
+    blockedTags: ["fatalistic", "complaint", "negative", "command"]
+  },
+  trip_member_tickets: {
+    maxLines: 1,
+    bannerProbability: 0.14,
+    quipProbability: 0.03,
+    maxIntensity: "low",
+    preferredTags: ["people", "logistics"],
+    secondaryTags: ["generic"],
+    blockedTags: ["fatalistic", "complaint", "negative", "command"]
+  },
+  route_menu: {
+    maxLines: 1,
+    bannerProbability: 0.38,
+    quipProbability: 0.1,
+    maxIntensity: "medium",
+    preferredTags: ["route", "weather"],
+    secondaryTags: ["trip", "observational"],
+    blockedTags: ["fatalistic", "complaint"]
+  },
+  route_weather_picker: {
+    maxLines: 1,
+    bannerProbability: 0.22,
+    quipProbability: 0.04,
+    maxIntensity: "low",
+    preferredTags: ["route", "weather"],
+    secondaryTags: ["observational"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative"]
+  },
+  route_weather: {
+    maxLines: 1,
+    bannerProbability: 0.28,
+    quipProbability: 0.05,
+    maxIntensity: "medium",
+    preferredTags: ["route", "weather"],
+    secondaryTags: ["observational"],
+    blockedTags: ["complaint", "command"]
+  },
+  gear_menu: {
+    maxLines: 1,
+    bannerProbability: 0.34,
+    quipProbability: 0.08,
+    maxIntensity: "medium",
+    preferredTags: ["gear"],
+    secondaryTags: ["generic", "observational"],
+    blockedTags: ["fatalistic", "complaint", "negative"]
+  },
+  gear_accounting: {
+    maxLines: 1,
+    bannerProbability: 0.3,
+    quipProbability: 0.06,
+    maxIntensity: "medium",
+    preferredTags: ["gear"],
+    secondaryTags: ["generic"],
+    blockedTags: ["fatalistic", "complaint", "negative"]
+  },
+  gear_borrowed: {
+    maxLines: 1,
+    bannerProbability: 0.2,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["gear"],
+    secondaryTags: ["generic"],
+    blockedTags: ["fatalistic", "complaint", "negative"]
+  },
+  gear_loaned: {
+    maxLines: 1,
+    bannerProbability: 0.2,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["gear"],
+    secondaryTags: ["generic"],
+    blockedTags: ["fatalistic", "complaint", "negative"]
+  },
+  gear_backpack: {
+    maxLines: 1,
+    bannerProbability: 0.24,
+    quipProbability: 0.05,
+    maxIntensity: "low",
+    preferredTags: ["gear"],
+    secondaryTags: ["observational"],
+    blockedTags: ["fatalistic", "complaint", "negative"]
+  },
+  food_menu: {
+    maxLines: 1,
+    bannerProbability: 0.4,
+    quipProbability: 0.08,
+    maxIntensity: "medium",
+    preferredTags: ["food", "alcohol"],
+    secondaryTags: ["generic", "optimistic"],
+    blockedTags: ["fatalistic", "command"]
+  },
+  food_list: {
+    maxLines: 1,
+    bannerProbability: 0.34,
+    quipProbability: 0.06,
+    maxIntensity: "medium",
+    preferredTags: ["food", "alcohol"],
+    secondaryTags: ["generic", "observational"],
+    blockedTags: ["fatalistic", "command"]
+  },
+  expenses_menu: {
+    maxLines: 1,
+    bannerProbability: 0.18,
+    quipProbability: 0.04,
+    maxIntensity: "low",
+    preferredTags: ["money", "logistics", "generic"],
+    secondaryTags: ["food", "trip"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative"]
+  },
+  expenses_list: {
+    maxLines: 1,
+    bannerProbability: 0.16,
+    quipProbability: 0.04,
+    maxIntensity: "low",
+    preferredTags: ["money", "food", "logistics"],
+    secondaryTags: ["generic"],
+    blockedTags: ["fatalistic", "complaint", "command", "negative"]
+  },
+  idle_prompt: {
+    maxLines: 1,
+    bannerProbability: 0,
+    quipProbability: 1,
+    maxIntensity: "medium",
+    preferredTags: ["question", "complaint"],
+    secondaryTags: ["generic"],
+    blockedTags: []
+  },
+  edit_loop: {
+    maxLines: 1,
+    bannerProbability: 0,
+    quipProbability: 1,
+    maxIntensity: "medium",
+    preferredTags: ["question", "complaint", "decision"],
+    secondaryTags: ["generic"],
+    blockedTags: []
+  }
 };
 
 function resolveMode(mode = "default") {
@@ -554,6 +363,262 @@ function collectArrayValues(value) {
   }
 
   return [];
+}
+
+function normalizeToneText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getIntensityRank(value = "low") {
+  return INTENSITY_RANK[value] ?? INTENSITY_RANK.low;
+}
+
+function mergeScreenPolicy(screen = "default") {
+  return {
+    ...SCREEN_TONE_POLICIES.default,
+    ...(SCREEN_TONE_POLICIES[screen] || {})
+  };
+}
+
+function getHistory(key = "") {
+  if (!toneSelectionHistory.has(key)) {
+    toneSelectionHistory.set(key, []);
+  }
+  return toneSelectionHistory.get(key);
+}
+
+function pushHistory(key = "", value = "", limit = 8) {
+  if (!key || !value) {
+    return;
+  }
+
+  const history = getHistory(key);
+  history.push(value);
+  if (history.length > limit) {
+    history.splice(0, history.length - limit);
+  }
+}
+
+function isOnCooldown(entry, normalizedText, screen, scopeKey, state = {}) {
+  const buckets = [
+    scopeKey ? `scope:${scopeKey}` : "",
+    screen ? `screen:${screen}` : "",
+    state?.tripId ? `trip:${state.tripId}` : ""
+  ].filter(Boolean);
+
+  for (const bucket of buckets) {
+    if (getHistory(bucket).includes(normalizedText)) {
+      return true;
+    }
+  }
+
+  if (entry?.cooldownScope === "trip" && state?.tripId) {
+    return getHistory(`trip:${state.tripId}`).includes(normalizedText);
+  }
+
+  return false;
+}
+
+function rememberToneSelection(entry, normalizedText, screen, scopeKey, state = {}) {
+  const buckets = [
+    scopeKey ? `scope:${scopeKey}` : "",
+    screen ? `screen:${screen}` : ""
+  ].filter(Boolean);
+
+  for (const bucket of buckets) {
+    pushHistory(bucket, normalizedText, 6);
+  }
+
+  if (entry?.cooldownScope === "trip" && state?.tripId) {
+    pushHistory(`trip:${state.tripId}`, normalizedText, 10);
+  }
+}
+
+function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
+  if (!Array.isArray(entry?.screens) || !entry.screens.includes(screen)) {
+    return -1;
+  }
+
+  if (!Array.isArray(entry?.deliveries) || !entry.deliveries.includes(delivery)) {
+    return -1;
+  }
+
+  if (getIntensityRank(entry?.intensity) > getIntensityRank(policy.maxIntensity)) {
+    return -1;
+  }
+
+  const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+  if (policy.blockedTags.some((tag) => tags.includes(tag))) {
+    return -1;
+  }
+
+  let score = 10;
+
+  score += policy.preferredTags.reduce((sum, tag) => sum + (tags.includes(tag) ? 4 : 0), 0);
+  score += policy.secondaryTags.reduce((sum, tag) => sum + (tags.includes(tag) ? 2 : 0), 0);
+
+  if (delivery === "banner" && ["reaction", "observational", "optimistic"].includes(entry?.toneShape)) {
+    score += 3;
+  }
+  if (delivery === "quip" && ["reaction", "question", "complaint"].includes(entry?.toneShape)) {
+    score += 2;
+  }
+
+  if (state?.alcoholEmpty && tags.includes("alcohol")) {
+    score += 4;
+  }
+  if (state?.alcoholCount > 0 && tags.includes("alcohol")) {
+    score += 2;
+  }
+  if (state?.routeDifficulty === "висока" && (tags.includes("route") || tags.includes("weather"))) {
+    score += 3;
+  }
+  if (state?.routeDifficulty === "середня" && (tags.includes("route") || tags.includes("weather"))) {
+    score += 2;
+  }
+  if (state?.photoEmpty && screen === "trip_photo_album") {
+    score += tags.includes("people") ? 2 : 0;
+  }
+  if (state?.membersCount > 1 && tags.includes("people")) {
+    score += 1;
+  }
+  if (state?.foodEmpty && tags.includes("food")) {
+    score += 2;
+  }
+  if (state?.gearEmpty && tags.includes("gear")) {
+    score += 2;
+  }
+
+  if (entry?.intensity === "low") {
+    score += 1;
+  }
+
+  return score;
+}
+
+export function pickToneLine({
+  screen = "default",
+  mode = "default",
+  scopeKey = "",
+  state = {},
+  delivery = "banner",
+  usedTexts = null
+} = {}) {
+  const resolvedMode = resolveMode(mode);
+  if (resolvedMode !== "drunk") {
+    return "";
+  }
+
+  const policy = mergeScreenPolicy(screen);
+  const candidates = theatreToneIndexByScreen.get(screen) || [];
+  if (!candidates.length) {
+    return "";
+  }
+
+  const scored = candidates
+    .map((entry, index) => {
+      const normalizedText = normalizeToneText(entry?.text || "");
+      if (!normalizedText) {
+        return null;
+      }
+
+      if (usedTexts?.has(normalizedText) || isOnCooldown(entry, normalizedText, screen, scopeKey, state)) {
+        return null;
+      }
+
+      const score = scoreToneEntry(entry, screen, delivery, policy, state);
+      if (score < 0) {
+        return null;
+      }
+
+      return { entry, normalizedText, score, index };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+
+  if (!scored.length) {
+    return "";
+  }
+
+  const topSlice = scored.slice(0, Math.min(6, scored.length));
+  const picked = topSlice[Math.floor(Math.random() * topSlice.length)];
+  if (!picked) {
+    return "";
+  }
+
+  usedTexts?.add(picked.normalizedText);
+  rememberToneSelection(picked.entry, picked.normalizedText, screen, scopeKey, state);
+  return picked.entry.text;
+}
+
+export function buildToneBlock({
+  screen = "default",
+  mode = "default",
+  scopeKey = "",
+  state = {},
+  maxLines = null,
+  usedTexts = null
+} = {}) {
+  const resolvedMode = resolveMode(mode);
+  if (resolvedMode !== "drunk") {
+    return [];
+  }
+
+  const policy = mergeScreenPolicy(screen);
+  const targetMaxLines = Math.max(0, Math.min(maxLines ?? policy.maxLines ?? 1, 2));
+  if (!targetMaxLines) {
+    return [];
+  }
+
+  const localUsed = usedTexts || new Set();
+  const lines = [];
+
+  if (policy.bannerProbability > 0 && Math.random() <= policy.bannerProbability) {
+    const bannerLine = pickToneLine({
+      screen,
+      mode: resolvedMode,
+      scopeKey: `${scopeKey}:banner`,
+      state,
+      delivery: "banner",
+      usedTexts: localUsed
+    });
+    if (bannerLine) {
+      lines.push(bannerLine);
+    }
+  }
+
+  while (lines.length < targetMaxLines && policy.quipProbability > 0 && Math.random() <= policy.quipProbability) {
+    const quipLine = pickToneLine({
+      screen,
+      mode: resolvedMode,
+      scopeKey: `${scopeKey}:quip:${lines.length}`,
+      state,
+      delivery: lines.length === 0 ? "banner" : "quip",
+      usedTexts: localUsed
+    });
+
+    if (!quipLine) {
+      break;
+    }
+
+    lines.push(quipLine);
+  }
+
+  if (!lines.length) {
+    const fallbackLine = pickToneLine({
+      screen,
+      mode: resolvedMode,
+      scopeKey: `${scopeKey}:fallback`,
+      state,
+      delivery: "banner",
+      usedTexts: localUsed
+    });
+    if (fallbackLine) {
+      lines.push(fallbackLine);
+    }
+  }
+
+  return lines.slice(0, targetMaxLines);
 }
 
 export function resolveTripToneMode(trip = null) {
@@ -644,57 +709,12 @@ export function maybeQuip(context, mode = "default", params = {}, probability = 
     return tRandom(`random_quips.${context}`, resolvedMode, params, `quip:${resolvedMode}:${context}`);
   }
 
-  const packContextMap = {
-    generic: [
-      "registers.camp_truth.generic",
-      "registers.fatalistic_soft.generic"
-    ],
-    trip: [
-      "registers.fatalistic_soft.trip"
-    ],
-    food: [
-      "registers.camp_truth.food"
-    ],
-    route: [
-      "registers.camp_truth.route"
-    ],
-    gear: [
-      "registers.camp_truth.gear"
-    ],
-    people: [
-      "registers.fatalistic_soft.people"
-    ],
-    idle: [
-      "registers.street_burn.idle"
-    ],
-    edit_loop: [
-      "registers.street_burn.edit_loop"
-    ]
-  };
-
-  const values = [
-    ...collectArrayValues(t(`random_quips.${context}`, resolvedMode, params)),
-    ...collectArrayValues(t("random_quips.generic", resolvedMode, params))
-  ];
-
-  for (const key of packContextMap[context] || []) {
-    values.push(...collectArrayValues(tPack(key, resolvedMode, params)));
-  }
-
-  const uniqueValues = [...new Set(values.filter(Boolean))];
-  if (!uniqueValues.length) {
-    return "";
-  }
-
-  if (uniqueValues.length === 1) {
-    lastRandomSelections.set(`quip:${resolvedMode}:${context}`, uniqueValues[0]);
-    return uniqueValues[0];
-  }
-
-  const memoryKey = `quip:${resolvedMode}:${context}`;
-  const previous = lastRandomSelections.get(memoryKey);
-  const pool = uniqueValues.filter((item) => item !== previous);
-  const next = pool[Math.floor(Math.random() * pool.length)] || uniqueValues[0];
-  lastRandomSelections.set(memoryKey, next);
-  return next;
+  const screen = LEGACY_CONTEXT_TO_SCREEN[context] || SCREEN_TONE_POLICIES.default.screen || "trip_settings";
+  return pickToneLine({
+    screen,
+    mode: resolvedMode,
+    scopeKey: `legacy:${context}`,
+    state: params?.state || {},
+    delivery: "quip"
+  });
 }

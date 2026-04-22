@@ -3773,10 +3773,14 @@ function formatTripHistoryDetails(trip, userService = null) {
   const members = summaryMembers.length
     ? summaryMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ")
     : liveMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ");
+  const toneLines = resolveTripToneMode(trip) === "drunk"
+    ? buildDrunkQuoteLines("trip", trip.id || trip.name || "na", { includeQuip: true, maxLines: 3 })
+    : [];
 
   const lines = [
     ...formatCardHeader("🕓 ІСТОРІЯ ПОХОДУ", trip.name || routeName),
     "",
+    ...(toneLines.length ? [...toneLines, ""] : []),
     `Статус: ${status}`,
     `Завершено: ${completedAt}`
   ];
@@ -4109,26 +4113,66 @@ function buildDrunkardModeBannerLines(trip, groupService) {
   return lines;
 }
 
-function buildDrunkQuoteLines(context = "generic", tripId = "") {
-  const primary = tPackRandom(`random_quips.${context}`, "drunk", {}, `drunk-quote:${context}:${tripId}`)
-    || tPackRandom("random_quips.generic", "drunk", {}, `drunk-quote-generic:${context}:${tripId}`);
-  if (!primary) {
-    return [];
+const DRUNK_QUOTE_KEYS = {
+  generic: [
+    "registers.camp_truth.generic",
+    "registers.street_burn.soft_react",
+    "random_quips.generic"
+  ],
+  trip: [
+    "registers.fatalistic_soft.trip",
+    "registers.absurd_high.welcome",
+    "random_quips.trip"
+  ],
+  route: [
+    "registers.camp_truth.route",
+    "registers.fatalistic_soft.trip",
+    "random_quips.route"
+  ],
+  food: [
+    "registers.camp_truth.food",
+    "registers.camp_truth.generic",
+    "random_quips.food"
+  ],
+  gear: [
+    "registers.camp_truth.gear",
+    "registers.camp_truth.generic",
+    "random_quips.gear"
+  ],
+  people: [
+    "registers.fatalistic_soft.people",
+    "registers.camp_truth.generic",
+    "random_quips.people"
+  ]
+};
+
+function buildDrunkQuoteLines(context = "generic", tripId = "", { includeQuip = true, maxLines = 3 } = {}) {
+  const keys = DRUNK_QUOTE_KEYS[context] || DRUNK_QUOTE_KEYS.generic;
+  const lines = [];
+  const seen = new Set();
+
+  for (const key of keys) {
+    if (lines.length >= maxLines) {
+      break;
+    }
+
+    const line = tPackRandom(key, "drunk", {}, `drunk-quote:${context}:${tripId}:${key}`);
+    if (!line || seen.has(line)) {
+      continue;
+    }
+
+    lines.push(line);
+    seen.add(line);
   }
 
-  const lines = [
-    formatSectionHeader("🎭", "Табір Каже"),
-    `• ${primary}`
-  ];
-
-  if (context !== "generic") {
-    const secondary = tPackRandom("random_quips.generic", "drunk", {}, `drunk-quote-secondary:${context}:${tripId}`);
-    if (secondary && secondary !== primary) {
-      lines.push(`• ${secondary}`);
+  if (includeQuip && lines.length < maxLines) {
+    const extra = maybeQuip(context, "drunk", {}, 0.46);
+    if (extra && !seen.has(extra)) {
+      lines.push(extra);
     }
   }
 
-  return lines;
+  return lines.slice(0, maxLines);
 }
 
 function buildAlcoModeNotes(trip, groupService) {
@@ -6034,9 +6078,13 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
 
 function formatTripMemberTicketsMessage(trip, member, userService) {
   const tickets = getMemberTickets(member);
+  const toneLines = resolveTripToneMode(trip) === "drunk"
+    ? buildDrunkQuoteLines("people", `${trip.id}:${member.id}`, { includeQuip: true, maxLines: 2 })
+    : [];
   const lines = [
     ...formatCardHeader("🎫 КВИТКИ УЧАСНИКА", getMemberDisplayName(userService, member)),
     "",
+    ...(toneLines.length ? [...toneLines, ""] : []),
     `Статус: ${getMemberTicketsStatusLabel(member)}`,
     ""
   ];
@@ -7771,6 +7819,9 @@ function startTripWeatherSelection(ctx, groupService) {
   }
   const toneMode = resolveTripToneMode(trip);
   const routeCopy = t("trip.route", toneMode);
+  const toneLines = toneMode === "drunk"
+    ? buildDrunkQuoteLines("route", trip.id, { includeQuip: true, maxLines: 3 })
+    : [];
 
   const settlements = getTripWeatherSettlements(trip);
   if (!settlements.length) {
@@ -7794,6 +7845,7 @@ function startTripWeatherSelection(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(routeCopy.weatherPickTitle, routeCopy.weatherPickSubtitle),
       "",
+      ...(toneLines.length ? [...toneLines, ""] : []),
       routeCopy.weatherPickPrompt,
       t("trip.route.weatherPickOptions", toneMode, { settlements: settlements.join(" • ") }),
       "",
@@ -9420,6 +9472,7 @@ function showAdvicePrompt(ctx, advisorService) {
 
 async function showWeather(ctx, weatherService, location, keyboard = undefined, advisorService = null, faqContext = {}) {
   const targetKeyboard = keyboard === undefined ? getMainKeyboard(ctx) : keyboard;
+  const trip = faqContext?.trip || null;
   if (!location) {
     return ctx.reply("Введи локацію: `/weather Яремче`", {
       parse_mode: "Markdown",
@@ -9429,14 +9482,27 @@ async function showWeather(ctx, weatherService, location, keyboard = undefined, 
 
   const summary = await weatherService.getWeatherSummary(location);
   const response = await ctx.reply(summary, { parse_mode: "HTML", ...(targetKeyboard || {}) });
-  if (faqContext?.trip && isTripAlcoModeEnabled(faqContext.trip)) {
-    const routeContext = getTripContextDifficulty(faqContext.trip?.routePlan?.meta, faqContext.trip?.tripCard);
+  if (trip && resolveTripToneMode(trip) === "drunk") {
+    const toneLines = buildDrunkQuoteLines("route", `${trip.id}:${location}`, { includeQuip: true, maxLines: 3 });
+    if (toneLines.length) {
+      await ctx.reply(
+        joinRichLines([
+          ...formatCardHeader("🌦 ПОГОДА І ПОХІД", String(location || "Локація")),
+          "",
+          ...toneLines
+        ]),
+        { parse_mode: "HTML", ...(targetKeyboard || {}) }
+      );
+    }
+  }
+  if (trip && isTripAlcoModeEnabled(trip)) {
+    const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
     await ctx.reply(
       joinRichLines([
         ...formatCardHeader("🍺 ПОГОДА І РЕЖИМ", String(location || "Локація")),
         "",
         getAlcoModeWeatherJoke(routeContext),
-        ...(!getTripAlcoholSnapshotFromTrip(faqContext.trip).count
+        ...(!getTripAlcoholSnapshotFromTrip(trip).count
           ? ["• І ще нюанс: у харчах ні краплі. Для такого серйозного метео-фону це вже майже образливо."]
           : [])
       ]),
@@ -13683,11 +13749,15 @@ function showTripGearAccountingMenu(ctx, groupService) {
 
   const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
   const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
+  const toneLines = isTripAlcoModeEnabled(trip)
+    ? buildDrunkQuoteLines("gear", `${trip.id}:accounting`, { includeQuip: true, maxLines: 3 })
+    : [];
 
   return ctx.reply(
     joinRichLines([
       ...formatCardHeader("🧾 ОБЛІК ТА ЗАПИТИ СПОРЯДЖЕННЯ", trip.name),
       "",
+      ...(toneLines.length ? [...toneLines, ""] : []),
       "Тут можна:",
       !isRestricted ? `• \`${GEAR_NEED_CREATE_LABEL}\` — створити запит на потрібну річ` : "• нові запити на позичання вимкнені, бо бот уже зафіксував тобі `👎 Не йду`",
       !isRestricted || exchange.hasBorrowed || exchange.hasLoaned ? `• \`${GEAR_MY_REQUESTS_LABEL}\` — переглянути свої активні запити` : "• `Мої запити` відкриються тільки тоді, коли вже є фактичний обмін речами",
@@ -13709,11 +13779,15 @@ function showBorrowedGear(ctx, groupService) {
   }
 
   const items = groupService.getBorrowedGearForMember(trip.id, String(ctx.from.id));
+  const toneLines = isTripAlcoModeEnabled(trip)
+    ? buildDrunkQuoteLines("gear", `${trip.id}:borrowed:${ctx.from.id}`, { includeQuip: true, maxLines: 2 })
+    : [];
   if (!items.length) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("🫴 В КОРИСТУВАННІ", trip.name),
         "",
+        ...(toneLines.length ? [...toneLines, ""] : []),
         "Зараз ти не користуєшся речами інших учасників."
       ]),
       { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
@@ -13736,6 +13810,7 @@ function showBorrowedGear(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader("🫴 В КОРИСТУВАННІ", trip.name),
       "",
+      ...(toneLines.length ? [...toneLines, ""] : []),
       "Обери річ, яку хочеш переглянути або повернути власнику."
     ]),
     { parse_mode: "HTML", ...getBorrowedGearItemsKeyboard(preparedItems) }
@@ -13749,11 +13824,15 @@ function showLoanedOutGear(ctx, groupService) {
   }
 
   const items = groupService.getLoanedOutGearForMember(trip.id, String(ctx.from.id));
+  const toneLines = isTripAlcoModeEnabled(trip)
+    ? buildDrunkQuoteLines("gear", `${trip.id}:loaned:${ctx.from.id}`, { includeQuip: true, maxLines: 2 })
+    : [];
   if (!items.length) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("👥 КОРИСТУЮТЬСЯ", trip.name),
         "",
+        ...(toneLines.length ? [...toneLines, ""] : []),
         "Зараз ніхто не користується твоїм спорядженням."
       ]),
       { parse_mode: "HTML", ...getCurrentTripGearAccountingKeyboard(ctx, groupService) }
@@ -13776,6 +13855,7 @@ function showLoanedOutGear(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader("👥 КОРИСТУЮТЬСЯ", trip.name),
       "",
+      ...(toneLines.length ? [...toneLines, ""] : []),
       "Обери річ, щоб подивитися, хто нею користується, або підтвердити повернення."
     ]),
     { parse_mode: "HTML", ...getLoanedGearItemsKeyboard(preparedItems) }
@@ -14059,11 +14139,15 @@ function showBackpackWeight(ctx, groupService, userService) {
   }
 
   const snapshot = groupService.getBackpackWeightSnapshot(trip.id);
+  const toneLines = isTripAlcoModeEnabled(trip)
+    ? buildDrunkQuoteLines("gear", `${trip.id}:backpack:${ctx.from.id}`, { includeQuip: true, maxLines: 3 })
+    : [];
   if (!snapshot?.byMember?.length) {
     return ctx.reply(
       joinRichLines([
         ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
         "",
+        ...(toneLines.length ? [...toneLines, ""] : []),
         "Поки що недостатньо даних для розрахунку.",
         "",
         "⚠️ Зверни увагу:",
@@ -14082,6 +14166,7 @@ function showBackpackWeight(ctx, groupService, userService) {
       joinRichLines([
         ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
         "",
+        ...(toneLines.length ? [...toneLines, ""] : []),
         getTripMember(trip, viewerId)?.attendanceStatus === "not_going"
           ? "Ти зараз у статусі `👎 Не йду`, тому не враховуєшся в розрахунку ваги."
           : "Для тебе поки немає розрахунку в цьому поході."
@@ -14093,6 +14178,7 @@ function showBackpackWeight(ctx, groupService, userService) {
   const lines = [
     ...formatCardHeader("⚖️ ВАГА РЮКЗАКА", trip.name),
     "",
+    ...(toneLines.length ? [...toneLines, ""] : []),
     formatSectionHeader("👤", getMemberDisplayName(userService, {
       id: member.memberId,
       name: member.memberName

@@ -4146,13 +4146,14 @@ const DRUNK_QUOTE_KEYS = {
   ]
 };
 
-function buildDrunkQuoteLines(context = "generic", tripId = "", { includeQuip = true, maxLines = 3 } = {}) {
+function buildDrunkQuoteLines(context = "generic", tripId = "", { includeQuip = false, maxLines = 1 } = {}) {
   const keys = DRUNK_QUOTE_KEYS[context] || DRUNK_QUOTE_KEYS.generic;
   const lines = [];
   const seen = new Set();
+  const effectiveMaxLines = Math.max(1, Math.min(maxLines, 2));
 
   for (const key of keys) {
-    if (lines.length >= maxLines) {
+    if (lines.length >= 1) {
       break;
     }
 
@@ -4165,14 +4166,14 @@ function buildDrunkQuoteLines(context = "generic", tripId = "", { includeQuip = 
     seen.add(line);
   }
 
-  if (includeQuip && lines.length < maxLines) {
-    const extra = maybeQuip(context, "drunk", {}, 0.46);
+  if (includeQuip && effectiveMaxLines > 1 && lines.length < effectiveMaxLines) {
+    const extra = maybeQuip(context, "drunk", {}, 0.18);
     if (extra && !seen.has(extra)) {
       lines.push(extra);
     }
   }
 
-  return lines.slice(0, maxLines);
+  return lines.slice(0, effectiveMaxLines);
 }
 
 function buildAlcoModeNotes(trip, groupService) {

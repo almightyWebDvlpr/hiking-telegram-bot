@@ -63,11 +63,388 @@ const LEGACY_CONTEXT_TO_SCREEN = {
   edit_loop: "edit_loop"
 };
 
+const CURATED_THEATRE_SCREEN_LINES = {
+  trip_hub: [
+    { text: "Ітоги подвєдьом." },
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty) }
+  ],
+  trip_details: [
+    { text: "Ітоги подвєдьом." },
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty) }
+  ],
+  trip_history: [
+    { text: "Ітоги подвєдьом." }
+  ],
+  trip_settings: [
+    { text: "Ітоги подвєдьом." }
+  ],
+  trip_members_menu: [
+    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1 }
+  ],
+  trip_members_list: [
+    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1 }
+  ],
+  trip_member_card: [
+    { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1 }
+  ],
+  route_menu: [
+    { text: "Смотрєть надо!" },
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty) }
+  ],
+  route_weather_picker: [
+    { text: "Смотрєть надо!" }
+  ],
+  route_weather: [
+    { text: "Смотрєть надо!" }
+  ],
+  food_menu: [
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true },
+    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false }
+  ],
+  food_list: [
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true },
+    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false }
+  ],
+  gear_menu: [],
+  gear_accounting: [],
+  gear_borrowed: [],
+  gear_loaned: [],
+  gear_backpack: [],
+  trip_mode: [
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true }
+  ],
+  trip_drunk_mode: [
+    { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true }
+  ],
+  expenses_menu: [
+    { text: "П’ятьсот карбованців стоять." },
+    { text: "Дай мені три карбованці, я завтра утром віддам." }
+  ],
+  expenses_list: [
+    { text: "П’ятьсот карбованців стоять." },
+    { text: "Дай мені три карбованці, я завтра утром віддам." }
+  ],
+  trip_photos: [],
+  trip_photo_album: [],
+  idle_prompt: [
+    { text: "Блядські ці питання зайобують." },
+    { text: "Купатись чи не купатись?" }
+  ],
+  edit_loop: [
+    { text: "Блядські ці питання зайобують." },
+    { text: "Купатись чи не купатись?" },
+    { text: "Я їбав таку жизнь." }
+  ]
+};
+
+const SCREEN_ENTRY_GATES = {
+  trip_hub: {
+    requiredTagsAny: ["trip", "logistics", "generic"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 17,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(данко|гамлєт|ізергіль|івасик|кардинал|язва|гангрена|маргарита|клавдій|фрейд)\b/iu,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|здохл|вб'ю|нахуй|облом)\b/iu,
+      /\b(мовчать|іттіть|контра|не\s+розмишлять)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_details: {
+    requiredTagsAny: ["trip", "logistics", "generic"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 17,
+    maxWords: 9,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(данко|гамлєт|ізергіль|івасик|кардинал|язва|гангрена|маргарита|клавдій|фрейд)\b/iu,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|здохл|вб'ю|нахуй|облом)\b/iu,
+      /\b(мовчать|іттіть|контра|не\s+розмишлять)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_history: {
+    requiredTagsAny: ["trip", "logistics", "generic"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 16,
+    maxWords: 9,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(данко|гамлєт|ізергіль|івасик|кардинал|язва|гангрена)\b/iu,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|здохл|вб'ю|нахуй)\b/iu,
+      /\b(мовчать|іттіть|контра|не\s+розмишлять)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_settings: {
+    requiredTagsAny: ["trip", "logistics", "generic"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 16,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(данко|гамлєт|ізергіль|івасик|кардинал|язва|гангрена)\b/iu,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|здохл|вб'ю|нахуй)\b/iu,
+      /\b(мовчать|іттіть|контра|не\s+розмишлять)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_members_menu: {
+    requiredTagsAny: ["people"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(данко|гамлєт|ізергіль|івасик|кардинал)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_members_list: {
+    requiredTagsAny: ["people"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(данко|гамлєт|ізергіль|івасик|кардинал)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_member_card: {
+    requiredTagsAny: ["people"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_member_tickets: {
+    requiredTagsAny: ["people", "logistics"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  route_menu: {
+    requiredTagsAny: ["route", "weather"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 16,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(данко|гамлєт|ізергіль|кардинал|івасик)\b/iu,
+      /\b(я\s+їбав|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(мовчать|не\s+розмишлять)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  route_weather_picker: {
+    requiredTagsAny: ["route", "weather"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 16,
+    maxWords: 7,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(мовчать|не\s+розмишлять|контра)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  route_weather: {
+    requiredTagsAny: ["route", "weather"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 16,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(мовчать|не\s+розмишлять|контра)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  gear_menu: {
+    requiredTagsAny: ["gear"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  gear_accounting: {
+    requiredTagsAny: ["gear"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  gear_borrowed: {
+    requiredTagsAny: ["gear"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 14,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  gear_loaned: {
+    requiredTagsAny: ["gear"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 14,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  gear_backpack: {
+    requiredTagsAny: ["gear"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 14,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu
+    ]
+  },
+  food_menu: {
+    requiredTagsAny: ["food", "alcohol"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(данко|гамлєт|ізергіль|кардинал|івасик)\b/iu,
+      /\b(я\s+їбав|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  food_list: {
+    requiredTagsAny: ["food", "alcohol"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(данко|гамлєт|ізергіль|кардинал|івасик)\b/iu,
+      /\b(я\s+їбав|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_mode: {
+    requiredTagsAny: ["food", "alcohol", "trip"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_drunk_mode: {
+    requiredTagsAny: ["food", "alcohol"],
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    minScore: 15,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  expenses_menu: {
+    requiredTagsAny: ["money", "logistics", "trip"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 14,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  expenses_list: {
+    requiredTagsAny: ["money", "food", "logistics"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 14,
+    maxWords: 8,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  },
+  trip_photos: {
+    requiredTagsAny: ["people", "trip"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 14,
+    maxWords: 7,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu
+    ]
+  },
+  trip_photo_album: {
+    requiredTagsAny: ["people", "trip"],
+    allowedShapes: ["reaction", "observational"],
+    minScore: 14,
+    maxWords: 7,
+    blockedPatterns: [
+      /[?]/u,
+      /\b(я\s+їбав|зайоб|піздє?ц|смерть|розруха|вб'ю|нахуй)\b/iu,
+      /\b(їб|єб|еб|хуй|пизд|жоп|срак|гандон|параш|сру|бзд|негр|кошенят|посмокт)\b/iu,
+      /\bя\b/iu
+    ]
+  }
+};
+
 const SCREEN_TONE_POLICIES = {
   default: {
     maxLines: 1,
-    bannerProbability: 0.55,
-    quipProbability: 0.1,
+    bannerProbability: 0.35,
+    quipProbability: 0.04,
     maxIntensity: "low",
     preferredTags: ["generic", "trip"],
     secondaryTags: ["logistics"],
@@ -75,8 +452,8 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_hub: {
     maxLines: 1,
-    bannerProbability: 0.42,
-    quipProbability: 0.05,
+    bannerProbability: 0.24,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["trip", "generic", "logistics"],
     secondaryTags: ["optimistic", "reaction"],
@@ -84,8 +461,8 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_details: {
     maxLines: 1,
-    bannerProbability: 0.35,
-    quipProbability: 0.05,
+    bannerProbability: 0.2,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["trip", "generic", "logistics"],
     secondaryTags: ["observational"],
@@ -93,17 +470,17 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_history: {
     maxLines: 1,
-    bannerProbability: 0.45,
-    quipProbability: 0.08,
-    maxIntensity: "medium",
+    bannerProbability: 0.22,
+    quipProbability: 0,
+    maxIntensity: "low",
     preferredTags: ["trip", "generic", "logistics"],
     secondaryTags: ["optimistic", "observational"],
     blockedTags: ["command"]
   },
   trip_settings: {
     maxLines: 1,
-    bannerProbability: 0.28,
-    quipProbability: 0.05,
+    bannerProbability: 0.18,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["generic", "trip", "logistics"],
     secondaryTags: ["observational"],
@@ -111,26 +488,26 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_mode: {
     maxLines: 1,
-    bannerProbability: 0.5,
-    quipProbability: 0.08,
-    maxIntensity: "medium",
+    bannerProbability: 0.24,
+    quipProbability: 0.04,
+    maxIntensity: "low",
     preferredTags: ["food", "alcohol", "trip"],
     secondaryTags: ["generic", "observational"],
     blockedTags: ["fatalistic", "command"]
   },
   trip_drunk_mode: {
     maxLines: 1,
-    bannerProbability: 0.56,
-    quipProbability: 0.12,
-    maxIntensity: "medium",
+    bannerProbability: 0.26,
+    quipProbability: 0.05,
+    maxIntensity: "low",
     preferredTags: ["alcohol", "food", "trip"],
     secondaryTags: ["route", "optimistic"],
     blockedTags: ["fatalistic", "command"]
   },
   trip_photos: {
     maxLines: 1,
-    bannerProbability: 0.18,
-    quipProbability: 0.03,
+    bannerProbability: 0.08,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["generic", "trip", "people"],
     secondaryTags: ["observational"],
@@ -138,8 +515,8 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_photo_album: {
     maxLines: 1,
-    bannerProbability: 0.24,
-    quipProbability: 0.05,
+    bannerProbability: 0.1,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["people", "trip", "generic"],
     secondaryTags: ["observational"],
@@ -147,8 +524,8 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_members_menu: {
     maxLines: 1,
-    bannerProbability: 0.3,
-    quipProbability: 0.08,
+    bannerProbability: 0.16,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["people"],
     secondaryTags: ["generic", "trip"],
@@ -156,8 +533,8 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_members_list: {
     maxLines: 1,
-    bannerProbability: 0.26,
-    quipProbability: 0.06,
+    bannerProbability: 0.16,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["people"],
     secondaryTags: ["generic", "trip"],
@@ -165,8 +542,8 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_member_card: {
     maxLines: 1,
-    bannerProbability: 0.22,
-    quipProbability: 0.05,
+    bannerProbability: 0.14,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["people"],
     secondaryTags: ["generic"],
@@ -174,8 +551,8 @@ const SCREEN_TONE_POLICIES = {
   },
   trip_member_tickets: {
     maxLines: 1,
-    bannerProbability: 0.14,
-    quipProbability: 0.03,
+    bannerProbability: 0.1,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["people", "logistics"],
     secondaryTags: ["generic"],
@@ -183,17 +560,17 @@ const SCREEN_TONE_POLICIES = {
   },
   route_menu: {
     maxLines: 1,
-    bannerProbability: 0.38,
-    quipProbability: 0.1,
-    maxIntensity: "medium",
+    bannerProbability: 0.24,
+    quipProbability: 0.04,
+    maxIntensity: "low",
     preferredTags: ["route", "weather"],
     secondaryTags: ["trip", "observational"],
     blockedTags: ["fatalistic", "complaint"]
   },
   route_weather_picker: {
     maxLines: 1,
-    bannerProbability: 0.22,
-    quipProbability: 0.04,
+    bannerProbability: 0.14,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["route", "weather"],
     secondaryTags: ["observational"],
@@ -201,35 +578,35 @@ const SCREEN_TONE_POLICIES = {
   },
   route_weather: {
     maxLines: 1,
-    bannerProbability: 0.28,
-    quipProbability: 0.05,
-    maxIntensity: "medium",
+    bannerProbability: 0.18,
+    quipProbability: 0,
+    maxIntensity: "low",
     preferredTags: ["route", "weather"],
     secondaryTags: ["observational"],
     blockedTags: ["complaint", "command"]
   },
   gear_menu: {
     maxLines: 1,
-    bannerProbability: 0.34,
-    quipProbability: 0.08,
-    maxIntensity: "medium",
+    bannerProbability: 0.18,
+    quipProbability: 0.03,
+    maxIntensity: "low",
     preferredTags: ["gear"],
     secondaryTags: ["generic", "observational"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   gear_accounting: {
     maxLines: 1,
-    bannerProbability: 0.3,
-    quipProbability: 0.06,
-    maxIntensity: "medium",
+    bannerProbability: 0.16,
+    quipProbability: 0,
+    maxIntensity: "low",
     preferredTags: ["gear"],
     secondaryTags: ["generic"],
     blockedTags: ["fatalistic", "complaint", "negative"]
   },
   gear_borrowed: {
     maxLines: 1,
-    bannerProbability: 0.2,
-    quipProbability: 0.05,
+    bannerProbability: 0.12,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["gear"],
     secondaryTags: ["generic"],
@@ -237,8 +614,8 @@ const SCREEN_TONE_POLICIES = {
   },
   gear_loaned: {
     maxLines: 1,
-    bannerProbability: 0.2,
-    quipProbability: 0.05,
+    bannerProbability: 0.12,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["gear"],
     secondaryTags: ["generic"],
@@ -246,8 +623,8 @@ const SCREEN_TONE_POLICIES = {
   },
   gear_backpack: {
     maxLines: 1,
-    bannerProbability: 0.24,
-    quipProbability: 0.05,
+    bannerProbability: 0.12,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["gear"],
     secondaryTags: ["observational"],
@@ -255,26 +632,26 @@ const SCREEN_TONE_POLICIES = {
   },
   food_menu: {
     maxLines: 1,
-    bannerProbability: 0.4,
-    quipProbability: 0.08,
-    maxIntensity: "medium",
+    bannerProbability: 0.18,
+    quipProbability: 0.04,
+    maxIntensity: "low",
     preferredTags: ["food", "alcohol"],
     secondaryTags: ["generic", "optimistic"],
     blockedTags: ["fatalistic", "command"]
   },
   food_list: {
     maxLines: 1,
-    bannerProbability: 0.34,
-    quipProbability: 0.06,
-    maxIntensity: "medium",
+    bannerProbability: 0.18,
+    quipProbability: 0.04,
+    maxIntensity: "low",
     preferredTags: ["food", "alcohol"],
     secondaryTags: ["generic", "observational"],
     blockedTags: ["fatalistic", "command"]
   },
   expenses_menu: {
     maxLines: 1,
-    bannerProbability: 0.18,
-    quipProbability: 0.04,
+    bannerProbability: 0.1,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["money", "logistics", "generic"],
     secondaryTags: ["food", "trip"],
@@ -282,8 +659,8 @@ const SCREEN_TONE_POLICIES = {
   },
   expenses_list: {
     maxLines: 1,
-    bannerProbability: 0.16,
-    quipProbability: 0.04,
+    bannerProbability: 0.1,
+    quipProbability: 0,
     maxIntensity: "low",
     preferredTags: ["money", "food", "logistics"],
     secondaryTags: ["generic"],
@@ -369,6 +746,14 @@ function normalizeToneText(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function countToneWords(value = "") {
+  return String(value || "")
+    .split(/\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .length;
+}
+
 function getIntensityRank(value = "low") {
   return INTENSITY_RANK[value] ?? INTENSITY_RANK.low;
 }
@@ -432,6 +817,93 @@ function rememberToneSelection(entry, normalizedText, screen, scopeKey, state = 
   if (entry?.cooldownScope === "trip" && state?.tripId) {
     pushHistory(`trip:${state.tripId}`, normalizedText, 10);
   }
+}
+
+function getScreenEntryGate(screen = "default") {
+  return SCREEN_ENTRY_GATES[screen] || null;
+}
+
+function matchesBlockedPattern(text = "", patterns = []) {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function pickCuratedTheatreLine(screen = "default", state = {}, usedTexts = null, scopeKey = "") {
+  const entries = CURATED_THEATRE_SCREEN_LINES[screen];
+  if (!Array.isArray(entries) || !entries.length) {
+    return "";
+  }
+
+  const prepared = entries
+    .filter((entry) => typeof entry?.text === "string" && entry.text.trim())
+    .filter((entry) => (typeof entry?.when === "function" ? entry.when(state) : true))
+    .map((entry) => ({
+      text: entry.text.trim(),
+      normalizedText: normalizeToneText(entry.text),
+      priority: Number(entry?.priority || 0)
+    }))
+    .filter((entry) => entry.normalizedText && !usedTexts?.has(entry.normalizedText))
+    .filter((entry) => !isOnCooldown({ cooldownScope: "screen" }, entry.normalizedText, screen, scopeKey, state))
+    .sort((left, right) => right.priority - left.priority || left.text.localeCompare(right.text, "uk"));
+
+  if (!prepared.length) {
+    return "";
+  }
+
+  const previous = lastRandomSelections.get(`curated:${screen}:${scopeKey}`);
+  const pool = prepared.filter((entry) => entry.text !== previous);
+  const picked = pool[Math.floor(Math.random() * pool.length)] || prepared[0];
+  if (!picked) {
+    return "";
+  }
+
+  usedTexts?.add(picked.normalizedText);
+  rememberToneSelection({ cooldownScope: "screen" }, picked.normalizedText, screen, scopeKey, state);
+  lastRandomSelections.set(`curated:${screen}:${scopeKey}`, picked.text);
+  return picked.text;
+}
+
+function hasCuratedTheatreScreen(screen = "default") {
+  return Object.prototype.hasOwnProperty.call(CURATED_THEATRE_SCREEN_LINES, screen);
+}
+
+function isToneEntryScreenSafe(entry, screen, delivery, score, state = {}) {
+  const gate = getScreenEntryGate(screen);
+  if (!gate) {
+    return true;
+  }
+
+  const text = String(entry?.text || "").trim();
+  const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+
+  if (Array.isArray(gate.allowedShapes) && gate.allowedShapes.length && !gate.allowedShapes.includes(entry?.toneShape)) {
+    return false;
+  }
+
+  if (Array.isArray(gate.requiredTagsAny) && gate.requiredTagsAny.length && !gate.requiredTagsAny.some((tag) => tags.includes(tag))) {
+    return false;
+  }
+
+  if (delivery === "banner" && entry?.toneShape === "question") {
+    return false;
+  }
+
+  if (typeof gate.maxWords === "number" && countToneWords(text) > gate.maxWords) {
+    return false;
+  }
+
+  if (typeof gate.minScore === "number" && score < gate.minScore) {
+    return false;
+  }
+
+  if (matchesBlockedPattern(text, gate.blockedPatterns || [])) {
+    return false;
+  }
+
+  if (screen === "trip_photo_album" && state?.photoEmpty && tags.includes("people") === false) {
+    return false;
+  }
+
+  return true;
 }
 
 function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
@@ -511,6 +983,11 @@ export function pickToneLine({
 
   const policy = mergeScreenPolicy(screen);
   const candidates = theatreToneIndexByScreen.get(screen) || [];
+  const curatedLine = pickCuratedTheatreLine(screen, state, usedTexts, scopeKey);
+  if (curatedLine || hasCuratedTheatreScreen(screen)) {
+    return curatedLine;
+  }
+
   if (!candidates.length) {
     return "";
   }
@@ -528,6 +1005,10 @@ export function pickToneLine({
 
       const score = scoreToneEntry(entry, screen, delivery, policy, state);
       if (score < 0) {
+        return null;
+      }
+
+      if (!isToneEntryScreenSafe(entry, screen, delivery, score, state)) {
         return null;
       }
 
@@ -698,7 +1179,7 @@ export function maybeQuip(context, mode = "default", params = {}, probability = 
   const chance = typeof probability === "number"
     ? probability
     : resolvedMode === "drunk"
-      ? 0.24
+      ? 0.14
       : 0.12;
 
   if (Math.random() > chance) {

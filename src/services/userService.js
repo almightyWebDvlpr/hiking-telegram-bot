@@ -276,6 +276,7 @@ function tripHasParticipatingMember(trip, userId) {
       String(member?.attendanceStatus || "") === "going"
     );
 }
+
 function getRouteAscent(routePlan) {
   return Number(routePlan?.meta?.ascentGain) || 0;
 }
@@ -834,7 +835,7 @@ export class UserService {
     const user = ensureUser(data.users, userId, userName);
     const groups = Array.isArray(data.groups) ? data.groups : [];
     const visibleAwards = getVisibleAwardsList(user);
-    const relatedTrips = groups.filter((trip) => tripHasMember(trip, userId));
+    const relatedTrips = groups.filter((trip) => tripHasParticipatingMember(trip, userId));
     const stats = getLifetimeStats(groups, userId);
 
     return {

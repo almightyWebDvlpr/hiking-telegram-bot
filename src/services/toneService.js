@@ -260,59 +260,225 @@ function fallbackSlice(primary = [], fallback = [], count = 12) {
   return clampTextList([...primary, ...fallback], count);
 }
 
+function collectForbiddenTheatreTokens(entries = []) {
+  const tokens = new Set();
+
+  const pushParts = (value = "") => {
+    const parts = normalizeTheatreText(value)
+      .toLowerCase()
+      .split(/[^a-zа-яіїєґ0-9'-]+/iu)
+      .map((part) => part.trim())
+      .filter((part) => part.length >= 4);
+
+    for (const part of parts) {
+      tokens.add(part);
+    }
+  };
+
+  for (const entry of entries) {
+    pushParts(entry?.source || "");
+    for (const character of Array.isArray(entry?.cast_characters) ? entry.cast_characters : []) {
+      pushParts(character?.name || "");
+    }
+  }
+
+  return tokens;
+}
+
+function isStandaloneTheatreQuote(text = "", forbiddenTokens = new Set()) {
+  const normalized = normalizeTheatreText(text);
+  if (!isAllowedTheatreText(normalized)) {
+    return false;
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || normalized.length < 8 || normalized.length > 96) {
+    return false;
+  }
+
+  const lowered = normalized.toLowerCase();
+  for (const token of forbiddenTokens) {
+    if (token && lowered.includes(token)) {
+      return false;
+    }
+  }
+
+  if (/[«»]/u.test(normalized)) {
+    return false;
+  }
+
+  if (/\b(роль|ролі|сцена|персонаж|вайб|табір|панство зараз грає|сьогодні як)\b/iu.test(normalized)) {
+    return false;
+  }
+
+  return true;
+}
+
+function collectStandaloneTheatreQuotes(entries = []) {
+  const forbiddenTokens = collectForbiddenTheatreTokens(entries);
+  const quotes = [];
+  const seen = new Set();
+
+  const pushQuote = (entry, rawText, type = "phrase", tone = "") => {
+    const text = normalizeTheatreText(rawText);
+    if (!isStandaloneTheatreQuote(text, forbiddenTokens)) {
+      return;
+    }
+
+    const key = text.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    quotes.push({
+      text,
+      source: normalizeTheatreText(entry?.source || ""),
+      type: String(type || "phrase").trim().toLowerCase(),
+      tone: String(tone || "").trim().toLowerCase()
+    });
+  };
+
+  for (const entry of entries) {
+    for (const quote of Array.isArray(entry?.memes_quotes) ? entry.memes_quotes : []) {
+      pushQuote(entry, quote?.text || "", quote?.type || "phrase", quote?.tone || "");
+    }
+
+    for (const phrase of Array.isArray(entry?.popular_funny_phrases) ? entry.popular_funny_phrases : []) {
+      pushQuote(entry, phrase, "phrase", "");
+    }
+  }
+
+  return quotes;
+}
+
+const THEATRE_CONTEXT_RULES = {
+  generic: {
+    types: ["reaction", "statement", "question", "observation", "phrase", "answer"],
+    keywords: ["пізд", "розруха", "питання", "жизн", "мовч", "довольн", "облом", "пагод"],
+    limit: 8
+  },
+  trip: {
+    types: ["reaction", "statement", "question", "phrase"],
+    keywords: ["питання", "прийшли", "пізд", "розруха", "подвєд", "жизн", "довольн"],
+    limit: 6
+  },
+  people: {
+    types: ["reaction", "statement", "question", "accusation", "phrase", "answer"],
+    keywords: ["хлопц", "народ", "падлюк", "довольн", "мовч", "контра"],
+    limit: 5
+  },
+  route: {
+    types: ["command", "battle_cry", "reaction", "question", "phrase", "statement"],
+    keywords: ["іттіть", "прийшли", "вперьод", "вперед", "пагод", "купатись", "дорог", "йти", "шлях", "ліс", "болот", "пустин"],
+    limit: 5
+  },
+  food: {
+    types: ["reaction", "statement", "question", "phrase", "observation"],
+    keywords: ["випить", "барі", "шампань", "їсти", "жрать", "кусн", "пиво", "пити", "канхвет", "бздить"],
+    limit: 4
+  },
+  gear: {
+    types: ["reaction", "statement", "phrase", "command", "observation"],
+    keywords: ["роял", "дрюч", "меч", "пістолет", "простирадл", "фонар", "реквізит"],
+    limit: 3
+  }
+};
+
+function scoreTheatreQuoteForContext(quote = {}, context = "generic") {
+  const rule = THEATRE_CONTEXT_RULES[context] || THEATRE_CONTEXT_RULES.generic;
+  const text = normalizeTheatreText(quote?.text || "").toLowerCase();
+  const type = String(quote?.type || "").trim().toLowerCase();
+  const tone = String(quote?.tone || "").trim().toLowerCase();
+
+  let score = 0;
+
+  if (rule.types.includes(type)) {
+    score += 3;
+  }
+
+  for (const keyword of rule.keywords) {
+    if (text.includes(keyword) || tone.includes(keyword)) {
+      score += 2;
+    }
+  }
+
+  if (context === "generic" && ["reaction", "statement", "question"].includes(type)) {
+    score += 1;
+  }
+
+  if (context === "trip" && /[!?]/.test(text)) {
+    score += 1;
+  }
+
+  if (context === "route" && (type === "command" || type === "battle_cry")) {
+    score += 1;
+  }
+
+  if (context === "food" && /\b(випить|пити|барі|шампань|канхвет|кусн|бздить)\b/iu.test(text)) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function pickStandaloneTheatreQuotes(quotes = [], context = "generic") {
+  const rule = THEATRE_CONTEXT_RULES[context] || THEATRE_CONTEXT_RULES.generic;
+
+  return quotes
+    .map((quote, index) => ({
+      quote,
+      index,
+      score: scoreTheatreQuoteForContext(quote, context)
+    }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) =>
+      right.score - left.score
+      || left.quote.text.length - right.quote.text.length
+      || left.index - right.index
+    )
+    .slice(0, rule.limit)
+    .map((item) => item.quote.text);
+}
+
 function buildTheatreTonePack(source = {}, fallbackPack = {}) {
   const entries = Array.isArray(source?.dataset) ? source.dataset : [];
   if (!entries.length) {
     return fallbackPack || {};
   }
 
-  const generic = fallbackSlice(entries.flatMap((entry) => buildContextualLinesForEntry(entry, "generic")), fallbackPack?.random_quips?.generic, 28);
-  const trip = fallbackSlice(entries.flatMap((entry) => buildContextualLinesForEntry(entry, "trip")), fallbackPack?.random_quips?.trip, 24);
-  const people = fallbackSlice(entries.flatMap((entry) => buildContextualLinesForEntry(entry, "people")), fallbackPack?.random_quips?.people, 20);
-  const route = fallbackSlice(entries.flatMap((entry) => buildContextualLinesForEntry(entry, "route")), fallbackPack?.random_quips?.route, 20);
-  const food = fallbackSlice(entries.flatMap((entry) => buildContextualLinesForEntry(entry, "food")), fallbackPack?.random_quips?.food, 20);
-  const gear = fallbackSlice(entries.flatMap((entry) => buildContextualLinesForEntry(entry, "gear")), fallbackPack?.random_quips?.gear, 20);
+  const theatreQuotes = collectStandaloneTheatreQuotes(entries);
 
-  const menuTitle = fallbackSlice(
-    entries.flatMap((entry) => {
-      const sourceLabel = normalizeTheatreText(entry?.source || "");
-      const characters = formatCharacterList((entry?.cast_characters || []).map((character) => character?.name || ""));
-      const phrases = collectEntryQuotes(entry);
-      return [
-        ...pickTopContextTexts([...phrases.commands, ...phrases.questions], "trip", 1),
-        sourceLabel ? `Порядок денний рівня ${quoteLabel(sourceLabel)}` : "",
-        characters ? `Панство на ролі ${characters}` : ""
-      ];
-    }),
-    fallbackPack?.menu?.title,
-    10
-  );
+  const generic = fallbackSlice(fallbackPack?.random_quips?.generic, pickStandaloneTheatreQuotes(theatreQuotes, "generic"), 24);
+  const trip = fallbackSlice(fallbackPack?.random_quips?.trip, pickStandaloneTheatreQuotes(theatreQuotes, "trip"), 14);
+  const people = fallbackSlice(fallbackPack?.random_quips?.people, pickStandaloneTheatreQuotes(theatreQuotes, "people"), 10);
+  const route = fallbackSlice(fallbackPack?.random_quips?.route, pickStandaloneTheatreQuotes(theatreQuotes, "route"), 10);
+  const food = fallbackSlice(fallbackPack?.random_quips?.food, pickStandaloneTheatreQuotes(theatreQuotes, "food"), 10);
+  const gear = fallbackSlice(fallbackPack?.random_quips?.gear, pickStandaloneTheatreQuotes(theatreQuotes, "gear"), 8);
 
   return {
     registers: {
       camp_truth: {
-        generic,
-        food,
-        gear,
-        route
+        generic: fallbackSlice(fallbackPack?.registers?.camp_truth?.generic, generic, 18),
+        food: fallbackSlice(fallbackPack?.registers?.camp_truth?.food, food, 10),
+        gear: fallbackSlice(fallbackPack?.registers?.camp_truth?.gear, gear, 8),
+        route: fallbackSlice(fallbackPack?.registers?.camp_truth?.route, route, 10)
       },
       absurd_high: {
-        welcome: fallbackSlice([...trip, ...route], fallbackPack?.registers?.absurd_high?.welcome, 14)
+        welcome: clampTextList(fallbackPack?.registers?.absurd_high?.welcome || [], 14)
       },
       fatalistic_soft: {
-        generic,
-        trip,
-        people
+        generic: fallbackSlice(fallbackPack?.registers?.fatalistic_soft?.generic, generic, 14),
+        trip: fallbackSlice(fallbackPack?.registers?.fatalistic_soft?.trip, trip, 10),
+        people: fallbackSlice(fallbackPack?.registers?.fatalistic_soft?.people, people, 8)
       },
       street_burn: {
-        soft_react: fallbackSlice(entries.flatMap((entry) => collectEntryQuotes(entry).reactions), fallbackPack?.registers?.street_burn?.soft_react, 14),
-        idle: fallbackSlice(entries.flatMap((entry) => collectEntryQuotes(entry).questions), fallbackPack?.registers?.street_burn?.idle, 12),
-        edit_loop: fallbackSlice(entries.flatMap((entry) => [...collectEntryQuotes(entry).questions, ...collectEntryQuotes(entry).reactions]), fallbackPack?.registers?.street_burn?.edit_loop, 12)
+        soft_react: fallbackSlice(fallbackPack?.registers?.street_burn?.soft_react, generic, 14),
+        idle: clampTextList(fallbackPack?.registers?.street_burn?.idle || [], 12),
+        edit_loop: clampTextList(fallbackPack?.registers?.street_burn?.edit_loop || [], 12)
       }
     },
-    menu: {
-      title: menuTitle
-    },
+    menu: materialize(fallbackPack?.menu || {}),
     random_quips: {
       generic,
       trip,
@@ -467,7 +633,7 @@ export function maybeQuip(context, mode = "default", params = {}, probability = 
   const chance = typeof probability === "number"
     ? probability
     : resolvedMode === "drunk"
-      ? 0.78
+      ? 0.24
       : 0.12;
 
   if (Math.random() > chance) {
@@ -481,29 +647,22 @@ export function maybeQuip(context, mode = "default", params = {}, probability = 
   const packContextMap = {
     generic: [
       "registers.camp_truth.generic",
-      "registers.fatalistic_soft.generic",
-      "registers.street_burn.soft_react"
+      "registers.fatalistic_soft.generic"
     ],
     trip: [
-      "registers.fatalistic_soft.trip",
-      "registers.absurd_high.welcome",
-      "registers.camp_truth.generic"
-    ],
-    food: [
-      "registers.camp_truth.food",
-      "registers.fatalistic_soft.generic"
-    ],
-    route: [
-      "registers.camp_truth.route",
       "registers.fatalistic_soft.trip"
     ],
+    food: [
+      "registers.camp_truth.food"
+    ],
+    route: [
+      "registers.camp_truth.route"
+    ],
     gear: [
-      "registers.camp_truth.gear",
-      "registers.fatalistic_soft.generic"
+      "registers.camp_truth.gear"
     ],
     people: [
-      "registers.fatalistic_soft.people",
-      "registers.camp_truth.generic"
+      "registers.fatalistic_soft.people"
     ],
     idle: [
       "registers.street_burn.idle"

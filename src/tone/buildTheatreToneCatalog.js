@@ -16,7 +16,7 @@ const DOMAIN_KEYWORDS = {
   route: ["ітті", "вперьод", "вперед", "прийшл", "дорог", "шлях", "болот", "стеж", "маршрут", "дєбр", "гір", "кроком"],
   weather: ["пагод", "дощ", "вітер", "холод", "сонц", "гроза", "сніг", "злива"],
   food: ["канхвет", "тузік", "їст", "жрат", "кусн", "ковбас", "сало", "хліб", "закус", "ням"],
-  alcohol: ["вип", "бар", "шампань", "пив", "горіл", "пляш", "алко", "пивц"],
+  alcohol: ["випить", "випив", "випива", "бар", "шампань", "пив", "горіл", "пляш", "алко", "пивц"],
   gear: ["роял", "дрюч", "меч", "пістолет", "простирадл", "фонар", "реквізит", "мішок", "рюкзак", "шкарп", "валіз", "чемодан"],
   people: ["хлопц", "друж", "банд", "люд", "панов", "компан"],
   logistics: ["питан", "жизн", "розрух", "облом", "довольн", "подвєд", "план", "ітог", "спєшн", "треба"],
@@ -67,6 +67,473 @@ const SHAPE_TO_DELIVERY_CLASS = {
   optimistic: "success",
   complaint: "warning",
   fatalistic: "error"
+};
+
+const SCREEN_POOL_RULES = {
+  trip_hub: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 7,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["manager", "supportive", "boozy", "crew", "trail"],
+    requiredKeywordRootsAny: ["грош", "карбован", "вип", "пив", "горіл", "ковбас", "план", "ітог", "спєш", "пагод", "дощ", "шлях", "дорог", "хлопц", "люд"],
+    blockedKeywordRootsAny: ["вожд", "корол", "віолет", "бабайот", "тузік", "посц", "срат", "кущ", "трус", "мудозвон", "людожер", "болот", "випар", "міраж", "шикуй", "руш", "виймай", "клади", "суц", "хуй", "пизд", "єб", "чмо", "самогон"],
+    requiredTagsAny: ["money", "logistics", "people", "alcohol"],
+    preferredTags: ["logistics", "money", "people", "alcohol"],
+    preferredPersonas: ["manager", "supportive", "boozy", "crew"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(чмо|контра|вб'ю|нахуй|посмокт\w*|жоп\w*|срак\w*|залуп\w*|падлюк\w*|болот\w*|дімедрол\w*|єбал\w*|какафон\w*|випар\w*|міраж\w*|макарєнк\w*|вожд\w*|корол\w*|віолет\w*|бабайот\w*|посц\w*|умивал\w*|храм\w*|бабус\w*|калік\w*|умнєйш\w*|опитнєйш\w*|поруба\w*|самогон\w*)/iu]
+  },
+  trip_details: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 8,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["manager", "supportive", "boozy", "crew", "trail"],
+    requiredKeywordRootsAny: ["грош", "карбован", "вип", "пив", "горіл", "ковбас", "план", "ітог", "спєш", "пагод", "дощ", "шлях", "дорог", "хлопц", "люд", "вод"],
+    blockedKeywordRootsAny: ["вожд", "корол", "віолет", "бабайот", "тузік", "посц", "срат", "кущ", "трус", "мудозвон", "людожер", "болот", "випар", "міраж", "шикуй", "руш", "виймай", "клади", "суц", "хуй", "пизд", "єб", "чмо", "самогон"],
+    requiredTagsAny: ["money", "logistics", "people", "alcohol", "route"],
+    preferredTags: ["logistics", "money", "people", "route", "alcohol"],
+    preferredPersonas: ["manager", "supportive", "trail", "boozy", "crew"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(чмо|контра|вб'ю|нахуй|посмокт\w*|жоп\w*|срак\w*|залуп\w*|падлюк\w*|болот\w*|дімедрол\w*|єбал\w*|какафон\w*|випар\w*|міраж\w*|макарєнк\w*|вожд\w*|корол\w*|віолет\w*|бабайот\w*|посц\w*|умивал\w*|храм\w*|бабус\w*|калік\w*|умнєйш\w*|опитнєйш\w*|поруба\w*|самогон\w*|вонюч\w*)/iu]
+  },
+  trip_history: {
+    limit: 14,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["logistics", "people", "money", "route"],
+    preferredTags: ["logistics", "money", "people"],
+    preferredPersonas: ["manager", "supportive", "crew"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|жоп|срак|залуп)\b/iu]
+  },
+  trip_settings: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 7,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["logistics", "money", "people"],
+    preferredTags: ["logistics", "money"],
+    preferredPersonas: ["manager", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|жоп|срак|залуп)\b/iu]
+  },
+  trip_members_menu: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 8,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["crew", "supportive", "banter"],
+    requiredKeywordRootsAny: ["хлопц", "люд", "компан", "друж", "банд"],
+    blockedKeywordRootsAny: ["посц", "срат", "самогон", "людожер", "артілєр", "разйоб", "мудозвон", "наяб", "хуй", "пизд", "єб", "жоп", "срак", "залуп", "чмо", "бог"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(виябуйся|пиздим|людожером|падлюк\w*|нахуй|вб'ю|жоп\w*|срак\w*|залуп\w*|хуйн\w*|піся\w*|кущ\w*|кал\w*|трус\w*|параш\w*|кров\w*|гарчан\w*|артілєр\w*|мудозвон\w*|посц\w*|срати|самогон\w*|наяб\w*|поруба\w*|козл\w*|лишняя|умивал\w*|бог\b|лізе)/iu]
+  },
+  trip_members_list: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 8,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["crew", "supportive", "banter"],
+    requiredKeywordRootsAny: ["хлопц", "люд", "компан", "друж", "банд"],
+    blockedKeywordRootsAny: ["посц", "срат", "самогон", "людожер", "артілєр", "разйоб", "мудозвон", "наяб", "хуй", "пизд", "єб", "жоп", "срак", "залуп", "чмо", "бог"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(виябуйся|пиздим|людожером|падлюк\w*|нахуй|вб'ю|жоп\w*|срак\w*|залуп\w*|хуйн\w*|піся\w*|кущ\w*|кал\w*|трус\w*|параш\w*|кров\w*|гарчан\w*|артілєр\w*|мудозвон\w*|посц\w*|срати|самогон\w*|наяб\w*|поруба\w*|козл\w*|лишняя|умивал\w*|бог\b|лізе)/iu]
+  },
+  trip_member_card: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 8,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["crew", "supportive", "banter"],
+    requiredKeywordRootsAny: ["хлопц", "люд", "компан", "друж", "банд"],
+    blockedKeywordRootsAny: ["посц", "срат", "самогон", "людожер", "артілєр", "разйоб", "мудозвон", "наяб", "хуй", "пизд", "єб", "жоп", "срак", "залуп", "чмо", "бог"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(виябуйся|пиздим|людожером|падлюк\w*|нахуй|вб'ю|жоп\w*|срак\w*|залуп\w*|хуйн\w*|піся\w*|кущ\w*|кал\w*|трус\w*|параш\w*|кров\w*|гарчан\w*|артілєр\w*|мудозвон\w*|посц\w*|срати|самогон\w*|наяб\w*|поруба\w*|козл\w*|лишняя|умивал\w*|бог\b|лізе)/iu]
+  },
+  trip_member_tickets: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["money", "logistics", "people"],
+    preferredTags: ["money", "logistics", "people"],
+    preferredPersonas: ["manager", "crew"],
+    blockedPatterns: [/[?]/u, /\b(нахуй|вб'ю|жоп|срак|залуп)\b/iu]
+  },
+  route_menu: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["trail", "supportive"],
+    requiredKeywordRootsAny: ["шлях", "дорог", "дєбр", "ітт", "вперь", "вперед", "дощ", "пагод", "холод", "крок", "прийш", "вод"],
+    blockedKeywordRootsAny: ["шикуй", "руш", "болот", "випар", "міраж", "гупан", "какафон", "скавуч", "вб", "чмо", "бляд", "собак", "труп", "смерт"],
+    requiredTagsAny: ["route", "weather"],
+    preferredTags: ["route", "weather"],
+    preferredPersonas: ["trail", "supportive"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(чмо|контра|вб'ю|нахуй|утоп\w*|вбити|бляд\w*|какафон\w*|гарчан\w*|нізабуд\w*|мармиз\w*|шикуй\w*|руш\b|вонюч\w*|пран\w*|підарас\w*|храм\w*|паровоз\w*|собак\w*)/iu]
+  },
+  route_weather_picker: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["weather", "route"],
+    preferredTags: ["weather", "route"],
+    preferredPersonas: ["trail", "supportive"],
+    blockedPatterns: [/[?]/u, /(чмо|контра|вб'ю|нахуй|утоп\w*|бляд\w*|какафон\w*|гарчан\w*|нізабуд\w*|мармиз\w*)/iu]
+  },
+  route_weather: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["weather", "route"],
+    preferredTags: ["weather", "route"],
+    preferredPersonas: ["trail", "supportive"],
+    blockedPatterns: [/[?]/u, /(чмо|контра|вб'ю|нахуй|утоп\w*|бляд\w*|какафон\w*|гарчан\w*|нізабуд\w*|мармиз\w*)/iu]
+  },
+  food_menu: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 8,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["boozy", "camp", "supportive"],
+    requiredKeywordRootsAny: ["вип", "пив", "горіл", "ковбас", "їст", "пляш", "ням", "закус", "алког", "вино"],
+    blockedKeywordRootsAny: ["посмокт", "єб", "муділ", "топор", "крокодил", "собак", "барсуч", "вожд", "корол", "тузік", "хуй", "пизд", "жоп", "срак", "залуп"],
+    requiredTagsAny: ["food", "alcohol"],
+    preferredTags: ["alcohol", "food"],
+    preferredPersonas: ["boozy", "camp", "supportive"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(жоп\w*|срак\w*|залуп\w*|єбат\w*|муділ\w*|нахуй|встром\w*|дімедрол\w*|крокодил\w*|собак\w*|вбива\w*|пашек\w*|вожд\w*|корол\w*|посмокт\w*|тузік\w*|побийте|поможіть|бистро|барсуч\w*)/iu]
+  },
+  food_list: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 8,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["boozy", "camp", "supportive"],
+    requiredKeywordRootsAny: ["вип", "пив", "горіл", "ковбас", "їст", "пляш", "ням", "закус", "алког", "вино"],
+    blockedKeywordRootsAny: ["посмокт", "єб", "муділ", "топор", "крокодил", "собак", "барсуч", "вожд", "корол", "тузік", "хуй", "пизд", "жоп", "срак", "залуп"],
+    requiredTagsAny: ["food", "alcohol"],
+    preferredTags: ["alcohol", "food"],
+    preferredPersonas: ["boozy", "camp", "supportive"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(жоп\w*|срак\w*|залуп\w*|єбат\w*|муділ\w*|нахуй|встром\w*|дімедрол\w*|крокодил\w*|собак\w*|вбива\w*|пашек\w*|вожд\w*|корол\w*|посмокт\w*|тузік\w*|побийте|поможіть|бистро|барсуч\w*)/iu]
+  },
+  trip_mode: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["alcohol", "food", "logistics"],
+    preferredTags: ["alcohol", "food", "logistics"],
+    preferredPersonas: ["boozy", "supportive", "manager"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|єбати|муділа|нахуй|встром)\b/iu]
+  },
+  trip_drunk_mode: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["alcohol", "food", "logistics"],
+    preferredTags: ["alcohol", "food", "logistics"],
+    preferredPersonas: ["boozy", "supportive", "manager"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|єбати|муділа|нахуй|встром)\b/iu]
+  },
+  expenses_menu: {
+    limit: 14,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    allowedPersonas: ["manager", "supportive"],
+    requiredKeywordRootsAny: ["грош", "карбован", "валют", "віддам", "купува", "стоят", "стирч"],
+    blockedKeywordRootsAny: ["вожд", "корол", "віолет", "бабайот", "клади", "виймай", "давай", "віддайте", "хуй", "пизд", "жоп", "срак", "залуп", "калік", "бабус"],
+    requiredTagsAny: ["money"],
+    preferredTags: ["money"],
+    preferredPersonas: ["manager", "supportive"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(жоп\w*|срак\w*|залуп\w*|нахуй|їбал\w*|казьол\w*|виймай\w*|цить|бабус\w*|калік\w*|бабайот\w*|дай\b|давай\b|віддайте|храм\w*|попропива\w*)/iu]
+  },
+  expenses_list: {
+    limit: 14,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    allowedPersonas: ["manager", "supportive"],
+    requiredKeywordRootsAny: ["грош", "карбован", "валют", "віддам", "купува", "стоят", "стирч"],
+    blockedKeywordRootsAny: ["вожд", "корол", "віолет", "бабайот", "клади", "виймай", "давай", "віддайте", "хуй", "пизд", "жоп", "срак", "залуп", "калік", "бабус"],
+    requiredTagsAny: ["money"],
+    preferredTags: ["money"],
+    preferredPersonas: ["manager", "supportive"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(жоп\w*|срак\w*|залуп\w*|нахуй|їбал\w*|казьол\w*|виймай\w*|цить|бабус\w*|калік\w*|бабайот\w*|дай\b|давай\b|віддайте|храм\w*|попропива\w*)/iu]
+  },
+  trip_photos: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["crew", "supportive", "banter"],
+    requiredKeywordRootsAny: ["хлопц", "люд", "компан", "друж", "банд", "гуля"],
+    blockedKeywordRootsAny: ["посц", "срат", "самогон", "людожер", "разйоб", "мудозвон", "наяб", "хуй", "пизд", "єб", "жоп", "срак", "залуп", "чмо", "бог", "артілєр", "кров", "болот"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /\b(нахуй|вб'ю|жоп|срак|залуп|обізян|мудозвон|посцять|самогонку|артілєрія|козли|лишняя|умивалися|бог)\b/iu]
+  },
+  trip_photo_album: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 8,
+    maxSentenceCount: 1,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    allowedPersonas: ["crew", "supportive", "banter"],
+    requiredKeywordRootsAny: ["хлопц", "люд", "компан", "друж", "банд", "гуля"],
+    blockedKeywordRootsAny: ["посц", "срат", "самогон", "людожер", "разйоб", "мудозвон", "наяб", "хуй", "пизд", "єб", "жоп", "срак", "залуп", "чмо", "бог", "артілєр", "кров", "болот"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people", "route"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    forbidProperNames: true,
+    forbidQuotedFragments: true,
+    blockedPatterns: [/[?]/u, /(нахуй|вб'ю|жоп\w*|срак\w*|залуп\w*|обізян\w*|кров\w*|гарчан\w*|болот\w*|мудозвон\w*|посц\w*|самогон\w*|артілєр\w*|козл\w*|лишняя|умивал\w*|бог\b)/iu]
+  },
+  idle_prompt: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "medium",
+    allowedShapes: ["question", "complaint", "reaction"],
+    requiredTagsAny: ["decision", "logistics", "generic"],
+    preferredTags: ["decision", "logistics"],
+    preferredPersonas: ["banter", "chaotic", "manager"],
+    blockedPatterns: [/(вб'ю|утоп\w*|жоп\w*|срак\w*|залуп\w*|пидарас\w*|чмо японське|переїб\w*|хуйов\w+\s+сторон)/iu]
+  },
+  edit_loop: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "medium",
+    allowedShapes: ["question", "complaint", "reaction"],
+    requiredTagsAny: ["decision", "logistics", "generic"],
+    preferredTags: ["decision", "logistics"],
+    preferredPersonas: ["banter", "chaotic", "manager"],
+    blockedPatterns: [/\b(вб'ю|утоп|жоп|срак|залуп|пидарас|чмо японське)\b/iu]
+  }
+};
+
+const SCREEN_POOL_PREFERRED_TEXTS = {
+  trip_hub: [
+    "Надо что-то дєлать спєшно.",
+    "Всі випивають і закусюють ковбасою.",
+    "Піти би випить в барі шампаньйоли.",
+    "Щас всі випиваєм по другій.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "З усіх карманів стирчать пачки грошей.",
+    "П’ятьсот карбованців стоять.",
+    "Та вже мабуть прийшли."
+  ],
+  trip_details: [
+    "Тоді треба воду зливать!",
+    "Всі випивають і закусюють ковбасою.",
+    "З усіх карманів стирчать пачки грошей.",
+    "П’ятьсот карбованців стоять.",
+    "Надо что-то дєлать спєшно.",
+    "Та вже мабуть прийшли.",
+    "Я думаю, що, мабуть, буде дощ..."
+  ],
+  trip_members_menu: [
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Зачекаймо, хлопці, лишень чаю доп'єм.",
+    "Всьо, хлопці, кінчайте базар, всім отбой.",
+    "Стали люди радитись.",
+    "Хлопці, агов!",
+    "А вірно хлопці!",
+    "Люди славні.",
+    "Хлопці гуляють.",
+    "Тоді з вас будуть люди."
+  ],
+  trip_members_list: [
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Зачекаймо, хлопці, лишень чаю доп'єм.",
+    "Всьо, хлопці, кінчайте базар, всім отбой.",
+    "Стали люди радитись.",
+    "Хлопці, агов!",
+    "А вірно хлопці!",
+    "Люди славні.",
+    "Хлопці гуляють.",
+    "Тоді з вас будуть люди."
+  ],
+  trip_member_card: [
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Зачекаймо, хлопці, лишень чаю доп'єм.",
+    "Стали люди радитись.",
+    "Хлопці, агов!",
+    "А вірно хлопці!",
+    "Люди славні.",
+    "Хлопці гуляють."
+  ],
+  trip_photos: [
+    "Хлопці гуляють.",
+    "Люди славні.",
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Зачекаймо, хлопці, лишень чаю доп'єм.",
+    "Стали люди радитись.",
+    "А вірно хлопці!",
+    "Хлопці, агов!"
+  ],
+  trip_photo_album: [
+    "Хлопці гуляють.",
+    "Люди славні.",
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Зачекаймо, хлопці, лишень чаю доп'єм.",
+    "Стали люди радитись.",
+    "А вірно хлопці!",
+    "Хлопці, агов!"
+  ],
+  route_menu: [
+    "Ви в страшні дєбрі забралісь.",
+    "Я думаю, що, мабуть, буде дощ...",
+    "Тоді треба воду зливать!",
+    "Все дєлают одін шаг вперьод.",
+    "Ето смелий шаг вперьод!",
+    "Та вже мабуть прийшли.",
+    "Ви тут сідітє, а на дворє такая пагода стаїть."
+  ],
+  route_weather_picker: [
+    "Я думаю, що, мабуть, буде дощ...",
+    "Тоді треба воду зливать!",
+    "Ви тут сідітє, а на дворє такая пагода стаїть."
+  ],
+  route_weather: [
+    "Я думаю, що, мабуть, буде дощ...",
+    "Тоді треба воду зливать!",
+    "Ви тут сідітє, а на дворє такая пагода стаїть."
+  ],
+  food_menu: [
+    "Всі випивають і закусюють ковбасою.",
+    "Піти би випить в барі шампаньйоли.",
+    "Щас всі випиваєм по другій.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "Я їсти хочу!",
+    "А ми випить хочемо.",
+    "Я б краще вина б ото випив...",
+    "Їсти хоче!"
+  ],
+  food_list: [
+    "Всі випивають і закусюють ковбасою.",
+    "Піти би випить в барі шампаньйоли.",
+    "Щас всі випиваєм по другій.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "Я їсти хочу!",
+    "А ми випить хочемо.",
+    "Я б краще вина б ото випив...",
+    "Їсти хоче!"
+  ],
+  trip_mode: [
+    "Всі випивають і закусюють ковбасою.",
+    "Піти би випить в барі шампаньйоли.",
+    "Щас всі випиваєм по другій.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "А ми випить хочемо.",
+    "Я б краще вина б ото випив..."
+  ],
+  trip_drunk_mode: [
+    "Всі випивають і закусюють ковбасою.",
+    "Піти би випить в барі шампаньйоли.",
+    "Щас всі випиваєм по другій.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "А ми випить хочемо.",
+    "Я б краще вина б ото випив..."
+  ],
+  expenses_menu: [
+    "З усіх карманів стирчать пачки грошей.",
+    "П’ятьсот карбованців стоять.",
+    "За валюту його я купував.",
+    "Дай три карбованці, завтра утром віддам.",
+    "Дай мені три карбованці, я завтра утром віддам."
+  ],
+  expenses_list: [
+    "З усіх карманів стирчать пачки грошей.",
+    "П’ятьсот карбованців стоять.",
+    "За валюту його я купував.",
+    "Дай три карбованці, завтра утром віддам.",
+    "Дай мені три карбованці, я завтра утром віддам."
+  ]
 };
 
 const TOPIC_TAGS = ["route", "weather", "food", "alcohol", "gear", "people", "logistics", "money"];
@@ -175,6 +642,10 @@ function countWords(value = "") {
     .length;
 }
 
+function countSentences(value = "") {
+  return (normalize(value).match(/[^.!?…]+[.!?…]?/gu) || []).filter((part) => normalize(part)).length;
+}
+
 function tokenize(value = "") {
   return (normalize(value).toLowerCase().match(/[a-zа-яіїєґ0-9'-]{3,}/giu) || [])
     .map((token) => String(token || "").toLowerCase());
@@ -182,6 +653,36 @@ function tokenize(value = "") {
 
 function hasKeywordRoot(tokens = [], roots = []) {
   return roots.some((root) => tokens.some((token) => token.startsWith(root)));
+}
+
+function countKeywordRootMatches(tokens = [], roots = []) {
+  if (!Array.isArray(tokens) || !Array.isArray(roots) || !roots.length) {
+    return 0;
+  }
+
+  const matchedRoots = new Set();
+  for (const root of roots) {
+    if (tokens.some((token) => token.startsWith(root))) {
+      matchedRoots.add(root);
+    }
+  }
+
+  return matchedRoots.size;
+}
+
+function containsMidSentenceProperName(text = "") {
+  const tokens = normalize(text).split(/\s+/u).filter(Boolean);
+  if (tokens.length <= 1) {
+    return false;
+  }
+
+  return tokens
+    .slice(1)
+    .some((token) => /^[A-ZА-ЯІЇЄҐ][a-zа-яіїєґ'-]+$/u.test(token.replace(/[.,!?…:;"'`«»()\-]+/gu, "")));
+}
+
+function containsQuotedFragment(text = "") {
+  return /["“”«»']/u.test(text);
 }
 
 function splitSentences(value = "") {
@@ -563,7 +1064,7 @@ function inferScreens(tags = [], intensity = "low", shape = "reaction") {
 
   if (tags.includes("people")) {
     SCREEN_GROUPS.people.forEach((screen) => screens.add(screen));
-    if (shape === "observational" || shape === "optimistic") {
+    if ((shape === "observational" || shape === "optimistic" || shape === "reaction") && intensity === "low" && !tags.includes("negative")) {
       SCREEN_GROUPS.photos.forEach((screen) => screens.add(screen));
     }
   }
@@ -673,6 +1174,16 @@ function inferSpecificity(text = "", tags = [], keywords = [], shape = "reaction
   return topicalTagCount * 3 + lexicalWeight + lengthWeight + shapeWeight;
 }
 
+function getIntensityRank(value = "low") {
+  if (value === "high") {
+    return 2;
+  }
+  if (value === "medium") {
+    return 1;
+  }
+  return 0;
+}
+
 function collectCandidates(entries = []) {
   const forbiddenTokens = collectForbiddenTokens(entries);
   const candidates = [];
@@ -756,9 +1267,115 @@ function collectCandidates(entries = []) {
   return candidates;
 }
 
+function buildScreenPools(candidates = []) {
+  const screenPools = {};
+  const candidatesByText = new Map(
+    candidates.map((entry) => [normalize(entry?.text || ""), entry])
+  );
+
+  for (const [screen, rule] of Object.entries(SCREEN_POOL_RULES)) {
+    const preferredTexts = (SCREEN_POOL_PREFERRED_TEXTS[screen] || [])
+      .map((text) => candidatesByText.get(normalize(text)))
+      .filter(Boolean);
+    const filtered = candidates
+      .filter((entry) => Array.isArray(entry?.screens) && entry.screens.includes(screen))
+      .filter((entry) => getIntensityRank(entry?.intensity) <= getIntensityRank(rule.maxIntensity))
+      .filter((entry) => Array.isArray(rule.allowedShapes) ? rule.allowedShapes.includes(entry?.toneShape) : true)
+      .filter((entry) => Array.isArray(rule.allowedPersonas) ? rule.allowedPersonas.includes(entry?.personaCue) : true)
+      .filter((entry) => {
+        const words = countWords(entry?.text || "");
+        return words >= (rule.minWords || 0) && words <= (rule.maxWords || 999);
+      })
+      .filter((entry) => {
+        const sentenceCount = countSentences(entry?.text || "");
+        return sentenceCount <= (rule.maxSentenceCount || 99);
+      })
+      .filter((entry) => rule.forbidProperNames ? !containsMidSentenceProperName(entry?.text || "") : true)
+      .filter((entry) => rule.forbidQuotedFragments ? !containsQuotedFragment(entry?.text || "") : true)
+      .filter((entry) => {
+        const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+        return Array.isArray(rule.requiredTagsAny) ? rule.requiredTagsAny.some((tag) => tags.includes(tag)) : true;
+      })
+      .filter((entry) => {
+        const keywords = Array.isArray(entry?.keywords) ? entry.keywords : [];
+        return Array.isArray(rule.requiredKeywordRootsAny) && rule.requiredKeywordRootsAny.length
+          ? countKeywordRootMatches(keywords, rule.requiredKeywordRootsAny) > 0
+          : true;
+      })
+      .filter((entry) => {
+        const keywords = Array.isArray(entry?.keywords) ? entry.keywords : [];
+        return Array.isArray(rule.blockedKeywordRootsAny) && rule.blockedKeywordRootsAny.length
+          ? countKeywordRootMatches(keywords, rule.blockedKeywordRootsAny) === 0
+          : true;
+      })
+      .filter((entry) => !(rule.blockedPatterns || []).some((pattern) => pattern.test(entry?.text || "")))
+      .map((entry, index) => {
+        const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+        const keywords = Array.isArray(entry?.keywords) ? entry.keywords : [];
+        const preferredTagScore = (rule.preferredTags || []).reduce((sum, tag) => sum + (tags.includes(tag) ? 5 : 0), 0);
+        const personaScore = (rule.preferredPersonas || []).includes(entry?.personaCue) ? 6 : 0;
+        const rootScore = countKeywordRootMatches(keywords, rule.requiredKeywordRootsAny || []) * 5;
+        const intensityScore = entry?.intensity === "low" ? 2 : entry?.intensity === "medium" ? 1 : 0;
+        const reactionScore = ["reaction", "observational", "optimistic"].includes(entry?.toneShape) ? 2 : 0;
+        const brevityBonus = Math.max(0, 7 - countWords(entry?.text || ""));
+        const score = 10 + preferredTagScore + personaScore + rootScore + intensityScore + reactionScore + brevityBonus + Number(entry?.specificity || 0);
+        return {
+          id: entry.id,
+          score,
+          sourceTitle: entry?.sourceTitle || "",
+          index
+        };
+      })
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+
+    const selected = [];
+    const selectedIds = new Set();
+    const sourceCounts = new Map();
+
+    for (const [preferredIndex, entry] of preferredTexts.entries()) {
+      if (selected.length >= (rule.limit || 0)) {
+        break;
+      }
+      if (selectedIds.has(entry.id)) {
+        continue;
+      }
+      const sourceTitle = entry?.sourceTitle || "";
+      const currentCount = sourceCounts.get(sourceTitle) || 0;
+      if (currentCount >= (rule.maxPerSource || 99)) {
+        continue;
+      }
+      sourceCounts.set(sourceTitle, currentCount + 1);
+      selectedIds.add(entry.id);
+      selected.push({ id: entry.id, score: 1000 - preferredIndex });
+    }
+
+    for (const candidate of filtered) {
+      if (selected.length >= (rule.limit || 0)) {
+        break;
+      }
+      if (selectedIds.has(candidate.id)) {
+        continue;
+      }
+      const sourceTitle = candidate.sourceTitle || "";
+      const currentCount = sourceCounts.get(sourceTitle) || 0;
+      if (currentCount >= (rule.maxPerSource || 99)) {
+        continue;
+      }
+      sourceCounts.set(sourceTitle, currentCount + 1);
+      selectedIds.add(candidate.id);
+      selected.push({ id: candidate.id, score: candidate.score });
+    }
+
+    screenPools[screen] = selected;
+  }
+
+  return screenPools;
+}
+
 export function buildTheatreToneCatalog(source = {}) {
   const entries = normalizeSourceEntries(source);
   const candidates = collectCandidates(entries);
+  const screenPools = buildScreenPools(candidates);
   const sourceHash = crypto
     .createHash("sha1")
     .update(JSON.stringify(source || {}))
@@ -769,8 +1386,9 @@ export function buildTheatreToneCatalog(source = {}) {
       generatedAt: new Date().toISOString(),
       sourceHash,
       entriesCount: candidates.length,
-      version: 1
+      version: 2
     },
-    entries: candidates
+    entries: candidates,
+    screenPools
   };
 }

@@ -203,68 +203,123 @@ const CURATED_THEATRE_SCREEN_LINES = {
     { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
     { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
     { text: "Папаша, всьо буде в лучшем відє.", cooldownScope: "trip" },
-    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" }
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" },
+    { text: "Порядок денний короткий: не розсипатись, панове.", cooldownScope: "screen" },
+    { text: "Зграя на місці, двіж під контролем.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "screen" },
+    { text: "Маршрут є, банда є, лишилось не гусити.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "screen" },
+    { text: "Дивись сюди, друже: тут вся походна бухгалтерія.", cooldownScope: "screen" },
+    { text: "Без паніки, вуйки. Бот тримає цей цирк за шкірку.", cooldownScope: "screen" },
+    { text: "Якщо все зелене — живемо. Якщо ні — підкрутимо.", cooldownScope: "screen" },
+    { text: "Похід дихає. Тепер головне не зробити з нього гуску.", cooldownScope: "screen" }
   ],
   trip_details: [
     { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
     { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
     { text: "Папаша, всьо буде в лучшем відє.", cooldownScope: "trip" },
-    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" }
+    { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" },
+    { text: "Деталі без романів: хто, куди, коли і з чим.", cooldownScope: "screen" },
+    { text: "Оце паспорт походу, панове. Не загубіть.", cooldownScope: "screen" },
+    { text: "Тут видно, чи це план, чи вже художня самодіяльність.", cooldownScope: "screen" },
+    { text: "Якщо дата крива — не ний, редагуй.", cooldownScope: "screen" },
+    { text: "Похід виглядає живим. Це вже непогано.", cooldownScope: "screen" },
+    { text: "Дані зібрані. Тепер би ще люди не тупили.", cooldownScope: "screen" }
   ],
   trip_history: [
     { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
-    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Де нас носило — тут і записано.", cooldownScope: "screen" },
+    { text: "Архів подвигів і дрібної клоунади.", cooldownScope: "screen" },
+    { text: "Минулі двіжі мовчать, але статистика все памʼятає.", cooldownScope: "screen" },
+    { text: "Історія без пафосу: сходили, вижили, записали.", cooldownScope: "screen" }
   ],
   trip_settings: [
     { text: "Ітоги подвєдьом.", cooldownScope: "trip" },
-    { text: "Папаша, всьо буде в лучшем відє.", cooldownScope: "trip" }
+    { text: "Папаша, всьо буде в лучшем відє.", cooldownScope: "trip" },
+    { text: "Крутилки походу. Не крути без потреби, гусь.", cooldownScope: "screen" },
+    { text: "Тут підкручуємо бардак, але акуратно.", cooldownScope: "screen" },
+    { text: "Організаторська кухня. Стороннім не лапати.", cooldownScope: "screen" },
+    { text: "Налаштування — це не іграшка, панове.", cooldownScope: "screen" }
   ],
   trip_members_menu: [
     { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
     { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
     { text: "Хлопці, агов!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
-    { text: "Сідайте, хлопці, чаю поп’ємо.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
+    { text: "Сідайте, хлопці, чаю поп’ємо.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Хто в темі, той у списку. Хто гусь — той мовчить.", cooldownScope: "screen" },
+    { text: "Банда тут. Перевір, хто реально йде.", cooldownScope: "screen" },
+    { text: "Песюни й панове, статуси самі себе не підтвердять.", cooldownScope: "screen" },
+    { text: "Склад зграї. Без людей походу не буде, буде прогулянка.", cooldownScope: "screen" },
+    { text: "Тут видно, хто в строю, а хто думає як обізяна.", cooldownScope: "screen" }
   ],
   trip_members_list: [
     { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
     { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
     { text: "Хлопці, агов!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
-    { text: "Сідайте, хлопці, чаю поп’ємо.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
+    { text: "Сідайте, хлопці, чаю поп’ємо.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Список банди. Тут без художньої самодіяльності.", cooldownScope: "screen" },
+    { text: "Дивись, хто йде, хто думає, а хто злиняв.", cooldownScope: "screen" },
+    { text: "Панове, статус — це не філософія. Йду або ні.", cooldownScope: "screen" },
+    { text: "Команда має бути ясна, а не туманна як ранок після привалу.", cooldownScope: "screen" }
   ],
   trip_member_card: [
     { text: "Ми народ широкий і гостинний.", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
-    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
+    { text: "А вірно хлопці! А діло каже!", when: (state) => Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Картка учасника. Дивись уважно, друже.", cooldownScope: "screen" },
+    { text: "Одна морда — один статус. Все чесно.", cooldownScope: "screen" },
+    { text: "Тут видно, чи людина в темі, чи просто гуляє повз.", cooldownScope: "screen" }
   ],
   route_menu: [
     { text: "Смотрєть надо!", cooldownScope: "trip" },
     { text: "Та вже мабуть прийшли.", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" },
     { text: "Та куди ж іттіть?", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" },
     { text: "Ви в страшні дєбрі забралісь.", when: (state) => state?.routeDifficulty === "висока", cooldownScope: "trip" },
-    { text: "Праве плече вперед, кроком руш!", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" }
+    { text: "Праве плече вперед, кроком руш!", when: (state) => Boolean(state?.routeDifficulty), cooldownScope: "trip" },
+    { text: "Куди премо — дивись тут, не ворожи по моху.", cooldownScope: "screen" },
+    { text: "Маршрут не пробачає клоунади, панове.", cooldownScope: "screen" },
+    { text: "Стежка є. Мізки вмикати окремою кнопкою не вмію.", cooldownScope: "screen" },
+    { text: "Якщо складність висока — не грай героя, гусь.", when: (state) => state?.routeDifficulty === "висока", cooldownScope: "screen" },
+    { text: "Навігація тут. Загубитись — поганий стиль.", cooldownScope: "screen" },
+    { text: "Дорога намальована. Ноги — ваші.", cooldownScope: "screen" }
   ],
   route_weather_picker: [
     { text: "Смотрєть надо!", cooldownScope: "trip" },
     { text: "Ви тут сідітє, а на дворє такая пагода стаїть.", cooldownScope: "trip" },
-    { text: "Как пагодка в Маскве?", cooldownScope: "trip" }
+    { text: "Как пагодка в Маскве?", cooldownScope: "trip" },
+    { text: "Погода по точках. Обирай, де вас накриє.", cooldownScope: "screen" },
+    { text: "Дощ не питає дозволу, тому дивимось прогноз.", cooldownScope: "screen" },
+    { text: "Обери населений пункт, не тикати як обізяна.", cooldownScope: "screen" }
   ],
   route_weather: [
     { text: "Смотрєть надо!", cooldownScope: "trip" },
     { text: "Ви тут сідітє, а на дворє такая пагода стаїть.", cooldownScope: "trip" },
-    { text: "Как пагодка в Маскве?", cooldownScope: "trip" }
+    { text: "Как пагодка в Маскве?", cooldownScope: "trip" },
+    { text: "Оце не просто погода, це вирок по шмотках.", cooldownScope: "screen" },
+    { text: "Якщо ллє — пакуй дощовик, а не понти.", cooldownScope: "screen" },
+    { text: "Прогноз глянув. Тепер думай головою, вуйку.", cooldownScope: "screen" }
   ],
   food_menu: [
     { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
     { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
     { text: "Бистро вставай і ріж ковбасу!", when: (state) => state?.foodEmpty === false, cooldownScope: "trip" },
     { text: "Я їсти хочу!", when: (state) => state?.foodEmpty === true, cooldownScope: "trip" },
-    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false && Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
+    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false && Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Закусон — це стратегія, а не прикраса.", cooldownScope: "screen" },
+    { text: "Без хавки двіж швидко стане сумним, курва.", cooldownScope: "screen" },
+    { text: "Якщо алкоголю нуль — бот тихо дивиться на пивце.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "screen" },
+    { text: "Продукти є — вже не голодна експедиція песюнів.", when: (state) => state?.foodEmpty === false, cooldownScope: "screen" },
+    { text: "Ковбаса, хліб, вода. Без цього не геройствуй.", cooldownScope: "screen" },
+    { text: "Закусон перевір. Бо потім будеш філософом на голодний шлунок.", cooldownScope: "screen" }
   ],
   food_list: [
     { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
     { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
     { text: "Бистро вставай і ріж ковбасу!", when: (state) => state?.foodEmpty === false, cooldownScope: "trip" },
     { text: "Я їсти хочу!", when: (state) => state?.foodEmpty === true, cooldownScope: "trip" },
-    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false && Number(state?.membersCount || 0) > 1, cooldownScope: "trip" }
+    { text: "Ми народ широкий і гостинний.", when: (state) => state?.foodEmpty === false && Number(state?.membersCount || 0) > 1, cooldownScope: "trip" },
+    { text: "Оце список виживання, а не меню ресторану.", cooldownScope: "screen" },
+    { text: "Глянь, чи є що жерти й чим запити.", cooldownScope: "screen" },
+    { text: "Без води і закусону не стартуємо, гусь.", cooldownScope: "screen" },
+    { text: "Хавка записана. Тепер би ще не забути її вдома.", cooldownScope: "screen" }
   ],
   gear_menu: [],
   gear_accounting: [],
@@ -273,22 +328,44 @@ const CURATED_THEATRE_SCREEN_LINES = {
   gear_backpack: [],
   trip_mode: [
     { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
-    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" }
+    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "Режим двіжу. Обирай, як бот має базарити.", cooldownScope: "screen" },
+    { text: "Пʼяниця — це голос походу для своїх, не для протоколу.", cooldownScope: "screen" }
   ],
   trip_drunk_mode: [
     { text: "Піти би випить в барі шампаньйоли.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
-    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" }
+    { text: "А ми випить хочемо.", when: (state) => state?.alcoholEmpty === true, cooldownScope: "trip" },
+    { text: "Пʼяниця активна. Бот говорить коротко і без сюсюкання.", cooldownScope: "screen" },
+    { text: "Тон увімкнено. Тепер без канцелярщини, панове.", cooldownScope: "screen" },
+    { text: "Алкодвіж прийнято. Але воду теж не ігноруємо.", cooldownScope: "screen" }
   ],
   expenses_menu: [
     { text: "П’ятьсот карбованців стоять.", cooldownScope: "trip" },
-    { text: "Дай мені три карбованці, я завтра утром віддам.", cooldownScope: "trip" }
+    { text: "Дай мені три карбованці, я завтра утром віддам.", cooldownScope: "trip" },
+    { text: "Бабки люблять порядок, а не героїчний бардак.", cooldownScope: "screen" },
+    { text: "Тут видно, хто платив, а хто робив вигляд.", cooldownScope: "screen" },
+    { text: "Гроші рахуємо тверезо, навіть якщо режим не про це.", cooldownScope: "screen" },
+    { text: "Витрати без туману: хто кому і скільки.", cooldownScope: "screen" }
   ],
   expenses_list: [
     { text: "П’ятьсот карбованців стоять.", cooldownScope: "trip" },
-    { text: "Дай мені три карбованці, я завтра утром віддам.", cooldownScope: "trip" }
+    { text: "Дай мені три карбованці, я завтра утром віддам.", cooldownScope: "trip" },
+    { text: "Список бабок. Без магії, тільки арифметика.", cooldownScope: "screen" },
+    { text: "Кожна гривня має знати свого винного.", cooldownScope: "screen" },
+    { text: "Якщо сума крива — не кричи, редагуй.", cooldownScope: "screen" }
   ],
-  trip_photos: [],
-  trip_photo_album: [],
+  trip_photos: [
+    { text: "Кадри походу. Щоб було що згадати й чого соромитись.", cooldownScope: "screen" },
+    { text: "Фотки сюди. Без них легенда швидко вʼяне.", cooldownScope: "screen" },
+    { text: "Кадри є — значить двіж був не в теорії.", cooldownScope: "screen" },
+    { text: "Фотоальбом для зграї, не для випадкових гусів.", cooldownScope: "screen" }
+  ],
+  trip_photo_album: [
+    { text: "Альбом походу. Лица, гори і трохи компромату.", cooldownScope: "screen" },
+    { text: "Оце вже хроніка, панове.", cooldownScope: "screen" },
+    { text: "Дивись кадри й не ний, що ракурс не той.", cooldownScope: "screen" },
+    { text: "Фото живуть тут, якщо ти справді був у поході.", cooldownScope: "screen" }
+  ],
   idle_prompt: [
     { text: "Блядські ці питання зайобують.", cooldownScope: "screen" },
     { text: "Купатись чи не купатись?", cooldownScope: "screen" },
@@ -618,6 +695,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.35,
     quipProbability: 0.04,
+    catalogFallbackProbability: 0.12,
+    catalogMinScore: 28,
     maxIntensity: "low",
     allowedDeliveries: ["banner", "quip", "footer"],
     preferredTags: ["generic", "trip"],
@@ -629,6 +708,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.24,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["trip", "generic", "logistics"],
@@ -640,6 +721,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.2,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["trip", "generic", "logistics"],
@@ -651,6 +734,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.22,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 32,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["trip", "generic", "logistics"],
@@ -662,6 +747,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0,
+    catalogFallbackProbability: 0.06,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["generic", "trip", "logistics"],
@@ -673,6 +760,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.24,
     quipProbability: 0.04,
+    catalogFallbackProbability: 0.12,
+    catalogMinScore: 32,
     maxIntensity: "low",
     allowedDeliveries: ["banner", "quip"],
     preferredTags: ["food", "alcohol", "trip"],
@@ -684,6 +773,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.26,
     quipProbability: 0.05,
+    catalogFallbackProbability: 0.12,
+    catalogMinScore: 32,
     maxIntensity: "low",
     allowedDeliveries: ["banner", "quip"],
     preferredTags: ["alcohol", "food", "trip"],
@@ -695,6 +786,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.08,
     quipProbability: 0,
+    catalogFallbackProbability: 0.04,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["generic", "trip", "people"],
@@ -706,6 +799,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
+    catalogFallbackProbability: 0.04,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["people", "trip", "generic"],
@@ -717,6 +812,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.16,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["people"],
@@ -728,6 +825,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.16,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["people"],
@@ -739,6 +838,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.14,
     quipProbability: 0,
+    catalogFallbackProbability: 0.06,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["people"],
@@ -750,6 +851,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
+    catalogFallbackProbability: 0.04,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["people", "logistics"],
@@ -761,6 +864,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.24,
     quipProbability: 0.04,
+    catalogFallbackProbability: 0.1,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner", "quip"],
     preferredTags: ["route", "weather"],
@@ -772,6 +877,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.14,
     quipProbability: 0,
+    catalogFallbackProbability: 0.06,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["route", "weather"],
@@ -783,6 +890,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["route", "weather"],
@@ -849,6 +958,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0.04,
+    catalogFallbackProbability: 0.1,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner", "quip"],
     preferredTags: ["food", "alcohol"],
@@ -860,6 +971,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.18,
     quipProbability: 0.04,
+    catalogFallbackProbability: 0.1,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner", "quip"],
     preferredTags: ["food", "alcohol"],
@@ -871,6 +984,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["money", "logistics", "generic"],
@@ -882,6 +997,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0.1,
     quipProbability: 0,
+    catalogFallbackProbability: 0.08,
+    catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner"],
     preferredTags: ["money", "food", "logistics"],
@@ -893,6 +1010,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0,
     quipProbability: 1,
+    catalogFallbackProbability: 0.6,
+    catalogMinScore: 20,
     maxIntensity: "medium",
     allowedDeliveries: ["prompt", "quip"],
     preferredTags: ["question", "complaint"],
@@ -904,6 +1023,8 @@ const SCREEN_TONE_POLICIES = {
     maxLines: 1,
     bannerProbability: 0,
     quipProbability: 1,
+    catalogFallbackProbability: 0.6,
+    catalogMinScore: 20,
     maxIntensity: "medium",
     allowedDeliveries: ["prompt", "quip", "warning"],
     preferredTags: ["question", "complaint", "decision"],
@@ -1454,6 +1575,9 @@ export function pickToneLine({
   if (curatedLine) {
     return curatedLine;
   }
+  if (hasCuratedTheatreScreen(screen) && Math.random() > Number(policy.catalogFallbackProbability ?? 0.1)) {
+    return "";
+  }
   if (hasCuratedTheatreScreen(screen) && !candidates.length) {
     return "";
   }
@@ -1475,6 +1599,10 @@ export function pickToneLine({
 
       const score = scoreToneEntry(entry, screen, delivery, policy, state);
       if (score < 0) {
+        return null;
+      }
+
+      if (typeof policy.catalogMinScore === "number" && score < policy.catalogMinScore) {
         return null;
       }
 

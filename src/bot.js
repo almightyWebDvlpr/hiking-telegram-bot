@@ -4130,14 +4130,14 @@ function buildTripScreenToneSection(trip, screen, {
   const toneLines = buildTripScreenToneLines(trip, screen, {
     groupService,
     scope,
-    maxLines: 1,
+    maxLines: 2,
     state,
     usedTexts: usedToneLines
   });
 
   if (toneLines.length) {
     if (includeModeBanner && lines.length) {
-      lines.push(`• ${toneLines[0]}`);
+      lines.push(...toneLines.map((line) => `• ${line}`));
     } else {
       lines.push(...toneLines);
     }
@@ -5591,10 +5591,9 @@ function showTripPhotosMenu(ctx, groupService) {
   const modeCopy = getTripModeInterfaceCopy(trip);
   const toneMode = resolveTripToneMode(trip);
   const photosCopy = t("trip.photos", toneMode) || {};
-  const toneLines = buildTripScreenToneLines(trip, "trip_photos", {
+  const toneLines = buildTripScreenToneSection(trip, "trip_photos", {
     groupService,
-    scope: "photos-menu",
-    maxLines: 1
+    scope: "photos-menu"
   });
   const defaultMenuLines = [
     `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
@@ -5948,10 +5947,9 @@ function showTripMembersMenu(ctx, groupService, userService) {
     body.push("• нагадування і службові дії винесені в `⚙️ Налаштування`");
   }
 
-  const toneLines = buildTripScreenToneLines(trip, "trip_members_menu", {
+  const toneLines = buildTripScreenToneSection(trip, "trip_members_menu", {
     groupService,
-    scope: "members-menu",
-    maxLines: 1
+    scope: "members-menu"
   });
   if (toneLines.length) {
     body.push("");
@@ -5983,10 +5981,9 @@ function showTripMembers(ctx, groupService, userService) {
   const memberSummaryLines = [];
   const modeCopy = getTripModeInterfaceCopy(trip);
   const toneMode = resolveTripToneMode(trip);
-  const toneLines = buildTripScreenToneLines(trip, "trip_members_list", {
+  const toneLines = buildTripScreenToneSection(trip, "trip_members_list", {
     groupService,
-    scope: "members-list",
-    maxLines: 1
+    scope: "members-list"
   });
 
   for (const member of trip.members) {
@@ -7862,10 +7859,9 @@ function startTripWeatherSelection(ctx, groupService) {
   }
   const toneMode = resolveTripToneMode(trip);
   const routeCopy = t("trip.route", toneMode);
-  const toneLines = buildTripScreenToneLines(trip, "route_weather_picker", {
+  const toneLines = buildTripScreenToneSection(trip, "route_weather_picker", {
     groupService,
-    scope: "weather_picker",
-    maxLines: 1
+    scope: "weather_picker"
   });
 
   const settlements = getTripWeatherSettlements(trip);
@@ -9528,10 +9524,9 @@ async function showWeather(ctx, weatherService, location, keyboard = undefined, 
   const summary = await weatherService.getWeatherSummary(location);
   const response = await ctx.reply(summary, { parse_mode: "HTML", ...(targetKeyboard || {}) });
   if (trip && resolveTripToneMode(trip) === "drunk") {
-    const toneLines = buildTripScreenToneLines(trip, "route_weather", {
+    const toneLines = buildTripScreenToneSection(trip, "route_weather", {
       groupService: null,
       scope: `weather:${location}`,
-      maxLines: 1,
       state: {
         weatherLocation: location || ""
       }

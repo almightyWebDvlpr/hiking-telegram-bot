@@ -31,6 +31,7 @@ const theatreToneEntries = Array.isArray(theatreToneCatalog?.entries)
   ? theatreToneCatalog.entries
   : [];
 const theatreToneEntryById = new Map();
+const theatreToneEntriesByText = new Map();
 const theatreToneScreenPools = new Map();
 const theatreToneIndexByScreen = new Map();
 const toneSelectionHistory = new Map();
@@ -38,6 +39,13 @@ const toneSelectionHistory = new Map();
 for (const entry of theatreToneEntries) {
   if (entry?.id) {
     theatreToneEntryById.set(entry.id, entry);
+  }
+  const normalizedText = normalizeToneText(entry?.text || "");
+  if (normalizedText) {
+    if (!theatreToneEntriesByText.has(normalizedText)) {
+      theatreToneEntriesByText.set(normalizedText, []);
+    }
+    theatreToneEntriesByText.get(normalizedText).push(entry);
   }
   for (const screen of Array.isArray(entry?.screens) ? entry.screens : []) {
     if (!theatreToneIndexByScreen.has(screen)) {
@@ -248,6 +256,208 @@ const SCREEN_TEXT_BLACKLISTS = {
     "туди йому й дорога, пiдарасу.",
     "кругом, вперед за ордєнами!"
   ])
+};
+
+const SOURCE_SCREEN_COMPOSITIONS = {
+  trip_hub: [
+    {
+      slot: "lead",
+      texts: ["Надо что-то дєлать спєшно.", "Ітоги подвєдьом.", "Та вже мабуть прийшли."]
+    },
+    {
+      slot: "state",
+      when: (state) => state?.alcoholEmpty === true,
+      texts: ["Піти би випить в барі шампаньйоли.", "Я б краще вина б ото випив...", "А ми випить хочемо."]
+    },
+    {
+      slot: "state",
+      when: (state) => state?.alcoholEmpty !== true,
+      texts: ["Щас всі випиваєм по другій.", "І випить могу, і поговоріть, і поспоріть.", "Всі випивають і закусюють ковбасою."]
+    },
+    {
+      slot: "money",
+      texts: ["З усіх карманів стирчать пачки грошей.", "П’ятьсот карбованців стоять."]
+    }
+  ],
+  trip_details: [
+    {
+      slot: "lead",
+      texts: ["Та вже мабуть прийшли.", "Надо что-то дєлать спєшно."]
+    },
+    {
+      slot: "route",
+      when: (state) => Boolean(state?.routeDifficulty),
+      texts: ["Я думаю, що, мабуть, буде дощ...", "Тоді треба воду зливать!", "Ви в страшні дєбрі забралісь."]
+    },
+    {
+      slot: "state",
+      when: (state) => state?.alcoholEmpty === true,
+      texts: ["Піти би випить в барі шампаньйоли.", "Я б краще вина б ото випив..."]
+    },
+    {
+      slot: "state",
+      when: (state) => state?.alcoholEmpty !== true,
+      texts: ["Всі випивають і закусюють ковбасою.", "І випить могу, і поговоріть, і поспоріть."]
+    },
+    {
+      slot: "money",
+      texts: ["З усіх карманів стирчать пачки грошей.", "П’ятьсот карбованців стоять.", "Дай три карбованці, завтра утром віддам."]
+    }
+  ],
+  trip_members_menu: [
+    {
+      slot: "lead",
+      texts: ["Сідайте, хлопці, чаю поп’ємо.", "Зачекаймо, хлопці, лишень чаю доп'єм.", "Хлопці, агов!"]
+    },
+    {
+      slot: "crew",
+      texts: ["Люди славні.", "Хлопці гуляють.", "Стали люди радитись.", "А вірно хлопці!", "Тоді з вас будуть люди."]
+    }
+  ],
+  trip_members_list: [
+    {
+      slot: "lead",
+      texts: ["Сідайте, хлопці, чаю поп’ємо.", "Зачекаймо, хлопці, лишень чаю доп'єм.", "Хлопці, агов!"]
+    },
+    {
+      slot: "crew",
+      texts: ["Люди славні.", "Хлопці гуляють.", "Стали люди радитись.", "А вірно хлопці!", "Тоді з вас будуть люди."]
+    }
+  ],
+  trip_member_card: [
+    {
+      slot: "lead",
+      texts: ["Сідайте, хлопці, чаю поп’ємо.", "Хлопці, агов!"]
+    },
+    {
+      slot: "crew",
+      texts: ["Люди славні.", "Стали люди радитись.", "А вірно хлопці!", "Тоді з вас будуть люди."]
+    }
+  ],
+  route_menu: [
+    {
+      slot: "lead",
+      texts: ["Та вже мабуть прийшли.", "Ви в страшні дєбрі забралісь.", "Я думаю, що, мабуть, буде дощ...", "Тоді треба воду зливать!"]
+    },
+    {
+      slot: "move",
+      texts: ["Все дєлают одін шаг вперьод.", "Ето смелий шаг вперьод!", "Тут холодно, можно труби застудіть."]
+    }
+  ],
+  route_weather_picker: [
+    {
+      slot: "lead",
+      texts: ["Я думаю, що, мабуть, буде дощ...", "Тоді треба воду зливать!", "Ви тут сідітє, а на дворє такая пагода стаїть."]
+    }
+  ],
+  route_weather: [
+    {
+      slot: "lead",
+      texts: ["Я думаю, що, мабуть, буде дощ...", "Тоді треба воду зливать!", "Ви тут сідітє, а на дворє такая пагода стаїть."]
+    }
+  ],
+  food_menu: [
+    {
+      slot: "lead",
+      when: (state) => state?.alcoholEmpty === true,
+      texts: ["Піти би випить в барі шампаньйоли.", "А ми випить хочемо.", "Я б краще вина б ото випив..."]
+    },
+    {
+      slot: "lead",
+      when: (state) => state?.foodEmpty === true,
+      texts: ["Я їсти хочу!", "Їсти хоче!"]
+    },
+    {
+      slot: "lead",
+      when: (state) => state?.alcoholEmpty !== true && state?.foodEmpty !== true,
+      texts: ["Щас всі випиваєм по другій.", "І випить могу, і поговоріть, і поспоріть.", "Всі випивають і закусюють ковбасою."]
+    },
+    {
+      slot: "support",
+      texts: ["Всі випивають і закусюють ковбасою.", "І випить могу, і поговоріть, і поспоріть.", "Я їсти хочу!", "Їсти хоче!"]
+    }
+  ],
+  food_list: [
+    {
+      slot: "lead",
+      when: (state) => state?.alcoholEmpty === true,
+      texts: ["Піти би випить в барі шампаньйоли.", "А ми випить хочемо.", "Я б краще вина б ото випив..."]
+    },
+    {
+      slot: "lead",
+      when: (state) => state?.foodEmpty === true,
+      texts: ["Я їсти хочу!", "Їсти хоче!"]
+    },
+    {
+      slot: "lead",
+      when: (state) => state?.alcoholEmpty !== true && state?.foodEmpty !== true,
+      texts: ["Щас всі випиваєм по другій.", "І випить могу, і поговоріть, і поспоріть.", "Всі випивають і закусюють ковбасою."]
+    },
+    {
+      slot: "support",
+      texts: ["Всі випивають і закусюють ковбасою.", "І випить могу, і поговоріть, і поспоріть.", "Я їсти хочу!", "Їсти хоче!"]
+    }
+  ],
+  trip_mode: [
+    {
+      slot: "lead",
+      texts: ["Піти би випить в барі шампаньйоли.", "А ми випить хочемо.", "Я б краще вина б ото випив..."]
+    },
+    {
+      slot: "support",
+      texts: ["Всі випивають і закусюють ковбасою.", "І випить могу, і поговоріть, і поспоріть."]
+    }
+  ],
+  trip_drunk_mode: [
+    {
+      slot: "lead",
+      texts: ["Піти би випить в барі шампаньйоли.", "А ми випить хочемо.", "Я б краще вина б ото випив..."]
+    },
+    {
+      slot: "support",
+      texts: ["Всі випивають і закусюють ковбасою.", "І випить могу, і поговоріть, і поспоріть."]
+    }
+  ],
+  expenses_menu: [
+    {
+      slot: "lead",
+      texts: ["З усіх карманів стирчать пачки грошей.", "П’ятьсот карбованців стоять."]
+    },
+    {
+      slot: "support",
+      texts: ["За валюту його я купував.", "Дай три карбованці, завтра утром віддам.", "Дай мені три карбованці, я завтра утром віддам."]
+    }
+  ],
+  expenses_list: [
+    {
+      slot: "lead",
+      texts: ["З усіх карманів стирчать пачки грошей.", "П’ятьсот карбованців стоять."]
+    },
+    {
+      slot: "support",
+      texts: ["За валюту його я купував.", "Дай три карбованці, завтра утром віддам.", "Дай мені три карбованці, я завтра утром віддам."]
+    }
+  ],
+  trip_photos: [
+    {
+      slot: "lead",
+      texts: ["Хлопці гуляють.", "Люди славні.", "Сідайте, хлопці, чаю поп’ємо."]
+    },
+    {
+      slot: "support",
+      texts: ["А вірно хлопці!", "Стали люди радитись.", "Хлопці, агов!"]
+    }
+  ],
+  trip_photo_album: [
+    {
+      slot: "lead",
+      texts: ["Хлопці гуляють.", "Люди славні.", "Сідайте, хлопці, чаю поп’ємо."]
+    },
+    {
+      slot: "support",
+      texts: ["А вірно хлопці!", "Стали люди радитись.", "Хлопці, агов!"]
+    }
+  ]
 };
 
 const CURATED_THEATRE_SCREEN_LINES = Object.freeze({});
@@ -1286,6 +1496,71 @@ function isToneEntryScreenSafe(entry, screen, delivery, score, state = {}) {
   return true;
 }
 
+function pickSourceCompositionEntry(screen = "default", texts = [], state = {}, scopeKey = "", usedTexts = null) {
+  const normalizedCandidates = texts
+    .map((text) => normalizeToneText(text))
+    .filter(Boolean);
+
+  const matchedEntries = normalizedCandidates
+    .flatMap((normalizedText) => theatreToneEntriesByText.get(normalizedText) || [])
+    .filter((entry) => Array.isArray(entry?.screens) && entry.screens.includes(screen))
+    .filter((entry) => {
+      const normalizedText = normalizeToneText(entry?.text || "");
+      return normalizedText && !usedTexts?.has(normalizedText);
+    })
+    .filter((entry) => !isOnCooldown(entry, normalizeToneText(entry?.text || ""), screen, scopeKey, state))
+    .filter((entry) => isToneEntryScreenSafe(entry, screen, "banner", 1000, state));
+
+  if (!matchedEntries.length) {
+    return null;
+  }
+
+  const unique = [];
+  const seen = new Set();
+  for (const entry of matchedEntries) {
+    const normalizedText = normalizeToneText(entry?.text || "");
+    if (seen.has(normalizedText)) {
+      continue;
+    }
+    seen.add(normalizedText);
+    unique.push(entry);
+  }
+
+  return unique[Math.floor(Math.random() * unique.length)] || unique[0] || null;
+}
+
+function buildSourceCompositionBlock(screen = "default", state = {}, scopeKey = "", usedTexts = null, maxLines = 2) {
+  const plan = SOURCE_SCREEN_COMPOSITIONS[screen];
+  if (!Array.isArray(plan) || !plan.length) {
+    return [];
+  }
+
+  const lines = [];
+  const localUsed = usedTexts || new Set();
+
+  for (const slot of plan) {
+    if (lines.length >= maxLines) {
+      break;
+    }
+    if (typeof slot?.when === "function" && !slot.when(state)) {
+      continue;
+    }
+    const pickedEntry = pickSourceCompositionEntry(screen, Array.isArray(slot?.texts) ? slot.texts : [], state, `${scopeKey}:${slot?.slot || "slot"}`, localUsed);
+    if (!pickedEntry) {
+      continue;
+    }
+    const normalizedText = normalizeToneText(pickedEntry.text || "");
+    if (!normalizedText || localUsed.has(normalizedText)) {
+      continue;
+    }
+    localUsed.add(normalizedText);
+    rememberToneSelection(pickedEntry, normalizedText, screen, `${scopeKey}:${slot?.slot || "slot"}`, state);
+    lines.push(String(pickedEntry.text || "").trim());
+  }
+
+  return lines;
+}
+
 function matchesEntryRequirements(entry, state = {}, screen = "default", delivery = "banner") {
   const stateFlags = getStateFlags(state);
   const requiredFlags = Array.isArray(entry?.requires) ? entry.requires : [];
@@ -1523,6 +1798,10 @@ export function buildToneBlock({
   }
 
   const localUsed = usedTexts || new Set();
+  const sourceComposedLines = buildSourceCompositionBlock(screen, state, `${scopeKey}:source`, localUsed, targetMaxLines);
+  if (sourceComposedLines.length) {
+    return sourceComposedLines.slice(0, targetMaxLines);
+  }
   const lines = [];
 
   if (policy.bannerProbability > 0 && Math.random() <= policy.bannerProbability) {

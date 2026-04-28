@@ -6,6 +6,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const toneDir = path.resolve(__dirname, "../tone");
 const lastRandomSelections = new Map();
+const CONFUSABLE_CYRILLIC_MAP = new Map([
+  ["A", "А"], ["a", "а"], ["B", "В"], ["C", "С"], ["c", "с"], ["E", "Е"], ["e", "е"],
+  ["H", "Н"], ["I", "І"], ["i", "і"], ["K", "К"], ["k", "к"], ["M", "М"], ["m", "м"],
+  ["O", "О"], ["o", "о"], ["P", "Р"], ["p", "р"], ["T", "Т"], ["X", "Х"], ["x", "х"],
+  ["Y", "У"], ["y", "у"]
+]);
 
 function readToneFile(name, options = {}) {
   const { optional = false } = options;
@@ -31,15 +37,44 @@ const theatreToneEntries = Array.isArray(theatreToneCatalog?.entries)
   ? theatreToneCatalog.entries
   : [];
 const theatreToneIndexByScreen = new Map();
+const theatreToneEntriesById = new Map();
+const theatreToneEntriesByText = new Map();
+const theatreToneScreenPools = new Map();
 const toneSelectionHistory = new Map();
 
 for (const entry of theatreToneEntries) {
+  if (entry?.id) {
+    theatreToneEntriesById.set(entry.id, entry);
+  }
+  if (entry?.text) {
+    theatreToneEntriesByText.set(normalizeToneText(entry.text), entry);
+  }
   for (const screen of Array.isArray(entry?.screens) ? entry.screens : []) {
     if (!theatreToneIndexByScreen.has(screen)) {
       theatreToneIndexByScreen.set(screen, []);
     }
     theatreToneIndexByScreen.get(screen).push(entry);
   }
+}
+
+for (const [screen, pool] of Object.entries(theatreToneCatalog?.screenPools || {})) {
+  const entries = Array.isArray(pool)
+    ? pool
+        .map((item) => {
+          const entry = theatreToneEntriesById.get(item?.id);
+          if (!entry) {
+            return null;
+          }
+          return {
+            id: item.id,
+            score: Number(item?.score || 0),
+            entry
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  theatreToneScreenPools.set(screen, entries);
 }
 
 const INTENSITY_RANK = {
@@ -49,6 +84,15 @@ const INTENSITY_RANK = {
 };
 
 const TOPICAL_TAGS = ["route", "weather", "food", "alcohol", "gear", "people", "logistics", "money"];
+const TAG_TEXT_ROOT_HINTS = {
+  route: ["вперьод", "вперед", "дорог", "шлях", "стеж", "маршрут", "дєбр", "гір", "крок", "руш", "болот"],
+  weather: ["пагод", "дощ", "вітер", "холод", "сонц", "гроза", "сніг", "злива"],
+  food: ["їст", "жрат", "ковбас", "сало", "хліб", "закус", "ням", "кусн"],
+  alcohol: ["вип", "бар", "шампань", "пив", "горіл", "пляш", "алко"],
+  people: ["хлопц", "друж", "банд", "люд", "пан", "компан"],
+  money: ["карбован", "валют", "бабк", "гріш", "грош", "віддам"],
+  logistics: ["поряд", "контрол", "план", "ітог", "подвєд", "спєшн"]
+};
 
 const SCREEN_CONTEXT_KEYWORDS = {
   trip_hub: ["trip", "summary", "status", "organizer", "members", "route", "logistics"],
@@ -176,6 +220,16 @@ const CALM_SCREEN_BLOCK_PATTERNS = [
   /наябувал/iu
 ];
 
+const SOURCE_TEXT_BLACKLIST_PATTERNS = [
+  /милом.{0,20}голову|голову.{0,20}вимить/iu,
+  /ветеран\w*\s+сивочуб/iu,
+  /віол|виол|violet/iu,
+  /радійте,\s*бляді/iu,
+  /побийте.{0,20}пляшк/iu,
+  /замість\s+компота.{0,24}горілк/iu,
+  /\b(срат|посц|піся|сця|мармиз|мудозвон|вонюч|жаху)\w*/iu
+];
+
 const SCREEN_STYLE_BLOCKS = {
   trip_hub: CALM_SCREEN_BLOCK_PATTERNS,
   trip_details: CALM_SCREEN_BLOCK_PATTERNS,
@@ -196,6 +250,195 @@ const SCREEN_STYLE_BLOCKS = {
   expenses_list: CALM_SCREEN_BLOCK_PATTERNS,
   trip_photos: CALM_SCREEN_BLOCK_PATTERNS,
   trip_photo_album: CALM_SCREEN_BLOCK_PATTERNS
+};
+
+const SOURCE_SCREEN_TEXTS = {
+  trip_hub: [
+    "Ітоги подвєдьом.",
+    "А вірно хлопці! А діло каже!",
+    "П’ятьсот карбованців стоять.",
+    "Дай три карбованці, завтра утром віддам.",
+    "По команді вождя компанія випиває."
+  ],
+  trip_details: [
+    "Ітоги подвєдьом.",
+    "П’ятьсот карбованців стоять.",
+    "Дай три карбованці, завтра утром віддам.",
+    "Праве плече вперед, кроком руш!",
+    "Я думаю, що, мабуть, буде дощ...",
+    "Ви в страшні дєбрі забралісь."
+  ],
+  trip_history: [
+    "Ітоги подвєдьом.",
+    "А вірно хлопці! А діло каже!",
+    "П’ятьсот карбованців стоять.",
+    "Дай три карбованці, завтра утром віддам."
+  ],
+  trip_settings: [
+    "Ітоги подвєдьом.",
+    "П’ятьсот карбованців стоять.",
+    "Дай три карбованці, завтра утром віддам."
+  ],
+  trip_members_menu: [
+    "А вірно хлопці! А діло каже!",
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Люди славні.",
+    "По команді вождя компанія випиває."
+  ],
+  trip_members_list: [
+    "А вірно хлопці! А діло каже!",
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Люди славні.",
+    "По команді вождя компанія випиває."
+  ],
+  trip_member_card: [
+    "А вірно хлопці! А діло каже!",
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Люди славні."
+  ],
+  trip_member_tickets: [
+    "П’ятьсот карбованців стоять.",
+    "Дай три карбованці, завтра утром віддам.",
+    "Дай мені три карбованці, я завтра утром віддам."
+  ],
+  route_menu: [
+    "Праве плече вперед, кроком руш!",
+    "Ви в страшні дєбрі забралісь.",
+    "Я думаю, що, мабуть, буде дощ...",
+    "Тут холодно, можно труби застудіть.",
+    "Ви тут сідітє, а на дворє такая пагода стаїть."
+  ],
+  route_weather_picker: [
+    "Я думаю, що, мабуть, буде дощ...",
+    "Тут холодно, можно труби застудіть.",
+    "Ви тут сідітє, а на дворє такая пагода стаїть."
+  ],
+  route_weather: [
+    "Я думаю, що, мабуть, буде дощ...",
+    "Тут холодно, можно труби застудіть.",
+    "Ви тут сідітє, а на дворє такая пагода стаїть."
+  ],
+  food_menu: [
+    "Піти би випить в барі шампаньйоли.",
+    "Всі випивають і закусюють ковбасою.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "По команді вождя компанія випиває."
+  ],
+  food_list: [
+    "Піти би випить в барі шампаньйоли.",
+    "Всі випивають і закусюють ковбасою.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "По команді вождя компанія випиває."
+  ],
+  trip_mode: [
+    "Піти би випить в барі шампаньйоли.",
+    "Всі випивають і закусюють ковбасою.",
+    "І випить могу, і поговоріть, і поспоріть."
+  ],
+  trip_drunk_mode: [
+    "Піти би випить в барі шампаньйоли.",
+    "Всі випивають і закусюють ковбасою.",
+    "І випить могу, і поговоріть, і поспоріть.",
+    "По команді вождя компанія випиває."
+  ],
+  expenses_menu: [
+    "П’ятьсот карбованців стоять.",
+    "Дай три карбованці, завтра утром віддам.",
+    "Дай мені три карбованці, я завтра утром віддам.",
+    "З усіх карманів стирчать пачки грошей.",
+    "Всі виймай гроші і клади сюди!"
+  ],
+  expenses_list: [
+    "П’ятьсот карбованців стоять.",
+    "Дай три карбованці, завтра утром віддам.",
+    "Дай мені три карбованці, я завтра утром віддам.",
+    "З усіх карманів стирчать пачки грошей.",
+    "Всі виймай гроші і клади сюди!"
+  ],
+  trip_photos: [
+    "А вірно хлопці! А діло каже!",
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Люди славні."
+  ],
+  trip_photo_album: [
+    "А вірно хлопці! А діло каже!",
+    "Сідайте, хлопці, чаю поп’ємо.",
+    "Люди славні."
+  ]
+};
+
+const SOURCE_SCREEN_COMPOSITIONS = {
+  trip_hub: [
+    { name: "lead", requiredTagsAny: ["people", "route", "money"], preferredTags: ["people", "route", "money"], preferredPersonas: ["manager", "supportive", "crew"] },
+    { name: "state", requiredTagsAny: ["route", "money", "food"], preferredTags: ["route", "money", "food"], preferredPersonas: ["trail", "manager", "camp"] }
+  ],
+  trip_details: [
+    { name: "lead", requiredTagsAny: ["route", "people", "money"], preferredTags: ["route", "people", "money"], preferredPersonas: ["manager", "supportive", "trail"] },
+    { name: "state", requiredTagsAny: ["route", "money", "people", "food"], preferredTags: ["route", "money", "people", "food"], preferredPersonas: ["trail", "manager", "crew", "camp"] }
+  ],
+  trip_history: [
+    { name: "lead", requiredTagsAny: ["people", "money", "route"], preferredTags: ["people", "money", "route"], preferredPersonas: ["manager", "supportive", "crew"] },
+    { name: "state", requiredTagsAny: ["money", "route", "people"], preferredTags: ["money", "route", "people"], preferredPersonas: ["manager", "trail", "crew"], optional: true }
+  ],
+  trip_settings: [
+    { name: "lead", requiredTagsAny: ["money", "people"], preferredTags: ["money", "people"], preferredPersonas: ["manager", "supportive"] }
+  ],
+  trip_members_menu: [
+    { name: "lead", requiredTagsAny: ["people"], preferredTags: ["people"], preferredPersonas: ["crew", "supportive", "banter"], blockedPatterns: [/ветеран/iu] },
+    { name: "state", requiredTagsAny: ["people"], preferredTags: ["people", "logistics"], preferredPersonas: ["crew", "manager", "supportive"], blockedPatterns: [/ветеран/iu], when: (state) => Number(state?.membersCount || 0) > 1 }
+  ],
+  trip_members_list: [
+    { name: "lead", requiredTagsAny: ["people"], preferredTags: ["people"], preferredPersonas: ["crew", "supportive", "banter"], blockedPatterns: [/ветеран/iu] },
+    { name: "state", requiredTagsAny: ["people"], preferredTags: ["people", "logistics"], preferredPersonas: ["crew", "manager", "supportive"], blockedPatterns: [/ветеран/iu], when: (state) => Number(state?.membersCount || 0) > 1 }
+  ],
+  trip_member_card: [
+    { name: "lead", requiredTagsAny: ["people"], preferredTags: ["people"], preferredPersonas: ["crew", "supportive"], blockedPatterns: [/ветеран/iu] }
+  ],
+  trip_member_tickets: [
+    { name: "lead", requiredTagsAny: ["money", "logistics", "people"], preferredTags: ["money", "logistics", "people"], preferredPersonas: ["manager", "crew", "supportive"] }
+  ],
+  route_menu: [
+    { name: "lead", requiredTagsAny: ["route", "weather"], preferredTags: ["route", "weather"], preferredPersonas: ["trail", "supportive"] },
+    { name: "state", requiredTagsAny: ["route", "weather"], preferredTags: ["route", "weather", "logistics"], preferredPersonas: ["trail", "manager"], when: (state) => Boolean(state?.routeDifficulty) }
+  ],
+  route_weather_picker: [
+    { name: "lead", requiredTagsAny: ["weather", "route"], preferredTags: ["weather", "route"], preferredPersonas: ["trail", "supportive"] }
+  ],
+  route_weather: [
+    { name: "lead", requiredTagsAny: ["weather", "route"], preferredTags: ["weather", "route"], preferredPersonas: ["trail", "supportive"] },
+    { name: "state", requiredTagsAny: ["weather", "route"], preferredTags: ["weather", "route"], preferredPersonas: ["trail", "manager"], when: (state) => Boolean(state?.routeDifficulty) }
+  ],
+  food_menu: [
+    { name: "lead", requiredTagsAny: ["food", "alcohol"], preferredTags: ["food", "alcohol"], preferredPersonas: ["boozy", "camp", "supportive"], blockedPatterns: [/побийте/iu, /компота/iu] },
+    { name: "state", requiredTagsAny: ["food", "alcohol"], preferredTags: ["food", "alcohol"], preferredPersonas: ["boozy", "camp"], blockedPatterns: [/побийте/iu, /компота/iu], when: (state) => state?.foodEmpty === true || state?.alcoholEmpty === true || Number(state?.foodCount || 0) > 0 }
+  ],
+  food_list: [
+    { name: "lead", requiredTagsAny: ["food", "alcohol"], preferredTags: ["food", "alcohol"], preferredPersonas: ["boozy", "camp", "supportive"], blockedPatterns: [/побийте/iu, /компота/iu] },
+    { name: "state", requiredTagsAny: ["food", "alcohol"], preferredTags: ["food", "alcohol"], preferredPersonas: ["boozy", "camp"], blockedPatterns: [/побийте/iu, /компота/iu], when: (state) => state?.foodEmpty === true || state?.alcoholEmpty === true || Number(state?.foodCount || 0) > 0 }
+  ],
+  trip_mode: [
+    { name: "lead", requiredTagsAny: ["alcohol", "food"], preferredTags: ["alcohol", "food", "logistics"], preferredPersonas: ["boozy", "manager", "supportive"], blockedPatterns: [/побийте/iu, /компота/iu] }
+  ],
+  trip_drunk_mode: [
+    { name: "lead", requiredTagsAny: ["alcohol", "food"], preferredTags: ["alcohol", "food", "logistics"], preferredPersonas: ["boozy", "manager", "supportive"], blockedPatterns: [/побийте/iu, /компота/iu] },
+    { name: "state", requiredTagsAny: ["alcohol", "food"], preferredTags: ["alcohol", "food"], preferredPersonas: ["boozy", "camp"], blockedPatterns: [/побийте/iu, /компота/iu], when: (state) => state?.alcoholEmpty === true || Number(state?.alcoholCount || 0) > 0 }
+  ],
+  expenses_menu: [
+    { name: "lead", requiredTagsAny: ["money"], preferredTags: ["money", "logistics"], preferredPersonas: ["manager", "supportive"] },
+    { name: "state", requiredTagsAny: ["money", "food"], preferredTags: ["money", "food"], preferredPersonas: ["manager", "camp"], when: (state) => Number(state?.expenseCount || 0) > 0 || state?.expenseEmpty === true }
+  ],
+  expenses_list: [
+    { name: "lead", requiredTagsAny: ["money"], preferredTags: ["money", "logistics"], preferredPersonas: ["manager", "supportive"] },
+    { name: "state", requiredTagsAny: ["money", "food"], preferredTags: ["money", "food"], preferredPersonas: ["manager", "camp"], when: (state) => Number(state?.expenseCount || 0) > 0 || state?.expenseEmpty === true }
+  ],
+  trip_photos: [
+    { name: "lead", requiredTagsAny: ["people"], preferredTags: ["people", "trip"], preferredPersonas: ["crew", "supportive", "banter"] },
+    { name: "state", requiredTagsAny: ["people"], preferredTags: ["people"], preferredPersonas: ["crew", "banter"], when: (state) => Number(state?.photoCount || 0) > 0 }
+  ],
+  trip_photo_album: [
+    { name: "lead", requiredTagsAny: ["people"], preferredTags: ["people", "trip"], preferredPersonas: ["crew", "supportive", "banter"] },
+    { name: "state", requiredTagsAny: ["people"], preferredTags: ["people"], preferredPersonas: ["crew", "banter"], when: (state) => Number(state?.photoCount || 0) > 0 }
+  ]
 };
 
 const CURATED_THEATRE_SCREEN_LINES = {
@@ -1041,6 +1284,15 @@ function getDictionary(mode = "default") {
   return toneDictionaries[resolveMode(mode)] || toneDictionaries.default;
 }
 
+function shouldUseDefaultDictionaryForDrunkKey(key = "") {
+  const normalizedKey = String(key || "");
+  if (!normalizedKey) {
+    return false;
+  }
+
+  return normalizedKey.startsWith("trip.") || normalizedKey.startsWith("system.");
+}
+
 function getNestedValue(source, key = "") {
   return String(key || "")
     .split(".")
@@ -1059,6 +1311,12 @@ function interpolate(value, params = {}) {
   });
 }
 
+function normalizeConfusableCyrillic(value = "") {
+  return Array.from(String(value || ""))
+    .map((char) => CONFUSABLE_CYRILLIC_MAP.get(char) || char)
+    .join("");
+}
+
 function materialize(value, params = {}) {
   if (Array.isArray(value)) {
     return value.map((item) => materialize(item, params));
@@ -1074,15 +1332,21 @@ function materialize(value, params = {}) {
 }
 
 function normalizeToneText(value = "") {
-  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  return normalizeConfusableCyrillic(value).replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function countToneWords(value = "") {
-  return String(value || "")
+  return normalizeConfusableCyrillic(value)
     .split(/\s+/u)
     .map((part) => part.trim())
     .filter(Boolean)
     .length;
+}
+
+function tokenizeToneText(value = "") {
+  return normalizeConfusableCyrillic(value)
+    .toLowerCase()
+    .match(/[a-zа-яіїєґ0-9'-]{3,}/giu) || [];
 }
 
 function getStateFlags(state = {}) {
@@ -1245,8 +1509,12 @@ function countKeywordOverlap(entryKeywords = [], contextKeywords = new Set()) {
 }
 
 function isBlockedByScreenStyle(screen = "default", text = "") {
+  const normalizedText = normalizeConfusableCyrillic(text);
+  if (SOURCE_TEXT_BLACKLIST_PATTERNS.some((pattern) => pattern.test(normalizedText))) {
+    return true;
+  }
   const patterns = SCREEN_STYLE_BLOCKS[screen] || [];
-  return patterns.some((pattern) => pattern.test(text));
+  return patterns.some((pattern) => pattern.test(normalizedText));
 }
 
 function getHistory(key = "") {
@@ -1321,6 +1589,204 @@ function rememberToneSelection(entry, normalizedText, screen, scopeKey, state = 
   }
 }
 
+function getScreenPoolEntries(screen = "default") {
+  return theatreToneScreenPools.get(screen) || [];
+}
+
+function scorePoolSlotEntry(poolItem, slot = {}, screen = "default", state = {}, delivery = "banner") {
+  const entry = poolItem?.entry;
+  if (!entry) {
+    return -1;
+  }
+
+  const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+  const keywords = Array.isArray(entry?.keywords) ? entry.keywords : [];
+  const contextKeywords = buildContextKeywords(screen, state, delivery);
+  const overlap = countKeywordOverlap(keywords, contextKeywords);
+  const slotTags = Array.isArray(slot?.preferredTags) ? slot.preferredTags : [];
+  const slotPersonas = Array.isArray(slot?.preferredPersonas) ? slot.preferredPersonas : [];
+  const requiredTagsAny = Array.isArray(slot?.requiredTagsAny) ? slot.requiredTagsAny : [];
+  const poolScore = Number(poolItem?.score || 0);
+  const textTokens = tokenizeToneText(entry?.text || "");
+
+  if (requiredTagsAny.length && !requiredTagsAny.some((tag) => tags.includes(tag))) {
+    return -1;
+  }
+  if (requiredTagsAny.length) {
+    const requiredRoots = requiredTagsAny.flatMap((tag) => TAG_TEXT_ROOT_HINTS[tag] || []);
+    if (requiredRoots.length && !requiredRoots.some((root) => textTokens.some((token) => token.startsWith(root)))) {
+      return -1;
+    }
+  }
+
+  let score = poolScore;
+  score += slotTags.reduce((sum, tag) => sum + (tags.includes(tag) ? 7 : 0), 0);
+  score += slotPersonas.includes(entry?.personaCue) ? 9 : 0;
+  score += overlap * 3;
+  score += Number(entry?.specificity || 0);
+
+  if (state?.alcoholEmpty && tags.includes("alcohol")) {
+    score += 4;
+  }
+  if (state?.foodEmpty && tags.includes("food")) {
+    score += 3;
+  }
+  if (state?.photoEmpty === false && tags.includes("people") && (screen === "trip_photos" || screen === "trip_photo_album")) {
+    score += 3;
+  }
+  if (state?.routeDifficulty && (tags.includes("route") || tags.includes("weather"))) {
+    score += 4;
+  }
+  if (Number(state?.expenseCount || 0) > 0 && tags.includes("money")) {
+    score += 3;
+  }
+  if (Number(state?.membersCount || 0) > 1 && tags.includes("people")) {
+    score += 2;
+  }
+
+  return score;
+}
+
+function pickSourcePoolEntry(screen = "default", slot = {}, state = {}, usedTexts = null, scopeKey = "") {
+  if (typeof slot?.when === "function" && !slot.when(state)) {
+    return null;
+  }
+
+  const pool = getScreenPoolEntries(screen);
+  if (!pool.length) {
+    return null;
+  }
+
+  const scored = pool
+    .map((poolItem, index) => {
+      const entry = poolItem?.entry;
+      const normalizedText = normalizeToneText(entry?.text || "");
+      if (!entry || !normalizedText) {
+        return null;
+      }
+      if (usedTexts?.has(normalizedText) || isOnCooldown(entry, normalizedText, screen, `${scopeKey}:${slot?.name || "slot"}`, state)) {
+        return null;
+      }
+      if (!matchesEntryRequirements(entry, { ...state, toneMode: "drunk" }, screen, "banner")) {
+        return null;
+      }
+      if (Array.isArray(slot?.blockedPatterns) && slot.blockedPatterns.some((pattern) => pattern.test(entry.text || ""))) {
+        return null;
+      }
+      if (isBlockedByScreenStyle(screen, entry.text || "")) {
+        return null;
+      }
+      if (!isToneEntryScreenSafe(entry, screen, "banner", Number(poolItem?.score || 0), state)) {
+        return null;
+      }
+      const score = scorePoolSlotEntry(poolItem, slot, screen, state, "banner");
+      if (score < 0) {
+        return null;
+      }
+      return { entry, normalizedText, score, index };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+
+  if (!scored.length) {
+    return null;
+  }
+
+  const lastKey = `source:${screen}:${slot?.name || "slot"}:${scopeKey}`;
+  const previous = lastRandomSelections.get(lastKey);
+  const topSlice = scored.slice(0, Math.min(5, scored.length));
+  const poolWithoutPrevious = topSlice.filter((item) => item.normalizedText !== previous);
+  const picked = (poolWithoutPrevious.length ? poolWithoutPrevious : topSlice)[Math.floor(Math.random() * (poolWithoutPrevious.length ? poolWithoutPrevious.length : topSlice.length))];
+
+  if (!picked) {
+    return null;
+  }
+
+  usedTexts?.add(picked.normalizedText);
+  rememberToneSelection(picked.entry, picked.normalizedText, screen, `${scopeKey}:${slot?.name || "slot"}`, state);
+  lastRandomSelections.set(lastKey, picked.normalizedText);
+  return picked.entry.text;
+}
+
+function pickSourceScreenText(screen = "default", state = {}, usedTexts = null, scopeKey = "", maxLines = 1) {
+  const candidateTexts = SOURCE_SCREEN_TEXTS[screen];
+  if (!Array.isArray(candidateTexts) || !candidateTexts.length) {
+    return [];
+  }
+
+  const localUsed = usedTexts || new Set();
+  const selected = [];
+  const lastKey = `source-catalog:${screen}:${scopeKey}`;
+  const previous = lastRandomSelections.get(lastKey);
+  const orderedTexts = [...candidateTexts].sort(() => Math.random() - 0.5);
+  if (previous) {
+    orderedTexts.sort((left, right) => Number(normalizeToneText(left) === previous) - Number(normalizeToneText(right) === previous));
+  }
+
+  for (const rawText of orderedTexts) {
+    if (selected.length >= maxLines) {
+      break;
+    }
+
+    const entry = theatreToneEntriesByText.get(normalizeToneText(rawText));
+    const normalizedText = normalizeToneText(rawText);
+    if (!entry || !normalizedText) {
+      continue;
+    }
+    if (localUsed.has(normalizedText) || isOnCooldown(entry, normalizedText, screen, `${scopeKey}:source-list`, state)) {
+      continue;
+    }
+    if (!matchesEntryRequirements(entry, { ...state, toneMode: "drunk" }, screen, "banner")) {
+      continue;
+    }
+    if (isBlockedByScreenStyle(screen, rawText)) {
+      continue;
+    }
+
+    localUsed.add(normalizedText);
+    rememberToneSelection(entry, normalizedText, screen, `${scopeKey}:source-list`, state);
+    selected.push(entry.text);
+    lastRandomSelections.set(lastKey, normalizedText);
+  }
+
+  return selected;
+}
+
+function buildSourceCompositionBlock(screen = "default", state = {}, scopeKey = "", usedTexts = null, maxLines = 1) {
+  const curatedSourceLines = pickSourceScreenText(screen, state, usedTexts, scopeKey, maxLines);
+  if (curatedSourceLines.length) {
+    return curatedSourceLines.slice(0, maxLines);
+  }
+
+  const slots = SOURCE_SCREEN_COMPOSITIONS[screen];
+  if (!Array.isArray(slots) || !slots.length) {
+    return [];
+  }
+
+  const localUsed = usedTexts || new Set();
+  const lines = [];
+
+  for (const slot of slots) {
+    if (lines.length >= maxLines) {
+      break;
+    }
+
+    const line = pickSourcePoolEntry(screen, slot, state, localUsed, scopeKey);
+    if (line) {
+      lines.push(line);
+    }
+  }
+
+  if (!lines.length) {
+    const fallback = pickSourcePoolEntry(screen, { name: "fallback" }, state, localUsed, scopeKey);
+    if (fallback) {
+      lines.push(fallback);
+    }
+  }
+
+  return lines.slice(0, maxLines);
+}
+
 function getScreenEntryGate(screen = "default") {
   return SCREEN_ENTRY_GATES[screen] || null;
 }
@@ -1330,43 +1796,11 @@ function matchesBlockedPattern(text = "", patterns = []) {
 }
 
 function pickCuratedTheatreLine(screen = "default", state = {}, usedTexts = null, scopeKey = "") {
-  const entries = CURATED_THEATRE_SCREEN_LINES[screen];
-  if (!Array.isArray(entries) || !entries.length) {
-    return "";
-  }
-
-  const prepared = entries
-    .filter((entry) => typeof entry?.text === "string" && entry.text.trim())
-    .filter((entry) => (typeof entry?.when === "function" ? entry.when(state) : true))
-    .map((entry) => ({
-      text: entry.text.trim(),
-      normalizedText: normalizeToneText(entry.text),
-      priority: Number(entry?.priority || 0),
-      cooldownScope: entry?.cooldownScope || "screen"
-    }))
-    .filter((entry) => entry.normalizedText && !usedTexts?.has(entry.normalizedText))
-    .filter((entry) => !isOnCooldown({ cooldownScope: entry.cooldownScope }, entry.normalizedText, screen, scopeKey, state))
-    .sort((left, right) => right.priority - left.priority || left.text.localeCompare(right.text, "uk"));
-
-  if (!prepared.length) {
-    return "";
-  }
-
-  const previous = lastRandomSelections.get(`curated:${screen}:${scopeKey}`);
-  const pool = prepared.filter((entry) => entry.text !== previous);
-  const picked = pool[Math.floor(Math.random() * pool.length)] || prepared[0];
-  if (!picked) {
-    return "";
-  }
-
-  usedTexts?.add(picked.normalizedText);
-  rememberToneSelection({ cooldownScope: picked.cooldownScope }, picked.normalizedText, screen, scopeKey, state);
-  lastRandomSelections.set(`curated:${screen}:${scopeKey}`, picked.text);
-  return picked.text;
+  return "";
 }
 
 function hasCuratedTheatreScreen(screen = "default") {
-  return Object.prototype.hasOwnProperty.call(CURATED_THEATRE_SCREEN_LINES, screen);
+  return false;
 }
 
 function isToneEntryScreenSafe(entry, screen, delivery, score, state = {}) {
@@ -1570,23 +2004,16 @@ export function pickToneLine({
   if (policy.allowTheatre === false) {
     return "";
   }
-  const candidates = theatreToneIndexByScreen.get(screen) || [];
-  const curatedLine = pickCuratedTheatreLine(screen, state, usedTexts, scopeKey);
-  if (curatedLine) {
-    return curatedLine;
-  }
-  if (hasCuratedTheatreScreen(screen) && Math.random() > Number(policy.catalogFallbackProbability ?? 0.1)) {
-    return "";
-  }
-  if (hasCuratedTheatreScreen(screen) && !candidates.length) {
+  const poolItems = getScreenPoolEntries(screen);
+  const candidateEntries = poolItems.length
+    ? poolItems.map((item) => item.entry).filter(Boolean)
+    : (theatreToneIndexByScreen.get(screen) || []);
+
+  if (!candidateEntries.length) {
     return "";
   }
 
-  if (!candidates.length) {
-    return "";
-  }
-
-  const scored = candidates
+  const scored = candidateEntries
     .map((entry, index) => {
       const normalizedText = normalizeToneText(entry?.text || "");
       if (!normalizedText) {
@@ -1597,7 +2024,8 @@ export function pickToneLine({
         return null;
       }
 
-      const score = scoreToneEntry(entry, screen, delivery, policy, state);
+      const poolBoost = poolItems.find((item) => item?.entry?.id === entry?.id)?.score || 0;
+      const score = scoreToneEntry(entry, screen, delivery, policy, state) + Math.floor(poolBoost / 4);
       if (score < 0) {
         return null;
       }
@@ -1650,6 +2078,10 @@ export function buildToneBlock({
   }
 
   const localUsed = usedTexts || new Set();
+  const sourceCompositionLines = buildSourceCompositionBlock(screen, state, scopeKey, localUsed, targetMaxLines);
+  if (sourceCompositionLines.length) {
+    return sourceCompositionLines.slice(0, targetMaxLines);
+  }
   const lines = [];
 
   if (policy.bannerProbability > 0 && Math.random() <= policy.bannerProbability) {
@@ -1741,7 +2173,10 @@ export function resolveContextToneMode(ctx = null, groupService = null) {
 
 export function t(key, mode = "default", params = {}) {
   const resolvedMode = resolveMode(mode);
-  const value = getNestedValue(getDictionary(resolvedMode), key);
+  const dictionaryMode = resolvedMode === "drunk" && shouldUseDefaultDictionaryForDrunkKey(key)
+    ? "default"
+    : resolvedMode;
+  const value = getNestedValue(getDictionary(dictionaryMode), key);
   const fallbackValue = getNestedValue(toneDictionaries.default, key);
   const selected = value === undefined ? fallbackValue : value;
   return materialize(selected, params);

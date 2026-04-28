@@ -1,5 +1,12 @@
 import crypto from "node:crypto";
 
+const CONFUSABLE_CYRILLIC_MAP = new Map([
+  ["A", "А"], ["a", "а"], ["B", "В"], ["C", "С"], ["c", "с"], ["E", "Е"], ["e", "е"],
+  ["H", "Н"], ["I", "І"], ["i", "і"], ["K", "К"], ["k", "к"], ["M", "М"], ["m", "м"],
+  ["O", "О"], ["o", "о"], ["P", "Р"], ["p", "р"], ["T", "Т"], ["X", "Х"], ["x", "х"],
+  ["Y", "У"], ["y", "у"]
+]);
+
 const FILTERED_TERMS = [
   "жид",
   "жидів",
@@ -13,13 +20,13 @@ const FILTERED_TERMS = [
 ];
 
 const DOMAIN_KEYWORDS = {
-  route: ["ітті", "вперьод", "вперед", "прийшл", "дорог", "шлях", "болот", "стеж", "маршрут", "дєбр", "гір", "кроком"],
+  route: ["ітті", "вперьод", "вперед", "дорог", "шлях", "болот", "стеж", "маршрут", "дєбр", "гір", "кроком", "руш"],
   weather: ["пагод", "дощ", "вітер", "холод", "сонц", "гроза", "сніг", "злива"],
   food: ["канхвет", "тузік", "їст", "жрат", "кусн", "ковбас", "сало", "хліб", "закус", "ням"],
   alcohol: ["вип", "бар", "шампань", "пив", "горіл", "пляш", "алко", "пивц"],
   gear: ["роял", "дрюч", "меч", "пістолет", "простирадл", "фонар", "реквізит", "мішок", "рюкзак", "шкарп", "валіз", "чемодан"],
   people: ["хлопц", "друж", "банд", "люд", "панов", "компан"],
-  logistics: ["питан", "жизн", "розрух", "облом", "довольн", "подвєд", "план", "ітог", "спєшн", "треба"],
+  logistics: ["питан", "розрух", "облом", "довольн", "подвєд", "план", "ітог", "спєшн", "поряд", "контрол"],
   money: ["карбован", "валют", "бабк", "гріш", "грош", "купував", "віддам"]
 };
 
@@ -62,11 +69,274 @@ const RAW_SOURCE_BLOCKED_PATTERNS = [
   /\b(кабінет|печера|ліс|болото|катівня|море)\b/iu
 ];
 
+const CANDIDATE_EXCLUSION_PATTERNS = [
+  /\b(пісять|срати|сратися|блювати|блює|сцик|сцяти|жоп|срак|залуп|бляді)\b/iu,
+  /\b(манав|йобаній|йобану|єбать|єбалу|ебать)\b/iu,
+  /\b(милом|голову|вимить|сивочуб|ветеран)\b/iu,
+  /\b(віолетта|виолетта|надєжда|гертруда|клавдій|івасик|гангрена|язва)\b/iu,
+  /\b(порубаємо|мармиз|жаху|мудозвон|вонюч)\b/iu
+];
+
 const SHAPE_TO_DELIVERY_CLASS = {
   question: "prompt",
   optimistic: "success",
   complaint: "warning",
   fatalistic: "error"
+};
+
+const SCREEN_POOL_RULES = {
+  trip_hub: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["route", "food", "alcohol", "money", "logistics", "people"],
+    preferredTags: ["logistics", "route", "alcohol", "money", "people"],
+    preferredPersonas: ["manager", "supportive", "trail", "boozy", "crew"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|посмокт|жоп|срак|залуп|падлюк|бляді)\b/iu, /\b(голову|милом|вимить|сивочуб)\b/iu]
+  },
+  trip_details: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["route", "food", "alcohol", "money", "logistics", "people"],
+    preferredTags: ["logistics", "route", "money", "alcohol", "people"],
+    preferredPersonas: ["manager", "supportive", "trail", "boozy", "crew"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|посмокт|жоп|срак|залуп|падлюк|бляді)\b/iu, /\b(голову|милом|вимить|сивочуб)\b/iu]
+  },
+  trip_history: {
+    limit: 14,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["logistics", "people", "money", "route"],
+    preferredTags: ["logistics", "money", "people"],
+    preferredPersonas: ["manager", "supportive", "crew"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|жоп|срак|залуп)\b/iu]
+  },
+  trip_settings: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["logistics", "money", "people"],
+    preferredTags: ["logistics", "money"],
+    preferredPersonas: ["manager", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|жоп|срак|залуп)\b/iu]
+  },
+  trip_members_menu: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    blockedPatterns: [/[?]/u, /\b(виябуйся|пиздим|людожером|падлюк|нахуй|вб'ю|жоп|срак|залуп|хуйня|сивочуб)\b/iu]
+  },
+  trip_members_list: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    blockedPatterns: [/[?]/u, /\b(виябуйся|пиздим|людожером|падлюк|нахуй|вб'ю|жоп|срак|залуп|хуйня|сивочуб)\b/iu]
+  },
+  trip_member_card: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(виябуйся|пиздим|людожером|падлюк|нахуй|вб'ю|жоп|срак|залуп|хуйня|сивочуб)\b/iu]
+  },
+  trip_member_tickets: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["money", "logistics", "people"],
+    preferredTags: ["money", "logistics", "people"],
+    preferredPersonas: ["manager", "crew"],
+    blockedPatterns: [/[?]/u, /\b(нахуй|вб'ю|жоп|срак|залуп)\b/iu]
+  },
+  route_menu: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["route", "weather"],
+    preferredTags: ["route", "weather"],
+    preferredPersonas: ["trail", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|утоп|вбити|бляді|голову|милом)\b/iu]
+  },
+  route_weather_picker: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["weather", "route"],
+    preferredTags: ["weather", "route"],
+    preferredPersonas: ["trail", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|утоп|бляді|голову|милом)\b/iu]
+  },
+  route_weather: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 9,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["weather", "route"],
+    preferredTags: ["weather", "route"],
+    preferredPersonas: ["trail", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(чмо|контра|вб'ю|нахуй|утоп|бляді|голову|милом)\b/iu]
+  },
+  food_menu: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["food", "alcohol"],
+    preferredTags: ["alcohol", "food"],
+    preferredPersonas: ["boozy", "camp", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|єбати|муділа|нахуй|встром|побийте|компота)\b/iu]
+  },
+  food_list: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["food", "alcohol"],
+    preferredTags: ["alcohol", "food"],
+    preferredPersonas: ["boozy", "camp", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|єбати|муділа|нахуй|встром|побийте|компота)\b/iu]
+  },
+  trip_mode: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["alcohol", "food", "logistics"],
+    preferredTags: ["alcohol", "food", "logistics"],
+    preferredPersonas: ["boozy", "supportive", "manager"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|єбати|муділа|нахуй|встром|побийте|компота)\b/iu]
+  },
+  trip_drunk_mode: {
+    limit: 12,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["alcohol", "food", "logistics"],
+    preferredTags: ["alcohol", "food", "logistics"],
+    preferredPersonas: ["boozy", "supportive", "manager"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|єбати|муділа|нахуй|встром|побийте|компота)\b/iu]
+  },
+  expenses_menu: {
+    limit: 14,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["money"],
+    preferredTags: ["money"],
+    preferredPersonas: ["manager", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|нахуй|їбала|казьол)\b/iu]
+  },
+  expenses_list: {
+    limit: 14,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational"],
+    requiredTagsAny: ["money"],
+    preferredTags: ["money"],
+    preferredPersonas: ["manager", "supportive"],
+    blockedPatterns: [/[?]/u, /\b(жоп|срак|залуп|нахуй|їбала|казьол)\b/iu]
+  },
+  trip_photos: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    blockedPatterns: [/[?]/u, /\b(нахуй|вб'ю|жоп|срак|залуп|обізян)\b/iu]
+  },
+  trip_photo_album: {
+    limit: 10,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "low",
+    allowedShapes: ["reaction", "observational", "optimistic"],
+    requiredTagsAny: ["people"],
+    preferredTags: ["people"],
+    preferredPersonas: ["crew", "supportive", "banter"],
+    blockedPatterns: [/[?]/u, /\b(нахуй|вб'ю|жоп|срак|залуп|обізян)\b/iu]
+  },
+  idle_prompt: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "medium",
+    allowedShapes: ["question", "complaint", "reaction"],
+    requiredTagsAny: ["decision", "logistics", "generic"],
+    preferredTags: ["decision", "logistics"],
+    preferredPersonas: ["banter", "chaotic", "manager"],
+    blockedPatterns: [/\b(вб'ю|утоп|жоп|срак|залуп|пидарас|чмо японське)\b/iu]
+  },
+  edit_loop: {
+    limit: 18,
+    maxPerSource: 2,
+    minWords: 2,
+    maxWords: 10,
+    maxIntensity: "medium",
+    allowedShapes: ["question", "complaint", "reaction"],
+    requiredTagsAny: ["decision", "logistics", "generic"],
+    preferredTags: ["decision", "logistics"],
+    preferredPersonas: ["banter", "chaotic", "manager"],
+    blockedPatterns: [/\b(вб'ю|утоп|жоп|срак|залуп|пидарас|чмо японське)\b/iu]
+  }
 };
 
 const TOPIC_TAGS = ["route", "weather", "food", "alcohol", "gear", "people", "logistics", "money"];
@@ -164,7 +434,11 @@ const KEYWORD_STOP_WORDS = new Set([
 ]);
 
 function normalize(value = "") {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return Array.from(String(value || ""))
+    .map((char) => CONFUSABLE_CYRILLIC_MAP.get(char) || char)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function countWords(value = "") {
@@ -673,6 +947,16 @@ function inferSpecificity(text = "", tags = [], keywords = [], shape = "reaction
   return topicalTagCount * 3 + lexicalWeight + lengthWeight + shapeWeight;
 }
 
+function getIntensityRank(value = "low") {
+  if (value === "high") {
+    return 2;
+  }
+  if (value === "medium") {
+    return 1;
+  }
+  return 0;
+}
+
 function collectCandidates(entries = []) {
   const forbiddenTokens = collectForbiddenTokens(entries);
   const candidates = [];
@@ -689,6 +973,9 @@ function collectCandidates(entries = []) {
     }
 
     const lowered = text.toLowerCase();
+    if (CANDIDATE_EXCLUSION_PATTERNS.some((pattern) => pattern.test(text))) {
+      return;
+    }
     for (const token of forbiddenTokens) {
       if (token && lowered.includes(token)) {
         return;
@@ -746,19 +1033,86 @@ function collectCandidates(entries = []) {
   for (const entry of entries) {
     for (const quote of Array.isArray(entry?.memes_quotes) ? entry.memes_quotes : []) {
       push(entry, quote?.text || "", quote?.type || "phrase", quote?.tone || "");
+      for (const sentence of splitSentences(quote?.text || "")) {
+        push(entry, sentence, quote?.type || "phrase", quote?.tone || "");
+      }
     }
 
     for (const phrase of Array.isArray(entry?.popular_funny_phrases) ? entry.popular_funny_phrases : []) {
       push(entry, phrase, "phrase", "");
+      for (const sentence of splitSentences(phrase)) {
+        push(entry, sentence, "phrase", "");
+      }
     }
   }
 
   return candidates;
 }
 
+function buildScreenPools(candidates = []) {
+  const screenPools = {};
+
+  for (const [screen, rule] of Object.entries(SCREEN_POOL_RULES)) {
+    const filtered = candidates
+      .filter((entry) => Array.isArray(entry?.screens) && entry.screens.includes(screen))
+      .filter((entry) => getIntensityRank(entry?.intensity) <= getIntensityRank(rule.maxIntensity))
+      .filter((entry) => Array.isArray(rule.allowedShapes) ? rule.allowedShapes.includes(entry?.toneShape) : true)
+      .filter((entry) => {
+        const words = countWords(entry?.text || "");
+        return words >= (rule.minWords || 0) && words <= (rule.maxWords || 999);
+      })
+      .filter((entry) => {
+        const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+        return Array.isArray(rule.requiredTagsAny) ? rule.requiredTagsAny.some((tag) => tags.includes(tag)) : true;
+      })
+      .filter((entry) => !(rule.blockedPatterns || []).some((pattern) => pattern.test(entry?.text || "")))
+      .map((entry, index) => {
+        const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+        const preferredTagScore = (rule.preferredTags || []).reduce((sum, tag) => sum + (tags.includes(tag) ? 5 : 0), 0);
+        const personaScore = (rule.preferredPersonas || []).includes(entry?.personaCue) ? 6 : 0;
+        const intensityScore = entry?.intensity === "low" ? 2 : entry?.intensity === "medium" ? 1 : 0;
+        const reactionScore = ["reaction", "observational", "optimistic"].includes(entry?.toneShape) ? 2 : 0;
+        const score = 10 + preferredTagScore + personaScore + intensityScore + reactionScore + Number(entry?.specificity || 0);
+        return {
+          id: entry.id,
+          score,
+          sourceTitle: entry?.sourceTitle || "",
+          index
+        };
+      })
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+
+    const selected = [];
+    const selectedIds = new Set();
+    const sourceCounts = new Map();
+
+    for (const candidate of filtered) {
+      if (selected.length >= (rule.limit || 0)) {
+        break;
+      }
+      if (selectedIds.has(candidate.id)) {
+        continue;
+      }
+      const sourceTitle = candidate.sourceTitle || "";
+      const currentCount = sourceCounts.get(sourceTitle) || 0;
+      if (currentCount >= (rule.maxPerSource || 99)) {
+        continue;
+      }
+      sourceCounts.set(sourceTitle, currentCount + 1);
+      selectedIds.add(candidate.id);
+      selected.push({ id: candidate.id, score: candidate.score });
+    }
+
+    screenPools[screen] = selected;
+  }
+
+  return screenPools;
+}
+
 export function buildTheatreToneCatalog(source = {}) {
   const entries = normalizeSourceEntries(source);
   const candidates = collectCandidates(entries);
+  const screenPools = buildScreenPools(candidates);
   const sourceHash = crypto
     .createHash("sha1")
     .update(JSON.stringify(source || {}))
@@ -769,8 +1123,9 @@ export function buildTheatreToneCatalog(source = {}) {
       generatedAt: new Date().toISOString(),
       sourceHash,
       entriesCount: candidates.length,
-      version: 1
+      version: 2
     },
-    entries: candidates
+    entries: candidates,
+    screenPools
   };
 }

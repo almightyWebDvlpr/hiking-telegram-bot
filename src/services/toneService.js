@@ -227,7 +227,8 @@ const SOURCE_TEXT_BLACKLIST_PATTERNS = [
   /радійте,\s*бляді/iu,
   /побийте.{0,20}пляшк/iu,
   /замість\s+компота.{0,24}горілк/iu,
-  /\b(срат|посц|піся|сця|мармиз|мудозвон|вонюч|жаху)\w*/iu
+  /[єїе]бал\w*/iu,
+  /(срат|посц|піся|сця|мармиз|мудозвон|вонюч|жаху|трус|хам)\w*/iu
 ];
 
 const SCREEN_STYLE_BLOCKS = {
@@ -734,7 +735,7 @@ const SCREEN_ENTRY_GATES = {
     ]
   },
   route_menu: {
-    requiredTagsAny: ["route", "weather"],
+    requiredTagsAny: ["route"],
     allowedShapes: ["reaction", "observational", "optimistic"],
     minScore: 16,
     maxWords: 8,
@@ -1108,7 +1109,7 @@ const SCREEN_TONE_POLICIES = {
     catalogMinScore: 34,
     maxIntensity: "low",
     allowedDeliveries: ["banner", "quip"],
-    preferredTags: ["route", "weather"],
+    preferredTags: ["route"],
     secondaryTags: ["trip", "observational"],
     blockedTags: ["fatalistic", "complaint"]
   },
@@ -1965,7 +1966,11 @@ function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
     }
   }
 
-  if ((screen === "route_menu" || screen === "route_weather" || screen === "route_weather_picker") && !tags.includes("route") && !tags.includes("weather")) {
+  if (screen === "route_menu" && !tags.includes("route")) {
+    return -1;
+  }
+
+  if ((screen === "route_weather" || screen === "route_weather_picker") && !tags.includes("route") && !tags.includes("weather")) {
     score -= 8;
   }
 
@@ -1975,6 +1980,9 @@ function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
 
   if ((screen === "trip_members_menu" || screen === "trip_members_list" || screen === "trip_member_card" || screen === "trip_member_tickets") && !tags.includes("people")) {
     score -= 8;
+  }
+  if ((screen === "trip_members_menu" || screen === "trip_members_list" || screen === "trip_member_card") && tags.includes("alcohol")) {
+    score -= 10;
   }
 
   if ((screen === "expenses_menu" || screen === "expenses_list") && !tags.includes("money") && !tags.includes("logistics") && !tags.includes("food")) {
@@ -2018,6 +2026,9 @@ export function pickToneLine({
       }
 
       if (usedTexts?.has(normalizedText) || isOnCooldown(entry, normalizedText, screen, scopeKey, state)) {
+        return null;
+      }
+      if (isBlockedByScreenStyle(screen, normalizedText)) {
         return null;
       }
 

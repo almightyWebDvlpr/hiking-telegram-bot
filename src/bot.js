@@ -4161,90 +4161,11 @@ function buildTripScreenToneSection(trip, screen, {
   return lines;
 }
 
-function buildTripPersonaMeaning(trip, screen, groupService = null, state = {}) {
-  const toneState = getTripToneState(trip, groupService, state);
-  const routeDifficulty = toneState.routeDifficulty || "";
-  const alcoholCount = Number(toneState.alcoholCount || 0);
-  const membersCount = Number(toneState.membersCount || 0);
-  const photoCount = Number(toneState.photoCount || 0);
-  const expenseCount = Number(toneState.expenseCount || 0);
-
-  switch (screen) {
-    case "trip_hub":
-      return membersCount > 1
-        ? "По суті: це пульт походу. Тут видно, чи банда зібрана, маршрут є, барахло не розвалене, а гроші не живуть окремим життям."
-        : "По суті: тут бот дивиться, чи похід уже схожий на план, а не на самотній героїзм із гарною назвою.";
-    case "trip_details":
-      return "По суті: це паспорт походу. Дати, маршрут, регіон, квитки й безпека мають бути чіткі, бо потім у горах уже не до літератури.";
-    case "trip_history":
-      return "По суті: це вже не активний двіж, а підсумок. Хто реально був, що пройшли, що витратили і що залишилось в історії.";
-    case "trip_settings":
-      return "По суті: тут службові важелі. Нагадування, права й передача походу мають працювати без цирку.";
-    case "trip_mode":
-    case "trip_drunk_mode":
-      return alcoholCount > 0
-        ? "По суті: режим міняє голос походу, але не замінює голову. Веселощі є, облік лишається тверезий."
-        : "По суті: режим увімкнули, а в продуктах по веселій частині голяк. Бот це бачить і робить відповідні висновки.";
-    case "trip_members_menu":
-    case "trip_members_list":
-      return "По суті: тут не просто список імен. Важливо, хто реально йде, хто думає, хто злився, і кому треба нагадати без зайвого театру.";
-    case "trip_member_card":
-      return toneState.memberTicketsCount > 0
-        ? "По суті: картка учасника має показати статус, роль, контакт і квитки, щоб не шукати людину по всьому чату."
-        : "По суті: тут видно людину в поході: статус, роль, контакти й що ще треба дозаповнити.";
-    case "trip_member_tickets":
-      return toneState.memberTicketsCount > 0
-        ? "По суті: квитки мають лежати біля учасника, а не в хаосі галереї чи старих повідомлень."
-        : "По суті: квитків ще нема. Якщо дорога складна, краще додати їх одразу, поки ніхто не шукає PDF у паніці.";
-    case "route_menu":
-      if (routeDifficulty === "висока") {
-        return "По суті: маршрут непростий, тому трек, запас часу і нормальна навігація тут важливіші за браваду.";
-      }
-      if (routeDifficulty === "середня") {
-        return "По суті: маршрут реальний, але трек і темп краще тримати під рукою, щоб двіж не став імпровізацією.";
-      }
-      return "По суті: маршрут виглядає спокійно, але GPX/KML усе одно краще мати, бо гори не люблять самовпевнених.";
-    case "route_weather_picker":
-    case "route_weather":
-      return "По суті: погода тут не для краси. Вона вирішує одяг, темп, запас часу і чи треба пригальмувати апетит до пригод.";
-    case "food_menu":
-    case "food_list":
-      if (toneState.foodEmpty) {
-        return "По суті: список їжі порожній, а похід на романтиці довго не їде. Треба вода, нормальна хавка і чесний розклад по вазі.";
-      }
-      return alcoholCount > 0
-        ? "По суті: харчі й алкоголь мають бути в одному обліку, щоб на привалі було весело, але рюкзак не став прокляттям."
-        : "По суті: їжа є, але весела полиця порожня. Якщо режим Пʼяниця ввімкнений, бот це мовчки не ковтає.";
-    case "gear_menu":
-    case "gear_accounting":
-    case "gear_borrowed":
-    case "gear_loaned":
-    case "gear_backpack":
-      return toneState.gearEmpty
-        ? "По суті: без спорядження це не похід, а надія на чудо. Бот тримає барахло в полі зору."
-        : "По суті: тут важливо не просто мати речі, а знати хто що несе, хто що позичив і що треба повернути.";
-    case "expenses_menu":
-    case "expenses_list":
-      return expenseCount > 0
-        ? "По суті: гроші мають бути прозорі. Хто платив, хто бере участь у розрахунку і хто кому винен — без туману."
-        : "По суті: витрат ще нема. Добре, але коли зʼявляться квитки, газ чи харчі, бот має розкласти їх без фокусів.";
-    case "trip_photos":
-      return photoCount > 0
-        ? "По суті: кадри вже є, тепер вони мають жити в альбомі походу, а не губитися між балачками."
-        : "По суті: фото поки нема. Як тільки зʼявляться кадри, бот збере їх у нормальний альбом для тих, хто справді був у поході.";
-    case "trip_photo_album":
-      return photoCount > 0
-        ? "По суті: це вже не просто фотки, а хроніка походу. Видно події, авторів і що варто переглянути."
-        : "По суті: альбом порожній. Нема кадрів — нема й легенди, тільки сухий протокол.";
-    default:
-      return "По суті: бот бере фразу з корпусу не для декору, а як короткий коментар до стану цього екрана.";
-  }
-}
-
 function pickTripPersonaQuote(trip, screen, {
   groupService = null,
   scope = "",
   state = {},
+  delivery = "banner",
   usedTexts = null
 } = {}) {
   if (!isTripAlcoModeEnabled(trip)) {
@@ -4256,7 +4177,7 @@ function pickTripPersonaQuote(trip, screen, {
     mode: "drunk",
     scopeKey: [trip?.id || "na", screen, scope || "persona"].filter(Boolean).join(":"),
     state: getTripToneState(trip, groupService, state),
-    delivery: "banner",
+    delivery,
     usedTexts
   });
 }
@@ -4277,23 +4198,57 @@ function buildTripPersonaComment(trip, screen, {
     scope,
     state,
     usedTexts
-  }) || buildTripScreenToneLines(trip, screen, {
+  }) || buildTripPersonaFallbackLine(trip, screen, {
     groupService,
     scope: `${scope}:fallback`,
-    maxLines: 1,
     state,
     usedTexts
-  })[0];
+  });
+  const sourceVerdict = quote
+    ? pickTripPersonaQuote(trip, screen, {
+        groupService,
+        scope: `${scope}:verdict`,
+        state,
+        delivery: "quip",
+        usedTexts
+      })
+    : "";
+  const fallbackVerdict = quote && !sourceVerdict
+    ? buildTripScreenToneLines(trip, screen, {
+        groupService,
+        scope: `${scope}:verdict-fallback`,
+        maxLines: 1,
+        state,
+        usedTexts
+      })[0]
+    : "";
 
-  if (!quote) {
+  const verdict = sourceVerdict || fallbackVerdict;
+
+  if (!quote && !verdict) {
     return [];
   }
 
   return [
     formatSectionHeader("🗣", title),
-    `«${quote}»`,
-    buildTripPersonaMeaning(trip, screen, groupService, state)
+    quote ? `«${quote}»` : null,
+    verdict ? `«${verdict}»` : null
   ];
+}
+
+function buildTripPersonaFallbackLine(trip, screen, {
+  groupService = null,
+  scope = "",
+  state = {},
+  usedTexts = null
+} = {}) {
+  return buildTripScreenToneLines(trip, screen, {
+    groupService,
+    scope,
+    maxLines: 1,
+    state,
+    usedTexts
+  })[0];
 }
 
 function buildRouteModeComment(trip, groupService) {
@@ -4302,23 +4257,33 @@ function buildRouteModeComment(trip, groupService) {
   }
 
   const routeContext = getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard);
+  const state = {
+    routeDifficulty: routeContext?.difficulty || ""
+  };
   const quote = pickTripPersonaQuote(trip, "route_menu", {
     groupService,
     scope: "route-comment",
-    state: {
-      routeDifficulty: routeContext?.difficulty || ""
-    }
+    state
+  }) || buildTripPersonaFallbackLine(trip, "route_menu", {
+    groupService,
+    scope: "route-comment-fallback",
+    state
   });
-  if (!quote) {
+  const verdict = pickTripPersonaQuote(trip, "route_menu", {
+    groupService,
+    scope: "route-comment-verdict",
+    delivery: "quip",
+    state,
+    usedTexts: new Set([quote].filter(Boolean))
+  });
+  if (!quote && !verdict) {
     return [];
   }
 
   return [
     formatSectionHeader("🗣", "Коментар Бота"),
-    `«${quote}»`,
-    buildTripPersonaMeaning(trip, "route_menu", groupService, {
-      routeDifficulty: routeContext?.difficulty || ""
-    })
+    quote ? `«${quote}»` : null,
+    verdict ? `«${verdict}»` : null
   ];
 }
 
@@ -4347,11 +4312,20 @@ function buildAlcoModeNotes(trip, groupService) {
   if (quote) {
     lines.push(`«${quote}»`);
   }
-  lines.push(buildTripPersonaMeaning(trip, "trip_drunk_mode", groupService, {
-    alcoholCount: alcohol.count,
-    alcoholEmpty: alcohol.count === 0,
-    routeDifficulty: routeContext?.difficulty || ""
-  }));
+  const verdict = pickTripPersonaQuote(trip, "trip_drunk_mode", {
+    groupService,
+    scope: "drunk-notes-verdict",
+    delivery: "quip",
+    state: {
+      alcoholCount: alcohol.count,
+      alcoholEmpty: alcohol.count === 0,
+      routeDifficulty: routeContext?.difficulty || ""
+    },
+    usedTexts: new Set([quote].filter(Boolean))
+  });
+  if (verdict) {
+    lines.push(`«${verdict}»`);
+  }
   return lines;
 }
 

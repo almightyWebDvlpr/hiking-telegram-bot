@@ -222,13 +222,14 @@ const CALM_SCREEN_BLOCK_PATTERNS = [
 
 const SOURCE_TEXT_BLACKLIST_PATTERNS = [
   /милом.{0,20}голову|голову.{0,20}вимить/iu,
-  /ветеран\w*\s+сивочуб/iu,
+  /ветеран\w*|сивочуб\w*/iu,
   /віол|виол|violet/iu,
   /радійте,\s*бляді/iu,
   /побийте.{0,20}пляшк/iu,
   /замість\s+компота.{0,24}горілк/iu,
   /[єїе]бал\w*/iu,
-  /(срат|посц|піся|сця|мармиз|мудозвон|вонюч|жаху|трус|хам)\w*/iu
+  /йобан\w*/iu,
+  /(поруб|заріз|уб'ю|вб'ю|вбив|убив|смерт|срат|посц|піся|сця|мармиз|мудозвон|вонюч|жаху|трус|хам)\w*/iu
 ];
 
 const SCREEN_STYLE_BLOCKS = {
@@ -283,14 +284,12 @@ const SOURCE_SCREEN_TEXTS = {
   trip_members_menu: [
     "А вірно хлопці! А діло каже!",
     "Сідайте, хлопці, чаю поп’ємо.",
-    "Люди славні.",
-    "По команді вождя компанія випиває."
+    "Люди славні."
   ],
   trip_members_list: [
     "А вірно хлопці! А діло каже!",
     "Сідайте, хлопці, чаю поп’ємо.",
-    "Люди славні.",
-    "По команді вождя компанія випиває."
+    "Люди славні."
   ],
   trip_member_card: [
     "А вірно хлопці! А діло каже!",
@@ -1728,22 +1727,20 @@ function pickSourceScreenText(screen = "default", state = {}, usedTexts = null, 
 
     const entry = theatreToneEntriesByText.get(normalizeToneText(rawText));
     const normalizedText = normalizeToneText(rawText);
-    if (!entry || !normalizedText) {
+    if (!normalizedText) {
       continue;
     }
     if (localUsed.has(normalizedText)) {
       continue;
     }
-    if (!matchesEntryRequirements(entry, { ...state, toneMode: "drunk" }, screen, "banner")) {
-      continue;
-    }
     if (isBlockedByScreenStyle(screen, rawText)) {
       continue;
     }
-
     localUsed.add(normalizedText);
-    rememberToneSelection(entry, normalizedText, screen, `${scopeKey}:source-list`, state);
-    selected.push(entry.text);
+    if (entry) {
+      rememberToneSelection(entry, normalizedText, screen, `${scopeKey}:source-list`, state);
+    }
+    selected.push(entry?.text || rawText);
     lastRandomSelections.set(lastKey, normalizedText);
   }
 
@@ -1982,7 +1979,10 @@ function scoreToneEntry(entry, screen, delivery, policy, state = {}) {
     score -= 8;
   }
   if ((screen === "trip_members_menu" || screen === "trip_members_list" || screen === "trip_member_card") && tags.includes("alcohol")) {
-    score -= 10;
+    return -1;
+  }
+  if ((screen === "trip_members_menu" || screen === "trip_members_list" || screen === "trip_member_card") && /(самогон|горіл|пив|випив|бух|шампань|пляш)/iu.test(entry?.text || "")) {
+    return -1;
   }
 
   if ((screen === "expenses_menu" || screen === "expenses_list") && !tags.includes("money") && !tags.includes("logistics") && !tags.includes("food")) {

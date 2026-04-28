@@ -303,10 +303,7 @@ const SOURCE_SCREEN_TEXTS = {
   ],
   route_menu: [
     "Праве плече вперед, кроком руш!",
-    "Ви в страшні дєбрі забралісь.",
-    "Я думаю, що, мабуть, буде дощ...",
-    "Тут холодно, можно труби застудіть.",
-    "Ви тут сідітє, а на дворє такая пагода стаїть."
+    "Ви в страшні дєбрі забралісь."
   ],
   route_weather_picker: [
     "Я думаю, що, мабуть, буде дощ...",
@@ -1733,7 +1730,7 @@ function pickSourceScreenText(screen = "default", state = {}, usedTexts = null, 
     if (!entry || !normalizedText) {
       continue;
     }
-    if (localUsed.has(normalizedText) || isOnCooldown(entry, normalizedText, screen, `${scopeKey}:source-list`, state)) {
+    if (localUsed.has(normalizedText)) {
       continue;
     }
     if (!matchesEntryRequirements(entry, { ...state, toneMode: "drunk" }, screen, "banner")) {
@@ -1754,7 +1751,7 @@ function pickSourceScreenText(screen = "default", state = {}, usedTexts = null, 
 
 function buildSourceCompositionBlock(screen = "default", state = {}, scopeKey = "", usedTexts = null, maxLines = 1) {
   const curatedSourceLines = pickSourceScreenText(screen, state, usedTexts, scopeKey, maxLines);
-  if (curatedSourceLines.length) {
+  if (Array.isArray(SOURCE_SCREEN_TEXTS[screen])) {
     return curatedSourceLines.slice(0, maxLines);
   }
 

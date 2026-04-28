@@ -24,7 +24,7 @@ import { detectChangedFields, hasMeaningfulChange } from "./utils/changeTracking
 import { extractTelegramPhotoMetadata } from "./utils/photoMetadata.js";
 import { consumeUserRateLimit, runWithLock } from "./utils/concurrency.js";
 import { formatPhoneForDisplay, normalizePhone } from "./utils/phone.js";
-import { buildScreenToneBlock, resolveContextToneMode, resolveTripToneMode, t } from "./services/toneService.js";
+import { buildScreenToneBlock, pickToneLine, resolveContextToneMode, resolveTripToneMode, t } from "./services/toneService.js";
 import {
   PROFILE_AWARDS_LABEL,
   BADGE_SERIES,
@@ -1147,6 +1147,15 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
     groupService,
     scope: "hub",
     includeModeBanner: true,
+    includeToneLines: false,
+    state: {
+      alcoholCount: alcoholSnapshot.count,
+      alcoholEmpty: alcoholSnapshot.count === 0
+    }
+  });
+  const personaCommentLines = buildTripPersonaComment(trip, "trip_hub", {
+    groupService,
+    scope: "hub",
     state: {
       alcoholCount: alcoholSnapshot.count,
       alcoholEmpty: alcoholSnapshot.count === 0
@@ -1160,6 +1169,7 @@ function showTripMenuForTrip(ctx, groupService, trip, { fromHub = false } = {}) 
       ),
       "",
       ...(toneSectionLines.length ? [...toneSectionLines, ""] : []),
+      ...(personaCommentLines.length ? [...personaCommentLines, ""] : []),
       `${hubCopy.roleLabel}: ${role}`,
       `${hubCopy.statusLabel}: ${getTripLifecycleLabel(trip.status)}`,
       `${hubCopy.routeLabel}: ${route}`,
@@ -3156,9 +3166,8 @@ function truncateListForMessage(items = [], limit = 3) {
 
 function formatTripPhotoAlbumSummary(trip, album) {
   const toneMode = resolveTripToneMode(trip);
-  const albumToneLines = buildTripScreenToneLines(trip, "trip_photo_album", {
+  const albumToneLines = buildTripPersonaComment(trip, "trip_photo_album", {
     scope: `summary:${album?.totalCount || 0}`,
-    maxLines: 1,
     state: {
       photoCount: album?.totalCount || 0,
       photoEmpty: !album?.totalCount
@@ -3509,7 +3518,12 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
   const detailsToneLines = buildTripScreenToneSection(trip, "trip_details", {
     groupService,
     scope: "passport",
-    includeModeBanner: true
+    includeModeBanner: true,
+    includeToneLines: false
+  });
+  const detailsPersonaLines = buildTripPersonaComment(trip, "trip_details", {
+    groupService,
+    scope: "passport"
   });
   const gearSnapshot = groupService.getGearSnapshot(trip.id);
   const safety = resolveSafetyProfile(trip);
@@ -3532,6 +3546,7 @@ function formatTripPassport(trip, groupService, userService, userId = "") {
     ...formatCardHeader(detailsCopy.title, trip.name),
     "",
     ...(detailsToneLines.length ? [...detailsToneLines, ""] : []),
+    ...(detailsPersonaLines.length ? [...detailsPersonaLines, ""] : []),
     `${detailsCopy.inviteCodeLabel}: ${trip.inviteCode}`,
     `${detailsCopy.roleLabel}: ${isTripOwner(trip, userId) ? "організатор" : canManageTrip(trip, userId) ? "редактор" : "учасник"}`,
     `${detailsCopy.statusLabel}: ${getTripLifecycleLabel(trip.status)}`,
@@ -3776,12 +3791,9 @@ function formatTripHistoryDetails(trip, userService = null) {
   const members = summaryMembers.length
     ? summaryMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ")
     : liveMembers.map((member) => userService ? getMemberDisplayName(userService, member) : member.name).join(" • ");
-  const toneLines = resolveTripToneMode(trip) === "drunk"
-    ? buildTripScreenToneLines(trip, "trip_history", {
-        scope: "trip_history",
-        maxLines: 1
-      })
-    : [];
+  const toneLines = buildTripPersonaComment(trip, "trip_history", {
+    scope: "trip_history"
+  });
 
   const lines = [
     ...formatCardHeader("🕓 ІСТОРІЯ ПОХОДУ", trip.name || routeName),
@@ -4149,67 +4161,165 @@ function buildTripScreenToneSection(trip, screen, {
   return lines;
 }
 
+function buildTripPersonaMeaning(trip, screen, groupService = null, state = {}) {
+  const toneState = getTripToneState(trip, groupService, state);
+  const routeDifficulty = toneState.routeDifficulty || "";
+  const alcoholCount = Number(toneState.alcoholCount || 0);
+  const membersCount = Number(toneState.membersCount || 0);
+  const photoCount = Number(toneState.photoCount || 0);
+  const expenseCount = Number(toneState.expenseCount || 0);
+
+  switch (screen) {
+    case "trip_hub":
+      return membersCount > 1
+        ? "По суті: це пульт походу. Тут видно, чи банда зібрана, маршрут є, барахло не розвалене, а гроші не живуть окремим життям."
+        : "По суті: тут бот дивиться, чи похід уже схожий на план, а не на самотній героїзм із гарною назвою.";
+    case "trip_details":
+      return "По суті: це паспорт походу. Дати, маршрут, регіон, квитки й безпека мають бути чіткі, бо потім у горах уже не до літератури.";
+    case "trip_history":
+      return "По суті: це вже не активний двіж, а підсумок. Хто реально був, що пройшли, що витратили і що залишилось в історії.";
+    case "trip_settings":
+      return "По суті: тут службові важелі. Нагадування, права й передача походу мають працювати без цирку.";
+    case "trip_mode":
+    case "trip_drunk_mode":
+      return alcoholCount > 0
+        ? "По суті: режим міняє голос походу, але не замінює голову. Веселощі є, облік лишається тверезий."
+        : "По суті: режим увімкнули, а в продуктах по веселій частині голяк. Бот це бачить і робить відповідні висновки.";
+    case "trip_members_menu":
+    case "trip_members_list":
+      return "По суті: тут не просто список імен. Важливо, хто реально йде, хто думає, хто злився, і кому треба нагадати без зайвого театру.";
+    case "trip_member_card":
+      return toneState.memberTicketsCount > 0
+        ? "По суті: картка учасника має показати статус, роль, контакт і квитки, щоб не шукати людину по всьому чату."
+        : "По суті: тут видно людину в поході: статус, роль, контакти й що ще треба дозаповнити.";
+    case "trip_member_tickets":
+      return toneState.memberTicketsCount > 0
+        ? "По суті: квитки мають лежати біля учасника, а не в хаосі галереї чи старих повідомлень."
+        : "По суті: квитків ще нема. Якщо дорога складна, краще додати їх одразу, поки ніхто не шукає PDF у паніці.";
+    case "route_menu":
+      if (routeDifficulty === "висока") {
+        return "По суті: маршрут непростий, тому трек, запас часу і нормальна навігація тут важливіші за браваду.";
+      }
+      if (routeDifficulty === "середня") {
+        return "По суті: маршрут реальний, але трек і темп краще тримати під рукою, щоб двіж не став імпровізацією.";
+      }
+      return "По суті: маршрут виглядає спокійно, але GPX/KML усе одно краще мати, бо гори не люблять самовпевнених.";
+    case "route_weather_picker":
+    case "route_weather":
+      return "По суті: погода тут не для краси. Вона вирішує одяг, темп, запас часу і чи треба пригальмувати апетит до пригод.";
+    case "food_menu":
+    case "food_list":
+      if (toneState.foodEmpty) {
+        return "По суті: список їжі порожній, а похід на романтиці довго не їде. Треба вода, нормальна хавка і чесний розклад по вазі.";
+      }
+      return alcoholCount > 0
+        ? "По суті: харчі й алкоголь мають бути в одному обліку, щоб на привалі було весело, але рюкзак не став прокляттям."
+        : "По суті: їжа є, але весела полиця порожня. Якщо режим Пʼяниця ввімкнений, бот це мовчки не ковтає.";
+    case "gear_menu":
+    case "gear_accounting":
+    case "gear_borrowed":
+    case "gear_loaned":
+    case "gear_backpack":
+      return toneState.gearEmpty
+        ? "По суті: без спорядження це не похід, а надія на чудо. Бот тримає барахло в полі зору."
+        : "По суті: тут важливо не просто мати речі, а знати хто що несе, хто що позичив і що треба повернути.";
+    case "expenses_menu":
+    case "expenses_list":
+      return expenseCount > 0
+        ? "По суті: гроші мають бути прозорі. Хто платив, хто бере участь у розрахунку і хто кому винен — без туману."
+        : "По суті: витрат ще нема. Добре, але коли зʼявляться квитки, газ чи харчі, бот має розкласти їх без фокусів.";
+    case "trip_photos":
+      return photoCount > 0
+        ? "По суті: кадри вже є, тепер вони мають жити в альбомі походу, а не губитися між балачками."
+        : "По суті: фото поки нема. Як тільки зʼявляться кадри, бот збере їх у нормальний альбом для тих, хто справді був у поході.";
+    case "trip_photo_album":
+      return photoCount > 0
+        ? "По суті: це вже не просто фотки, а хроніка походу. Видно події, авторів і що варто переглянути."
+        : "По суті: альбом порожній. Нема кадрів — нема й легенди, тільки сухий протокол.";
+    default:
+      return "По суті: бот бере фразу з корпусу не для декору, а як короткий коментар до стану цього екрана.";
+  }
+}
+
+function pickTripPersonaQuote(trip, screen, {
+  groupService = null,
+  scope = "",
+  state = {},
+  usedTexts = null
+} = {}) {
+  if (!isTripAlcoModeEnabled(trip)) {
+    return "";
+  }
+
+  return pickToneLine({
+    screen,
+    mode: "drunk",
+    scopeKey: [trip?.id || "na", screen, scope || "persona"].filter(Boolean).join(":"),
+    state: getTripToneState(trip, groupService, state),
+    delivery: "banner",
+    usedTexts
+  });
+}
+
+function buildTripPersonaComment(trip, screen, {
+  groupService = null,
+  scope = "",
+  state = {},
+  title = "Коментар Бота"
+} = {}) {
+  if (!isTripAlcoModeEnabled(trip)) {
+    return [];
+  }
+
+  const usedTexts = new Set();
+  const quote = pickTripPersonaQuote(trip, screen, {
+    groupService,
+    scope,
+    state,
+    usedTexts
+  }) || buildTripScreenToneLines(trip, screen, {
+    groupService,
+    scope: `${scope}:fallback`,
+    maxLines: 1,
+    state,
+    usedTexts
+  })[0];
+
+  if (!quote) {
+    return [];
+  }
+
+  return [
+    formatSectionHeader("🗣", title),
+    `«${quote}»`,
+    buildTripPersonaMeaning(trip, screen, groupService, state)
+  ];
+}
+
 function buildRouteModeComment(trip, groupService) {
   if (!isTripAlcoModeEnabled(trip)) {
     return [];
   }
 
   const routeContext = getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard);
-  const toneLines = buildTripScreenToneLines(trip, "route_menu", {
+  const quote = pickTripPersonaQuote(trip, "route_menu", {
     groupService,
     scope: "route-comment",
-    maxLines: 1,
     state: {
       routeDifficulty: routeContext?.difficulty || ""
     }
   });
-  const quote = toneLines[0];
   if (!quote) {
     return [];
   }
 
-  const difficulty = routeContext?.difficulty || "";
-  const meaning = difficulty === "висока"
-    ? "По суті: маршрут непростий, тому трек, запас часу і нормальна навігація тут важливіші за браваду."
-    : difficulty === "середня"
-      ? "По суті: маршрут реальний, але трек і темп краще тримати під рукою, щоб двіж не став імпровізацією."
-      : "По суті: маршрут виглядає спокійно, але GPX/KML усе одно краще мати, бо гори не люблять самовпевнених.";
-
   return [
     formatSectionHeader("🗣", "Коментар Бота"),
     `«${quote}»`,
-    meaning
+    buildTripPersonaMeaning(trip, "route_menu", groupService, {
+      routeDifficulty: routeContext?.difficulty || ""
+    })
   ];
-}
-
-function getAlcoModeRouteJoke(routeContext) {
-  const toneLines = buildScreenToneBlock({
-    screen: "route_menu",
-    event: "view",
-    mode: "drunk",
-    scopeKey: `alco-route:${routeContext?.difficulty || "unknown"}`,
-    state: {
-      routeDifficulty: routeContext?.difficulty || "",
-      alcoholEmpty: true
-    },
-    maxLines: 1
-  });
-  return toneLines.length ? `• ${toneLines[0]}` : "";
-}
-
-function getAlcoModeWeatherJoke(routeContext) {
-  const toneLines = buildScreenToneBlock({
-    screen: "route_weather",
-    event: "view",
-    mode: "drunk",
-    scopeKey: `alco-weather:${routeContext?.difficulty || "unknown"}`,
-    state: {
-      routeDifficulty: routeContext?.difficulty || "",
-      alcoholEmpty: true
-    },
-    maxLines: 1
-  });
-  return toneLines.length ? `• ${toneLines[0]}` : "";
 }
 
 function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
@@ -4224,19 +4334,25 @@ function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
 function buildAlcoModeNotes(trip, groupService) {
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
   const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
-  const toneLines = buildTripScreenToneLines(trip, "trip_drunk_mode", {
+  const quote = pickTripPersonaQuote(trip, "trip_drunk_mode", {
     groupService,
     scope: "drunk-notes",
-    maxLines: 2,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0,
       routeDifficulty: routeContext?.difficulty || ""
     }
   });
-  const routeLine = getAlcoModeRouteJoke(routeContext);
-
-  return [...toneLines, ...(routeLine ? [routeLine] : [])].slice(0, 3);
+  const lines = [];
+  if (quote) {
+    lines.push(`«${quote}»`);
+  }
+  lines.push(buildTripPersonaMeaning(trip, "trip_drunk_mode", groupService, {
+    alcoholCount: alcohol.count,
+    alcoholEmpty: alcohol.count === 0,
+    routeDifficulty: routeContext?.difficulty || ""
+  }));
+  return lines;
 }
 
 function formatDurationShort(seconds) {
@@ -5165,16 +5281,13 @@ function showTripSettings(ctx, groupService) {
     }));
   }
 
-  if (toneMode === "drunk") {
-    const toneLines = buildTripScreenToneLines(trip, "trip_settings", {
-      groupService,
-      scope: "settings",
-      maxLines: 2
-    });
-    if (toneLines.length) {
-      lines.push("");
-      lines.push(...toneLines);
-    }
+  const personaCommentLines = buildTripPersonaComment(trip, "trip_settings", {
+    groupService,
+    scope: "settings"
+  });
+  if (personaCommentLines.length) {
+    lines.push("");
+    lines.push(...personaCommentLines);
   }
 
   return ctx.reply(
@@ -5193,10 +5306,9 @@ function showTripModeScreen(ctx, groupService) {
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
   const toneMode = resolveTripToneMode(trip);
   const modeMenuCopy = t("trip.modeMenu", toneMode);
-  const toneLines = buildTripScreenToneLines(trip, "trip_mode", {
+  const personaCommentLines = buildTripPersonaComment(trip, "trip_mode", {
     groupService,
     scope: "mode-menu",
-    maxLines: 2,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0
@@ -5207,7 +5319,7 @@ function showTripModeScreen(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(modeMenuCopy.title, trip.name),
       "",
-      ...(toneMode === "drunk" && toneLines.length ? [...toneLines, ""] : []),
+      ...(personaCommentLines.length ? [...personaCommentLines, ""] : []),
       modeMenuCopy.line.replace("{status}", isTripAlcoModeEnabled(trip) ? modeMenuCopy.statusOn : modeMenuCopy.statusOff),
       alcohol.count
         ? t("trip.modeMenu.alcoholPresent", toneMode, { count: alcohol.count })
@@ -5228,10 +5340,9 @@ async function showTripAlcoMode(ctx, groupService) {
   const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
   const toneMode = resolveTripToneMode(trip);
   const drunkModeCopy = t("trip.drunkMode", toneMode);
-  const toneLines = buildTripScreenToneLines(trip, "trip_drunk_mode", {
+  const personaCommentLines = buildTripPersonaComment(trip, "trip_drunk_mode", {
     groupService,
     scope: "drunk-mode",
-    maxLines: 2,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0
@@ -5243,7 +5354,7 @@ async function showTripAlcoMode(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(drunkModeCopy.title, trip.name),
       "",
-      ...(toneLines.length ? [...toneLines, ""] : []),
+      ...(personaCommentLines.length ? [...personaCommentLines, ""] : []),
       `${drunkModeCopy.statusLabel}: ${isTripAlcoModeEnabled(trip) ? drunkModeCopy.statusOn : drunkModeCopy.statusOff}`,
       `${drunkModeCopy.alcoholLabel}: ${alcohol.count ? t("trip.drunkMode.alcoholPresent", toneMode, { count: alcohol.count }) : drunkModeCopy.alcoholEmpty}`,
       routeContext
@@ -5624,9 +5735,13 @@ function showTripPhotosMenu(ctx, groupService) {
   const modeCopy = getTripModeInterfaceCopy(trip);
   const toneMode = resolveTripToneMode(trip);
   const photosCopy = t("trip.photos", toneMode) || {};
-  const toneLines = buildTripScreenToneSection(trip, "trip_photos", {
+  const toneLines = buildTripPersonaComment(trip, "trip_photos", {
     groupService,
-    scope: "photos-menu"
+    scope: "photos-menu",
+    state: {
+      photoCount: trip.tripPhotos?.length || 0,
+      photoEmpty: !trip.tripPhotos?.length
+    }
   });
   const defaultMenuLines = [
     `• \`${TRIP_PHOTOS_ADD_LABEL}\` — надіслати фото з маршруту, табору або команди`,
@@ -5980,9 +6095,12 @@ function showTripMembersMenu(ctx, groupService, userService) {
     body.push("• нагадування і службові дії винесені в `⚙️ Налаштування`");
   }
 
-  const toneLines = buildTripScreenToneSection(trip, "trip_members_menu", {
+  const toneLines = buildTripPersonaComment(trip, "trip_members_menu", {
     groupService,
-    scope: "members-menu"
+    scope: "members-menu",
+    state: {
+      membersCount: trip.members?.length || 0
+    }
   });
   if (toneLines.length) {
     body.push("");
@@ -6014,9 +6132,12 @@ function showTripMembers(ctx, groupService, userService) {
   const memberSummaryLines = [];
   const modeCopy = getTripModeInterfaceCopy(trip);
   const toneMode = resolveTripToneMode(trip);
-  const toneLines = buildTripScreenToneSection(trip, "trip_members_list", {
+  const toneLines = buildTripPersonaComment(trip, "trip_members_list", {
     groupService,
-    scope: "members-list"
+    scope: "members-list",
+    state: {
+      membersCount: trip.members?.length || 0
+    }
   });
 
   for (const member of trip.members) {
@@ -6072,9 +6193,8 @@ function formatTripMemberDetailsMessage(trip, member, userService, viewerId) {
   const memberView = userService.getTripMemberView(member, canSeeFull, trip);
   const titleName = `${getAttendanceStatusEmoji(member.attendanceStatus) ? `${getAttendanceStatusEmoji(member.attendanceStatus)} ` : ""}${getMemberDisplayName(userService, member)}`;
   const tickets = getMemberTickets(member);
-  const toneLines = buildTripScreenToneLines(trip, "trip_member_card", {
+  const toneLines = buildTripPersonaComment(trip, "trip_member_card", {
     scope: `member:${member.id}`,
-    maxLines: 1,
     state: {
       memberAttendanceStatus: member.attendanceStatus || "",
       memberTicketsCount: tickets.length
@@ -6150,9 +6270,8 @@ async function showTripMemberDetails(ctx, groupService, userService, trip, membe
 
 function formatTripMemberTicketsMessage(trip, member, userService) {
   const tickets = getMemberTickets(member);
-  const toneLines = buildTripScreenToneLines(trip, "trip_member_tickets", {
+  const toneLines = buildTripPersonaComment(trip, "trip_member_tickets", {
     scope: `tickets:${member.id}`,
-    maxLines: 1,
     state: {
       memberTicketsCount: tickets.length
     }
@@ -7894,7 +8013,7 @@ function startTripWeatherSelection(ctx, groupService) {
   }
   const toneMode = resolveTripToneMode(trip);
   const routeCopy = t("trip.route", toneMode);
-  const toneLines = buildTripScreenToneSection(trip, "route_weather_picker", {
+  const toneLines = buildTripPersonaComment(trip, "route_weather_picker", {
     groupService,
     scope: "weather_picker"
   });
@@ -9559,7 +9678,7 @@ async function showWeather(ctx, weatherService, location, keyboard = undefined, 
   const summary = await weatherService.getWeatherSummary(location);
   const response = await ctx.reply(summary, { parse_mode: "HTML", ...(targetKeyboard || {}) });
   if (trip && resolveTripToneMode(trip) === "drunk") {
-    const toneLines = buildTripScreenToneSection(trip, "route_weather", {
+    const toneLines = buildTripPersonaComment(trip, "route_weather", {
       groupService: null,
       scope: `weather:${location}`,
       state: {
@@ -9576,31 +9695,6 @@ async function showWeather(ctx, weatherService, location, keyboard = undefined, 
         { parse_mode: "HTML", ...(targetKeyboard || {}) }
       );
     }
-  }
-  if (trip && isTripAlcoModeEnabled(trip)) {
-    const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
-    const alcoholToneLines = buildScreenToneBlock({
-      screen: "trip_drunk_mode",
-      event: "view",
-      mode: "drunk",
-      scopeKey: `weather-alco:${trip.id}:${String(location || "na")}`,
-      state: {
-        tripId: trip.id,
-        alcoholCount: getTripAlcoholSnapshotFromTrip(trip).count,
-        alcoholEmpty: getTripAlcoholSnapshotFromTrip(trip).count === 0,
-        routeDifficulty: routeContext?.difficulty || ""
-      },
-      maxLines: 1
-    });
-    await ctx.reply(
-      joinRichLines([
-        ...formatCardHeader("🍺 ПОГОДА І РЕЖИМ", String(location || "Локація")),
-        "",
-        getAlcoModeWeatherJoke(routeContext),
-        ...alcoholToneLines.map((line) => `• ${line}`)
-      ]),
-      { parse_mode: "HTML", ...(targetKeyboard || {}) }
-    );
   }
   await sendContextualFaqSuggestions(ctx, advisorService, {
     screen: "weather",
@@ -13800,10 +13894,9 @@ async function showTripGearMenu(ctx, groupService, advisorService = null) {
       { parse_mode: "HTML", ...getTripKeyboard(trip, String(ctx.from.id)) }
     );
   }
-  const toneLines = buildTripScreenToneLines(trip, "gear_menu", {
+  const toneLines = buildTripPersonaComment(trip, "gear_menu", {
     groupService,
     scope: "gear_menu",
-    maxLines: 1,
     state: {
       restrictedViewer: isRestricted
     }
@@ -13845,10 +13938,9 @@ function showTripGearAccountingMenu(ctx, groupService) {
 
   const isRestricted = isTripMemberAutoExcluded(trip, String(ctx.from.id));
   const exchange = getTripExchangeAvailability(trip, groupService, String(ctx.from.id));
-  const toneLines = buildTripScreenToneLines(trip, "gear_accounting", {
+  const toneLines = buildTripPersonaComment(trip, "gear_accounting", {
     groupService,
     scope: `accounting:${ctx.from.id}`,
-    maxLines: 1,
     state: {
       restrictedViewer: isRestricted,
       hasBorrowed: exchange.hasBorrowed,
@@ -13882,10 +13974,9 @@ function showBorrowedGear(ctx, groupService) {
   }
 
   const items = groupService.getBorrowedGearForMember(trip.id, String(ctx.from.id));
-  const toneLines = buildTripScreenToneLines(trip, "gear_borrowed", {
+  const toneLines = buildTripPersonaComment(trip, "gear_borrowed", {
     groupService,
     scope: `borrowed:${ctx.from.id}`,
-    maxLines: 1,
     state: {
       borrowedCount: items.length
     }
@@ -13932,10 +14023,9 @@ function showLoanedOutGear(ctx, groupService) {
   }
 
   const items = groupService.getLoanedOutGearForMember(trip.id, String(ctx.from.id));
-  const toneLines = buildTripScreenToneLines(trip, "gear_loaned", {
+  const toneLines = buildTripPersonaComment(trip, "gear_loaned", {
     groupService,
     scope: `loaned:${ctx.from.id}`,
-    maxLines: 1,
     state: {
       loanedCount: items.length
     }
@@ -13994,10 +14084,9 @@ function showTripFoodMenu(ctx, groupService) {
   if (!hasItems) {
     actions.splice(1, 1);
   }
-  const toneLines = buildTripScreenToneSection(trip, "food_menu", {
+  const toneLines = buildTripPersonaComment(trip, "food_menu", {
     groupService,
     scope: "food_menu",
-    includeModeBanner: true,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0,
@@ -14081,10 +14170,9 @@ function showTripGear(ctx, groupService) {
       { parse_mode: "HTML", ...getTripGearKeyboard(trip, groupService, String(ctx.from.id)) }
     );
   }
-  const toneLines = buildTripScreenToneLines(trip, "gear_menu", {
+  const toneLines = buildTripPersonaComment(trip, "gear_menu", {
     groupService,
     scope: "gear_list",
-    maxLines: 1,
     state: {
       gearEmpty: !visibleSharedGear.length && !visiblePersonalGear.length && !visibleSpareGear.length && !visibleNeeds.length
     }
@@ -14198,10 +14286,9 @@ function showTripFood(ctx, groupService, userService) {
 
   const snapshot = groupService.getFoodSnapshot(trip.id);
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
-  const toneLines = buildTripScreenToneSection(trip, "food_list", {
+  const toneLines = buildTripPersonaComment(trip, "food_list", {
     groupService,
     scope: "food_list",
-    includeModeBanner: true,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0,
@@ -14266,10 +14353,9 @@ function showBackpackWeight(ctx, groupService, userService) {
   }
 
   const snapshot = groupService.getBackpackWeightSnapshot(trip.id);
-  const toneLines = buildTripScreenToneLines(trip, "gear_backpack", {
+  const toneLines = buildTripPersonaComment(trip, "gear_backpack", {
     groupService,
     scope: `backpack:${ctx.from.id}`,
-    maxLines: 1,
     state: {
       backpackDataReady: Boolean(snapshot?.byMember?.length)
     }
@@ -14389,10 +14475,9 @@ function showTripExpensesMenu(ctx, groupService) {
   if (!hasItems) {
     actions.splice(1, 1);
   }
-  const toneLines = buildTripScreenToneSection(trip, "expenses_menu", {
+  const toneLines = buildTripPersonaComment(trip, "expenses_menu", {
     groupService,
     scope: "expenses_menu",
-    includeModeBanner: true,
     state: {
       expenseEmpty: !hasItems
     }
@@ -14428,10 +14513,9 @@ function showTripExpenses(ctx, groupService, userService) {
   const expenseSettlement = buildTripExpenseSettlementData(trip, expenseSnapshot, foodSnapshot, userService);
   const expenseItems = expenseSettlement.directExpenseItems;
   const foodTotal = expenseSettlement.foodTotal;
-  const toneLines = buildTripScreenToneLines(trip, "expenses_list", {
+  const toneLines = buildTripPersonaComment(trip, "expenses_list", {
     groupService,
     scope: "expenses_list",
-    maxLines: 1,
     state: {
       expenseEmpty: !expenseItems.length && foodTotal === 0,
       excludedMembersCount: expenseSettlement.excludedMembers.length

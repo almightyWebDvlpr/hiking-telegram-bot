@@ -3167,7 +3167,7 @@ function formatTripPhotoAlbumSummary(trip, album) {
   const lines = [
     ...formatCardHeader("🖼 ФОТОАЛЬБОМ", trip.name),
     "",
-    ...(albumToneLines.length ? [albumToneLines[0], ""] : []),
+    ...(albumToneLines.length ? [...albumToneLines, ""] : []),
     `${toneMode === "drunk" ? "Кадрів назбиралось" : "Усього фото"}: ${album.totalCount}`,
     `${toneMode === "drunk" ? "Останній шевелився" : "Останнє оновлення"}: ${formatIsoDateTimeShort(album.latestAt)}`,
     ""
@@ -4130,14 +4130,14 @@ function buildTripScreenToneSection(trip, screen, {
   const toneLines = buildTripScreenToneLines(trip, screen, {
     groupService,
     scope,
-    maxLines: 1,
+    maxLines: 2,
     state,
     usedTexts: usedToneLines
   });
 
   if (toneLines.length) {
     if (includeModeBanner && lines.length) {
-      lines.push(`• ${toneLines[0]}`);
+      lines.push(...toneLines.map((line) => `• ${line}`));
     } else {
       lines.push(...toneLines);
     }
@@ -4147,41 +4147,40 @@ function buildTripScreenToneSection(trip, screen, {
 }
 
 function getAlcoModeRouteJoke(routeContext) {
-  const toneMode = "drunk";
-  if (routeContext?.difficulty === "висока") {
-    return t("trip.notes.routeHigh", toneMode);
-  }
-  if (routeContext?.difficulty === "середня") {
-    return t("trip.notes.routeMedium", toneMode);
-  }
-  if (routeContext?.difficulty === "низька") {
-    return t("trip.notes.routeLow", toneMode);
-  }
-  return t("trip.notes.routeUnknown", toneMode);
+  const toneLines = buildScreenToneBlock({
+    screen: "route_menu",
+    event: "view",
+    mode: "drunk",
+    scopeKey: `alco-route:${routeContext?.difficulty || "unknown"}`,
+    state: {
+      routeDifficulty: routeContext?.difficulty || "",
+      alcoholEmpty: true
+    },
+    maxLines: 1
+  });
+  return toneLines.length ? `• ${toneLines[0]}` : "";
 }
 
 function getAlcoModeWeatherJoke(routeContext) {
-  if (routeContext?.difficulty === "висока") {
-    return "• Погоду тут треба читати тверезою головою. Якщо дощ, вітер і каша, то краще менше пафосу і більше розуму.";
-  }
-  if (routeContext?.difficulty === "середня") {
-    return "• Якщо небо починає мутити, то вечір хай буде веселий, а ранок дуже дисциплінований.";
-  }
-  if (routeContext?.difficulty === "низька") {
-    return "• Під такий формат краще легкий маршрут, красивий вид і жодної дурної героїки.";
-  }
-  return "• Спершу короткий маршрут, потім культурний привал. Усе інше вже пахне авантюрою.";
+  const toneLines = buildScreenToneBlock({
+    screen: "route_weather",
+    event: "view",
+    mode: "drunk",
+    scopeKey: `alco-weather:${routeContext?.difficulty || "unknown"}`,
+    state: {
+      routeDifficulty: routeContext?.difficulty || "",
+      alcoholEmpty: true
+    },
+    maxLines: 1
+  });
+  return toneLines.length ? `• ${toneLines[0]}` : "";
 }
 
 function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
-  const toneMode = "drunk";
   return [
-    t("trip.banner.title", toneMode),
+    "🍺 АКТИВНИЙ РЕЖИМ: ПʼЯНИЦЯ",
     ...(alcoholCount
-      ? [t("trip.banner.alcoholSummary", toneMode, {
-          count: alcoholCount,
-          totalCost: formatMoney(totalCost)
-        })]
+      ? [`• Веселих позицій: ${alcoholCount} на ${formatMoney(totalCost)}`]
       : [])
   ];
 }
@@ -4189,23 +4188,19 @@ function buildDrunkardModeBannerFromValues(alcoholCount = 0, totalCost = 0) {
 function buildAlcoModeNotes(trip, groupService) {
   const alcohol = getTripAlcoholSnapshot(groupService, trip.id);
   const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
-  const lines = [];
+  const toneLines = buildTripScreenToneLines(trip, "trip_drunk_mode", {
+    groupService,
+    scope: "drunk-notes",
+    maxLines: 2,
+    state: {
+      alcoholCount: alcohol.count,
+      alcoholEmpty: alcohol.count === 0,
+      routeDifficulty: routeContext?.difficulty || ""
+    }
+  });
+  const routeLine = getAlcoModeRouteJoke(routeContext);
 
-  if (!alcohol.count) {
-    lines.push(t("trip.notes.dry", "drunk"));
-  } else {
-    lines.push(t("trip.notes.stocked", "drunk", {
-      count: alcohol.count,
-      totalCost: formatMoney(alcohol.totalCost)
-    }));
-  }
-
-  lines.push(getAlcoModeRouteJoke(routeContext));
-  lines.push(t("trip.notes.canon", "drunk"));
-  lines.push(t("trip.notes.morning", "drunk"));
-  lines.push(t("trip.notes.romance", "drunk"));
-
-  return lines;
+  return [...toneLines, ...(routeLine ? [routeLine] : [])].slice(0, 3);
 }
 
 function formatDurationShort(seconds) {
@@ -5138,10 +5133,12 @@ function showTripSettings(ctx, groupService) {
     const toneLines = buildTripScreenToneLines(trip, "trip_settings", {
       groupService,
       scope: "settings",
-      maxLines: 1
+      maxLines: 2
     });
-    lines.push("");
-    lines.push(...toneLines);
+    if (toneLines.length) {
+      lines.push("");
+      lines.push(...toneLines);
+    }
   }
 
   return ctx.reply(
@@ -5163,7 +5160,7 @@ function showTripModeScreen(ctx, groupService) {
   const toneLines = buildTripScreenToneLines(trip, "trip_mode", {
     groupService,
     scope: "mode-menu",
-    maxLines: 1,
+    maxLines: 2,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0
@@ -5198,7 +5195,7 @@ async function showTripAlcoMode(ctx, groupService) {
   const toneLines = buildTripScreenToneLines(trip, "trip_drunk_mode", {
     groupService,
     scope: "drunk-mode",
-    maxLines: 1,
+    maxLines: 2,
     state: {
       alcoholCount: alcohol.count,
       alcoholEmpty: alcohol.count === 0
@@ -5624,7 +5621,7 @@ function showTripPhotosMenu(ctx, groupService) {
     joinRichLines([
       ...formatCardHeader(modeCopy.photosTitle, trip.name),
       "",
-      ...(toneLines.length ? [toneLines[0], ""] : []),
+      ...(toneLines.length ? [...toneLines, ""] : []),
       toneMode === "drunk" ? (photosCopy.menuTitle || "Що тут можна робити:") : "Що тут можна робити:",
       ...(toneMode === "drunk"
         ? (Array.isArray(photosCopy.menuLines) ? photosCopy.menuLines : defaultMenuLines)
@@ -9549,14 +9546,25 @@ async function showWeather(ctx, weatherService, location, keyboard = undefined, 
   }
   if (trip && isTripAlcoModeEnabled(trip)) {
     const routeContext = getTripContextDifficulty(trip?.routePlan?.meta, trip?.tripCard);
+    const alcoholToneLines = buildScreenToneBlock({
+      screen: "trip_drunk_mode",
+      event: "view",
+      mode: "drunk",
+      scopeKey: `weather-alco:${trip.id}:${String(location || "na")}`,
+      state: {
+        tripId: trip.id,
+        alcoholCount: getTripAlcoholSnapshotFromTrip(trip).count,
+        alcoholEmpty: getTripAlcoholSnapshotFromTrip(trip).count === 0,
+        routeDifficulty: routeContext?.difficulty || ""
+      },
+      maxLines: 1
+    });
     await ctx.reply(
       joinRichLines([
         ...formatCardHeader("🍺 ПОГОДА І РЕЖИМ", String(location || "Локація")),
         "",
         getAlcoModeWeatherJoke(routeContext),
-        ...(!getTripAlcoholSnapshotFromTrip(trip).count
-          ? ["• І ще нюанс: у харчах ні краплі. Для такого серйозного метео-фону це вже майже образливо."]
-          : [])
+        ...alcoholToneLines.map((line) => `• ${line}`)
       ]),
       { parse_mode: "HTML", ...(targetKeyboard || {}) }
     );

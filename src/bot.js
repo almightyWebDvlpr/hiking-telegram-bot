@@ -4114,7 +4114,8 @@ function buildTripScreenToneSection(trip, screen, {
   groupService = null,
   scope = "",
   state = {},
-  includeModeBanner = false
+  includeModeBanner = false,
+  includeToneLines = true
 } = {}) {
   const lines = [];
   const usedToneLines = new Set();
@@ -4127,13 +4128,15 @@ function buildTripScreenToneSection(trip, screen, {
     lines.push(...buildDrunkardModeBannerFromValues(alcohol.count, alcohol.totalCost));
   }
 
-  const toneLines = buildTripScreenToneLines(trip, screen, {
-    groupService,
-    scope,
-    maxLines: 2,
-    state,
-    usedTexts: usedToneLines
-  });
+  const toneLines = includeToneLines
+    ? buildTripScreenToneLines(trip, screen, {
+        groupService,
+        scope,
+        maxLines: 2,
+        state,
+        usedTexts: usedToneLines
+      })
+    : [];
 
   if (toneLines.length) {
     if (includeModeBanner && lines.length) {
@@ -4144,6 +4147,39 @@ function buildTripScreenToneSection(trip, screen, {
   }
 
   return lines;
+}
+
+function buildRouteModeComment(trip, groupService) {
+  if (!isTripAlcoModeEnabled(trip)) {
+    return [];
+  }
+
+  const routeContext = getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard);
+  const toneLines = buildTripScreenToneLines(trip, "route_menu", {
+    groupService,
+    scope: "route-comment",
+    maxLines: 1,
+    state: {
+      routeDifficulty: routeContext?.difficulty || ""
+    }
+  });
+  const quote = toneLines[0];
+  if (!quote) {
+    return [];
+  }
+
+  const difficulty = routeContext?.difficulty || "";
+  const meaning = difficulty === "висока"
+    ? "По суті: маршрут непростий, тому трек, запас часу і нормальна навігація тут важливіші за браваду."
+    : difficulty === "середня"
+      ? "По суті: маршрут реальний, але трек і темп краще тримати під рукою, щоб двіж не став імпровізацією."
+      : "По суті: маршрут виглядає спокійно, але GPX/KML усе одно краще мати, бо гори не люблять самовпевнених.";
+
+  return [
+    formatSectionHeader("🗣", "Коментар Бота"),
+    `«${quote}»`,
+    meaning
+  ];
 }
 
 function getAlcoModeRouteJoke(routeContext) {
@@ -7811,8 +7847,10 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
   const toneLines = buildTripScreenToneSection(trip, "route_menu", {
     groupService,
     scope: "route_menu",
-    includeModeBanner: true
+    includeModeBanner: true,
+    includeToneLines: false
   });
+  const routeModeComment = buildRouteModeComment(trip, groupService);
 
   const response = await ctx.reply(
     joinRichLines([
@@ -7820,7 +7858,7 @@ async function showRouteMenu(ctx, groupService, advisorService = null) {
       "",
       ...(toneLines.length ? [...toneLines, ""] : []),
       `${routeCopy.currentLabel}: ${formatRouteStatus(trip.routePlan)}`,
-      ...(isTripAlcoModeEnabled(trip) ? ["", getAlcoModeRouteJoke(getTripContextDifficulty(trip.routePlan?.meta, trip.tripCard))] : []),
+      ...(routeModeComment.length ? ["", ...routeModeComment] : []),
       "",
       !trip.routePlan && canManageTrip(trip, String(ctx.from.id))
         ? routeCopy.noRouteManage

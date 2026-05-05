@@ -1161,9 +1161,43 @@ export const GEAR_PROFILES = [
 function findByKeywords(source, name) {
   const normalized = normalizeSearch(name);
   const tokens = buildSearchTokens(name);
-  return source.find((item) =>
-    item.keywords.some((keyword) => matchesKeyword(normalized, tokens, keyword))
-  );
+  const matches = [];
+
+  for (const [itemIndex, item] of source.entries()) {
+    for (const keyword of item.keywords) {
+      const normalizedKeyword = normalizeSearch(keyword);
+      if (!normalizedKeyword) {
+        continue;
+      }
+
+      let score = 0;
+      if (normalized === normalizedKeyword) {
+        score = 1000;
+      } else if (normalizedKeyword.includes(" ") && normalized.includes(normalizedKeyword)) {
+        score = 800;
+      } else if (tokens.some((token) => token === normalizedKeyword)) {
+        score = 600;
+      } else if (!normalizedKeyword.includes(" ") && tokens.some((token) => token.startsWith(normalizedKeyword))) {
+        score = 300;
+      }
+
+      if (score > 0) {
+        matches.push({
+          item,
+          itemIndex,
+          keywordLength: normalizedKeyword.length,
+          score
+        });
+      }
+    }
+  }
+
+  return matches
+    .sort((left, right) =>
+      right.score - left.score ||
+      right.keywordLength - left.keywordLength ||
+      left.itemIndex - right.itemIndex
+    )[0]?.item || null;
 }
 
 export function canonicalizeGearName(name) {

@@ -7100,7 +7100,7 @@ function showTripGearAddMenu(ctx, groupService) {
       "",
       "Після вибору типу бот продовжить звичний сценарій додавання."
     ]),
-    { parse_mode: "HTML", ...getTripGearAddTypeKeyboard({ allowPersonal: !isNotGoing }) }
+    { parse_mode: "HTML", ...getTripGearAddTypeKeyboard({ allowPersonal: !isRestricted }) }
   );
 }
 
